@@ -26,6 +26,8 @@
 #include <cstring>
 #include <string>
 
+#include "common/offline_registration.hh"
+
 #ifndef CONSENT_AUTHORITY_DIR
 #define CONSENT_AUTHORITY_DIR "/opt/var/lib/consent-authority"
 #endif
@@ -82,7 +84,8 @@ int OpenDirectory() {
   return fd;
 }
 
-bool Persist(int directory, GKeyFile* file) {
+bool Persist(int directory, GKeyFile* file, bool image,
+             const struct stat* previous) {
   gsize size = 0;
   gchar* data = g_key_file_to_data(file, &size, nullptr);
   if (!data || size > 1048576) {
@@ -95,9 +98,14 @@ bool Persist(int directory, GKeyFile* file) {
   int fd = openat(directory, temporary.c_str(), O_CREAT | O_EXCL | O_WRONLY |
       O_NOFOLLOW | O_CLOEXEC, 0600);
   struct stat directory_info = {};
-  bool ok = fd >= 0 && fstat(directory, &directory_info) == 0 &&
-      fchown(fd, 0, directory_info.st_gid) == 0 && fchmod(fd, 0640) == 0 &&
-      fsetxattr(fd, "security.SMACK64", "System", 6, 0) == 0;
+  bool ok = fd >= 0 && fstat(directory, &directory_info) == 0;
+  gid_t group = image ? (previous ? previous->st_gid : 0) : directory_info.st_gid;
+  mode_t mode = image ? (previous ? previous->st_mode & 0777 : 0600) : 0640;
+  ok = ok && fchown(fd, 0, group) == 0 && fchmod(fd, mode) == 0;
+  // Image construction has no target NSS or SMACK requirement. The root
+  // preparation helper normalizes labels before the target daemon starts.
+  if (ok && !image)
+    ok = fsetxattr(fd, "security.SMACK64", "System", 6, 0) == 0;
   size_t written = 0;
   while (ok && written < size) {
     ssize_t count = write(fd, data + written, size - written);
@@ -202,37 +210,56 @@ bool Apply(GKeyFile* file, const std::string& command,
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 5 || argc > 6 || geteuid() != 0) {
-    fprintf(stderr, "Usage (root): %s begin|commit|remove PACKAGE OPERATION EXPECTED_GENERATION\n"
-        "              %s attach PACKAGE APP OPERATION GENERATION\n", argv[0], argv[0]);
+  bool image = argc > 1 && !strcmp(argv[1], "--image-root");
+  int first = image ? 3 : 1;
+  int arguments = argc - first;
+  if (arguments < 4 || arguments > 5 || geteuid() != 0) {
+    fprintf(stderr, "Usage (root): %s [--image-root ROOT] begin|commit|remove PACKAGE OPERATION EXPECTED_GENERATION\n"
+        "              %s [--image-root ROOT] attach PACKAGE APP OPERATION GENERATION\n"
+        "Image mode is explicit and generation-only. Commit only after durable package installation.\n",
+        argv[0], argv[0]);
     return 2;
   }
-  std::string command = argv[1], package = argv[2];
+  std::string command = argv[first], package = argv[first + 1];
   bool attach = command == "attach";
-  if ((attach && argc != 6) || (!attach && argc != 5))
+  if ((attach && arguments != 5) || (!attach && arguments != 4) ||
+      (command != "begin" && command != "attach" && command != "commit" && command != "remove"))
     return 2;
-  std::string app = attach ? argv[3] : "";
-  std::string operation = argv[attach ? 4 : 3];
-  std::string expected = argv[attach ? 5 : 4];
+  std::string app = attach ? argv[first + 2] : "";
+  std::string operation = argv[first + (attach ? 3 : 2)];
+  std::string expected = argv[first + (attach ? 4 : 3)];
   if (!Identifier(package) || (attach && !Identifier(app)) ||
       !Identifier(operation) || !Identifier(expected))
     return 2;
-  int directory = OpenDirectory();
+  consent::offline::ImageRoot image_root;
+  int directory = -1;
+  if (image) {
+    // Even ROOT=/ is an explicit offline operation: ImageRoot holds the
+    // exclusive lifecycle lock and rejects a running daemon's shared lock.
+    int status = image_root.Open(argv[2], CONSENT_AUTHORITY_DIR);
+    if (status < 0) {
+      fprintf(stderr, "Image authority unavailable: %s\n", strerror(-status));
+      return 1;
+    }
+    directory = fcntl(image_root.DirectoryFd(), F_DUPFD_CLOEXEC, 3);
+  } else {
+    directory = OpenDirectory();
+  }
   if (directory < 0) {
     fprintf(stderr, "Protected state directory unavailable\n");
     return 1;
   }
   // Normal writers and the daemon share this lock. Ownership migration takes
   // it exclusively, including while moving a legacy authority snapshot.
-  int lifecycle = openat(directory, "lifecycle.lock", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  int lifecycle = image ? -1 : openat(directory, "lifecycle.lock", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
   struct stat lifecycle_info = {};
   struct stat directory_info = {};
-  if (lifecycle < 0 || flock(lifecycle, LOCK_SH | LOCK_NB) < 0 ||
+  if (!image && (lifecycle < 0 || flock(lifecycle, LOCK_SH | LOCK_NB) < 0 ||
       fstat(directory, &directory_info) < 0 ||
       fstat(lifecycle, &lifecycle_info) < 0 || lifecycle_info.st_uid != 0 ||
       !S_ISREG(lifecycle_info.st_mode) || lifecycle_info.st_nlink != 1 ||
       lifecycle_info.st_gid != directory_info.st_gid ||
-      (lifecycle_info.st_mode & 0777) != 0640) {
+      (lifecycle_info.st_mode & 0777) != 0640)) {
     if (lifecycle >= 0)
       close(lifecycle);
     close(directory);
@@ -242,18 +269,23 @@ int main(int argc, char** argv) {
       O_CLOEXEC | O_NOFOLLOW, 0600);
   struct stat st = {};
   if (lock < 0 || fstat(lock, &st) < 0 || st.st_uid != 0 ||
-      (st.st_mode & 0077) || st.st_nlink != 1 || flock(lock, LOCK_EX | LOCK_NB) < 0) {
+      !S_ISREG(st.st_mode) || (st.st_mode & 0077) || st.st_nlink != 1 ||
+      flock(lock, LOCK_EX | LOCK_NB) < 0) {
     if (lock >= 0)
       close(lock);
     close(directory);
     return 1;
   }
   GKeyFile* file = g_key_file_new();
-  int fd = openat(directory, "installations.conf", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  int fd = openat(directory, "installations.conf", O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+  struct stat previous = {};
+  bool exists = fd >= 0;
   bool ok = true;
   if (fd >= 0) {
-    ok = fstat(fd, &st) == 0 && st.st_uid == 0 && !(st.st_mode & 0027) &&
-        st.st_nlink == 1 && S_ISREG(st.st_mode) && st.st_size <= 1048576;
+    ok = fstat(fd, &previous) == 0 && previous.st_uid == 0 && !(previous.st_mode & 0027) &&
+        previous.st_nlink == 1 && S_ISREG(previous.st_mode) && previous.st_size <= 1048576;
+    if (ok && image)
+      ok = (previous.st_mode & 07777) == 0600 || (previous.st_mode & 07777) == 0640;
     std::string content;
     char bytes[4096];
     ssize_t count;
@@ -275,10 +307,11 @@ int main(int argc, char** argv) {
   }
   std::string result;
   ok = ok && Apply(file, command, package, app, operation, expected, &result);
-  ok = ok && Persist(directory, file);
+  ok = ok && Persist(directory, file, image, exists ? &previous : nullptr);
   g_key_file_unref(file);
   close(lock);
-  close(lifecycle);
+  if (lifecycle >= 0)
+    close(lifecycle);
   close(directory);
   if (!ok) {
     fprintf(stderr, "Authority update failed or outcome uncertain; keep package fenced and retry the SAME operation\n");

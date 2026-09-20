@@ -718,3 +718,112 @@ implementation unit. Abrupt power loss and real filesystem-full/device-write
 failure remain unverified; orderly reboot and injected storage errors do not
 substitute for them. Earlier full malformed/quota wire evidence remains scoped
 to its recorded snapshots; this unit reran endpoint and shutdown checks.
+
+## Builds20–23: offline registration and feature C headers
+
+Build23 completes this unit. Its frozen tree is
+`971211be4af9187b9becb97d4cb919d6680ceee1`; all109 source archive files match
+that tree byte-for-byte. Archive SHA256 is
+`1f326beeb77693e6b9609a24643dffdd04e36b0c6beedc1869c915d03775fb5e`.
+[Build artifacts](/var/tmp/consent-artifacts/gbs-build-23/) contain the source,
+four RPMs, `snapshot.json`, `source-tree.txt`, `changed-files.tsv`, GBS/CTest logs
+and checksums. The build used the repository working directory and this command:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+GBS passed12 tests and skipped4 root-only cases (16 CTest cases total).
+`root-fixtures.log` records actual emulator execution of all four: storage
+preparation, offline identity, offline registration, and image authority. It also
+runs all20 repository offline regression groups; the transient unit exits0.
+The private preparation fixture omits its production SMACK/systemctl operations;
+actual target helper/service startup separately validates those operations.
+
+The source implements10 independent public C headers under `src/consent/inc/`,
+with `consent.h` preserved as the umbrella, and splits C wrappers by function.
+The new41st exported function creates an explicit offline registration handle.
+The same public `consent_register()` returns durable STAGED, without creating
+consent.db or approvals. Other handle operations, including update, are rejected;
+ordinary online errors never enable offline writes. CMake/spec license comments
+are omitted; source notices and the RPM License metadata remain.
+
+`public-installed-abi.log` uses only the frozen runtime/devel RPMs and archived
+consumer tests. All10 installed headers compile independently, repeatedly and in
+reverse order as C11/C++17. C and C++ consumers execute with the GBS SDK loader;
+declarations, exported symbols and both consumers' references are exactly41,
+with no exported C++ implementation symbols. Installed pkg-config resolves
+`capi-base-common`. The SDK uses0.4.83 development files; target runtime remains
+`capi-base-common-0.4.82-1`. Matching target0.4.82 devel was unavailable: no target
+header-install claim, core runtime upgrade, `--nodeps` or fake Provides is made.
+
+[Target evidence](/var/tmp/consent-artifacts/emulator-build-23/) includes exact
+`sdb -s emulator-26101` commands and frozen copies of the scenario scripts.
+Only runtime, daemon and tests RPMs were installed in a normal dependency
+transaction. The selected emulator remains x86_64 Linux4.4.35, with the existing
+security_fw UID/GID402 account.
+
+| Evidence | Actual result and boundary |
+| --- | --- |
+| `root-fixtures.log` | Protected paths,0711 rejection, FIFO/nonregular files,128-record/4MiB bounds, version/hash/duplicate/tamper rejection, sync uncertainty/retry, root/thread/fork guards, real nonroot traversal, generation lifecycle and unchanged outside-image targets pass. |
+| `root-fixtures.log` repository groups | Receipt dedup across DB loss, deterministic revision order, obsolete outcomes, same-generation unregister tombstone, other-package preservation, postcommit generation/DB change fencing pass. Typed malformed/I/O errors remain errors through import, Open and final Snapshot. Tentative invalidation rolls back; existing persistent approvals/revisions survive, and strict mode restores on success/exception. |
+| `offline.log` | Actual C registration without a socket returns STAGED; retry/conflict and unsupported methods pass. Malformed and schema2 authority both fail startup with preflight -22 before DB creation. After valid-byte restoration, first startup returns CONSENT_REQUIRED for two apps and another package. Live lifecycle exclusion, repeat startup, DB deletion, unseen old seed after unregister and reinstall generation cases pass, with zero grants and integrity exactly `ok`. |
+| `platform-offline.log` | The production daemon imports observed installed `org.tizen.calendar` app/package, but rejects a false package claim for observed `attach-panel-camera` and a stale generation. Stopped read-only SQLite inspection finds only the valid definition and zero grants. Product roles remain unchanged/default-deny; exact caller PID18676 and daemon PID18667 correlate the live rejection. The observed pre-hello status is OUTCOME_UNKNOWN, not an endpoint-authentication claim. |
+| `regression.log` | Fresh isolated basic SYNC/ASYNC/UI/authorization/session/data cleanup, unauthorized caller, independent ONCE/cancel races, holder restart, cache, typed localization, partial-input shutdown, pending-DB shutdown and public ABI all pass. |
+
+The fresh regression supervisor is retained as `regression-supervisor.sh` in the
+artifact directory, outside the package source. It runs the frozen existing
+scenario script with120-second per-phase bounds, holds the original authority's
+exclusive lifecycle lock and preserves/restores state, authority and control
+stores. The first cache request after revoke/update/suspend/independent ACTIVE
+close/remove/recovery runs before the original lease expires (37518/42431/34197/
+34553/38839/67470 microseconds). Shutdown evidence includes the actual two-byte
+partial input and a mutation gated before COMMIT, stop-admission before release,
+normal process exit and durable revocation after restart. It is not a new full
+malformed-wire/quota or abrupt-power-loss run.
+
+Successful actual commands include:
+
+```sh
+systemd-run --wait --pipe --unit=consent-offline-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-offline-test.sh
+systemd-run --wait --pipe --unit=consent-offline-platform-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-offline-platform-test.sh
+systemd-run --wait --pipe --unit=consent-regression-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-regression.sh
+```
+
+Intermediate results remain separate. Build20 passed its initial root/isolated
+trial before the final ancestor and stored-metadata validation changes. Build21
+passed GBS, root/ABI, actual pkgmgr and the listed existing regressions; its offline
+negative-startup fixture stopped at `reset-failed` on a garbage-collected unit.
+An attempted basic run also correctly refused nonfresh test state. Build22 changed
+only that script (10 insertions/2 deletions), then reached the correct malformed
+startup failure but stopped because target `cmp` was absent. Build23 replaces that
+single comparison with two checked sha256sum calls and a digest comparison
+(3 insertions/1 deletion). All production sources are identical from21 through23.
+The successful22-binary/23-script trial is explicitly stored under
+`emulator-build-22/trial23-script.log`; final23 results above use only23 RPM/scripts.
+
+`cleanup.log` and `installed-rpm-hashes.log` verify original production DB/registry
+inodes128673/128674, the original absence of installations.conf, restored isolated
+stores and released lifecycle lock. Production service/socket are active;
+security_fw402 has label System, CAP_SYS_PTRACE-only sets (`0x80000`) and
+NoNewPrivileges=yes. Isolated service/socket are stopped, the ordinary test daemon
+is selected, and observer/gate/temporary journal overrides are absent. Seven
+installed binaries match the exact23 RPM payload hashes. Two diagnostics initially
+used incorrect helper paths; the final check uses the packaged
+`/usr/sbin/consent-storage-prepare` and exits0. Retained target evidence directories
+are `consent-offline-evidence-18021`, `consent-offline-platform-18618` and
+`consent-regression-evidence-18896` under `/opt/var/lib/`; they contain fixture
+results, with original stores restored to their normal paths.
+
+This completes the explicit root system-service/image registration API and
+first-start reconciliation increment. It does not deploy a product Installer
+transaction hook, actual approval UI or product role identities. Reconciliation
+is startup-only; corrected/deferred authority requires service restart. No reboot
+or abrupt poweroff was newly run for23; normal boot evidence remains scoped to19,
+and power loss, real filesystem-full/device-write failure and automatic spool
+pruning remain outside the verified claims. The final evidence paragraphs are
+written after the frozen build and do not retroactively change its source archive.

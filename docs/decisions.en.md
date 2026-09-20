@@ -481,8 +481,17 @@ active generation through the final publication boundary. Missing, pending, stal
 or uninstalled generations remain inactive; unrelated valid packages proceed.
 Malformed or improperly protected sources are errors. Keep deduplication in the
 durable definitions registry so DB loss or reboot cannot replay older policy or
-reactivate removed definitions. Never store approvals, execution receipts, sessions,
-artifacts or application data in image records.
+reactivate removed definitions. Record enumeration order must not determine the
+result: resolve compatible revisions deterministically and reject conflicting
+payloads without treating every conflict as stale. A same-owner, same-generation
+definition with both revisions at least as high and one higher makes a seed
+obsolete; unchanged revision axes must still have identical meaning. An inactive
+definition cannot be reactivated by a seed for the same generation. Persist the
+obsolete outcome and fingerprint so exact retries remain STALE and changed
+payloads conflict. Reconciliation runs before READY at startup; deferred records
+require a service restart after their installation authority is corrected.
+Never store approvals, execution receipts, sessions, artifacts or application
+data in image records.
 
 Verify actual daemonless C calls, retries/conflicts, path isolation, interrupted
 writes, first-start reconciliation, multiple apps/packages, stale generations and

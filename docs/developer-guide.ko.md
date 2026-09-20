@@ -451,3 +451,13 @@ session과 generation이 일치해야 하며 전달된 TTL과 session 만료를 
 확인합니다. credential과 역할 로그에 raw scope·대화 내용·자격증명을 추가하지
 않습니다. 유효한 activation listener가 정확히 하나 없으면 데몬은 시작에
 실패해야 하며 직접 bind로 우회하지 않습니다.
+
+
+호환되는 `consent.h` umbrella는 독립 기능 헤더 `consent_common.h`,
+`consent_client.h`, `consent_params.h`, `consent_result.h`,
+`consent_registration.h`, `consent_request.h`, `consent_prompt.h`,
+`consent_session.h`, `consent_data.h`를 포함합니다. 각 헤더는 C/C++에서 독립적으로
+컴파일됩니다. C wrapper도 기능별로 분리했으며 비공개 Guard/Call/Submit만 공유하고
+transport/cache 소유권은 기존 `client.cc`에 유지합니다.
+명시적 등록 전용 offline 생성자는 [offline 등록](offline-registration.ko.md)을
+참고하세요. 일반 client가 연결 실패 후 이 모드로 자동 전환하지 않습니다.

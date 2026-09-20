@@ -1,18 +1,5 @@
-# Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 FILE(GLOB CONSENT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
+FILE(GLOB CONSENT_PUBLIC_HEADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/inc/*.h")
 IF(CONSENT_SOURCES)
   ADD_LIBRARY(consent SHARED ${CONSENT_SOURCES})
   TARGET_INCLUDE_DIRECTORIES(consent PUBLIC
@@ -22,7 +9,8 @@ IF(CONSENT_SOURCES)
   TARGET_LINK_LIBRARIES(consent PUBLIC PkgConfig::CAPI_BASE_COMMON
     PRIVATE consent-common PkgConfig::GLIB Threads::Threads)
   TARGET_COMPILE_DEFINITIONS(consent PRIVATE
-    CONSENT_SOCKET_PATH="${CONSENT_SOCKET_PATH}")
+    CONSENT_SOCKET_PATH="${CONSENT_SOCKET_PATH}"
+    CONSENT_AUTHORITY_DIR="${CONSENT_AUTHORITY_DIR}")
   SET_TARGET_PROPERTIES(consent PROPERTIES VERSION "${PROJECT_VERSION}" SOVERSION 0)
   SET_PROPERTY(TARGET consent APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections,--no-undefined")
   SET_PROPERTY(TARGET consent APPEND_STRING PROPERTY LINK_FLAGS
@@ -30,7 +18,7 @@ IF(CONSENT_SOURCES)
   SET_PROPERTY(TARGET consent APPEND PROPERTY LINK_DEPENDS
     "${PROJECT_SOURCE_DIR}/packaging/consent.map")
   INSTALL(TARGETS consent LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-  INSTALL(FILES inc/consent.h DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/consent")
+  INSTALL(FILES ${CONSENT_PUBLIC_HEADERS} DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/consent")
   IF(BUILD_TESTING OR CONSENT_BUILD_TEST_DAEMON)
     ADD_LIBRARY(consent-test-library STATIC ${CONSENT_SOURCES})
     TARGET_INCLUDE_DIRECTORIES(consent-test-library PUBLIC
@@ -39,7 +27,8 @@ IF(CONSENT_SOURCES)
     TARGET_LINK_LIBRARIES(consent-test-library PUBLIC consent-common
       PkgConfig::CAPI_BASE_COMMON PkgConfig::GLIB Threads::Threads)
     TARGET_COMPILE_DEFINITIONS(consent-test-library PRIVATE CONSENT_TESTING=1
-      CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock")
+      CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
+      CONSENT_AUTHORITY_DIR="${CONSENT_TEST_AUTHORITY_DIR}")
   ENDIF()
 ELSE()
   MESSAGE(STATUS "consent: implementation sources are not present yet")

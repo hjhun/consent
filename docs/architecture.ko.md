@@ -269,3 +269,14 @@ service를 동기적으로 중지합니다. root 접두사가 있는 pre-start �
 격리를 보장하지 않으므로 제품은 같은 UID를 쓰는 다른 프로세스와 SMACK 정책을
 함께 고려해야 합니다. 제품 역할 등록은 여전히 default-deny입니다. 이 이행의
 빌드·target 결과는 명시된 검증 snapshot의 근거로 구분합니다.
+
+## 명시적 이미지 등록
+
+공개 라이브러리의 등록 전용 offline handle은 root image lifecycle lock을 잡고
+보호된 bounded Parcel 정의 record만 씁니다. Online transport·역할 검사·승인
+API는 유지합니다. 시작 시 root helper가 spool을 데몬 읽기 전용으로 label하고,
+DB executor는 모든 record 검증·결정적 revision 정렬 후 기존 registry/정책 변경
+공통 코드로 반영합니다. Peer를 만들지 않는 내부 진입점이며 설치 신원을 재시도
+조회 전·commit 후에 다시 검증합니다. Applied/obsolete 결과는 DB 소실에도 registry에
+남고, 같은 generation의 inactive 정의는 처음 보는 seed로 되살리지 않습니다.
+[이미지 등록 순서와 신뢰 경계](offline-registration.ko.md)를 참고하세요.

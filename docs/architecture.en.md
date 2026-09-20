@@ -282,3 +282,16 @@ platform UID does not itself establish exclusive application isolation: products
 must account for other processes sharing that UID and deploy suitable SMACK
 policy. Product role enrollment is still default-deny. Build/target results for
 this transition belong to their explicitly identified verification snapshot.
+
+## Explicit image registration
+
+The public library also has a registration-only offline handle. It holds the
+root image lifecycle lock and writes only bounded protected Parcel definition
+records. The online transport, role checks and approval APIs are unchanged.
+On startup the root helper labels the spool for read-only daemon access; the DB
+executor validates every record, orders revisions deterministically and imports
+through the same registry/policy mutation code using an internal entry, not an
+invented peer. Installation identity is rechecked before retry lookup and after
+commit. Applied and obsolete outcomes survive in the registry, including DB
+loss. Same-generation inactive definitions cannot be revived by unseen seeds.
+See the [image registration sequence and trust boundaries](offline-registration.en.md).

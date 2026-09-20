@@ -31,6 +31,25 @@ class Repository final {
  public:
   using InstallationValidator = std::function<bool(const std::string&,
       const std::string&, const std::string&)>;
+  using OfflineInstallationValidator = std::function<int(const std::string&,
+      const std::string&, const std::string&)>;
+
+  // Keep typed authority failures strict across startup Open, every import and
+  // the final Snapshot. The repository must outlive this DB-executor scope.
+  // Nested scopes restore the preceding mode, including exception unwinding.
+  class OfflineReconciliation final {
+   public:
+    explicit OfflineReconciliation(Repository& repository) noexcept;
+    ~OfflineReconciliation() noexcept;
+    OfflineReconciliation(const OfflineReconciliation&) = delete;
+    OfflineReconciliation& operator=(const OfflineReconciliation&) = delete;
+    OfflineReconciliation(OfflineReconciliation&&) = delete;
+    OfflineReconciliation& operator=(OfflineReconciliation&&) = delete;
+
+   private:
+    Repository& repository_;
+    bool previous_;
+  };
 
   Repository(std::string path, std::string recovery_dir);
   ~Repository();
@@ -38,10 +57,18 @@ class Repository final {
   Repository& operator=(const Repository&) = delete;
 
   void SetInstallationValidator(InstallationValidator validator);
+  // Offline: 0 matches, -ESTALE is absent/inactive/mismatched installation,
+  // other negative results preserve an authority/read failure. If unset,
+  // private repository fixtures keep the bool validator's legacy semantics.
+  void SetOfflineInstallationValidator(OfflineInstallationValidator validator);
   void SetPackageGenerationValidator(
       std::function<bool(const std::string&, const std::string&)> validator);
   bool Open(std::string* error);
   consent::Message Execute(const Peer& peer, const consent::Message& request);
+  // Internal startup import only: caller has verified a protected root spool.
+  // This is never dispatched from IPC and does not manufacture an Installer
+  // peer. The repository independently revalidates current installation state.
+  consent::Message ImportOfflineRegistration(const consent::Message& validated_record);
   consent::Message Snapshot();
   void Tick();
   void Shutdown();

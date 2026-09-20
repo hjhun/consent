@@ -1,17 +1,3 @@
-# Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 FILE(GLOB TEST_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
 # This helper has no main and belongs only to the dedicated shutdown daemon.
@@ -55,8 +41,10 @@ FOREACH(SOURCE ${TEST_SOURCES})
   # its shared ABI before the runtime package is installed in the build root.
   SET_TESTS_PROPERTIES(${TEST_NAME} PROPERTIES TIMEOUT 30
     ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:consent>")
-  IF(TEST_NAME STREQUAL "storage-prepare-test")
-    # Migration validates real root and account transitions; GBS runs as abuild.
+  IF(TEST_NAME STREQUAL "storage-prepare-test" OR TEST_NAME STREQUAL "offline-registration-test"
+      OR TEST_NAME STREQUAL "offline-identity-test")
+    # Positive ownership and image cases require real root; GBS runs as abuild.
+    # The offline fixture checks nonroot constructor denial before returning 77.
     SET_TESTS_PROPERTIES(${TEST_NAME} PROPERTIES SKIP_RETURN_CODE 77)
   ENDIF()
   INSTALL(TARGETS ${TEST_NAME}
@@ -66,3 +54,24 @@ ENDFOREACH()
 ADD_TEST(NAME idl-codegen-test COMMAND "${Python3_EXECUTABLE}"
   "${CMAKE_CURRENT_SOURCE_DIR}/idl_codegen_test.py")
 SET_TESTS_PROPERTIES(idl-codegen-test PROPERTIES TIMEOUT 30)
+
+SET(PUBLIC_HEADER_INCLUDE_ARGS)
+FOREACH(INCLUDE_DIR IN LISTS CAPI_BASE_COMMON_INCLUDE_DIRS)
+  LIST(APPEND PUBLIC_HEADER_INCLUDE_ARGS --include "${INCLUDE_DIR}")
+ENDFOREACH()
+ADD_TEST(NAME public-headers-test COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/public_headers_test.py"
+  --cc "${CMAKE_C_COMPILER}" --cxx "${CMAKE_CXX_COMPILER}"
+  --public-dir "${PROJECT_SOURCE_DIR}/src/consent/inc"
+  ${PUBLIC_HEADER_INCLUDE_ARGS})
+SET_TESTS_PROPERTIES(public-headers-test PROPERTIES TIMEOUT 30)
+
+IF(TARGET consent-installation-authority)
+  ADD_TEST(NAME image-authority-test COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/image_authority_test.py"
+    --authority-tool "$<TARGET_FILE:consent-installation-authority>"
+    --authority-path "${CONSENT_AUTHORITY_DIR}")
+  SET_TESTS_PROPERTIES(image-authority-test PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+  INSTALL(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/image_authority_test.py"
+    DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+ENDIF()

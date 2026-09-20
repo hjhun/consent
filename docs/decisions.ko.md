@@ -428,8 +428,14 @@ app/package 관계와 보호된 active generation을 최종 게시 경계까지 
 부재·pending·stale·미설치 generation은 비활성으로 두고 관련 없는 유효 package는
 계속 처리한다. 형식이나 보호 조건이 잘못된 원본은 오류다. deduplication은 영속
 definitions registry에 보존하여 DB 삭제나 반복 부팅으로 과거 정책이 재적용되거나
-제거된 정의가 부활하지 않게 한다. image record에 승인·실행 receipt·session·artifact·
-앱 데이터를 저장하지 않는다.
+제거된 정의가 부활하지 않게 한다. 파일 열거 순서가 결과를 결정하지 않도록 호환되는
+revision을 결정적으로 처리하고, 상충하는 payload를 모두 stale로 간주해 무시하지 않는다.
+소유자·generation이 같고 기존 두 revision이 각각 입력 이상이며 하나 이상 더 높으면
+obsolete seed로 처리한다. 같은 revision 축은 의미도 같아야 한다. 동일 generation의
+비활성 정의를 seed로 재활성화하지 않는다. obsolete 결과와 fingerprint를 보존하여
+같은 재시도는 STALE을 유지하고 내용 변경은 충돌로 거부한다. 재조정은 시작 시 READY
+전에 실행하며, 보류된 record의 설치 authority를 수정한 뒤에는 service를 재시작한다.
+image record에 승인·실행 receipt·session·artifact·앱 데이터를 저장하지 않는다.
 
 daemon 없는 실제 C API, 재시도·충돌, 경로 격리, 중단된 쓰기, 첫 기동 반영, 여러
 app/package, 오래된 generation 거부 및 승인 부활 없는 DB 복구를 검증한다. 이 결과가

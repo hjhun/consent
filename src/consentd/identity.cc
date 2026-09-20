@@ -126,6 +126,92 @@ bool ReadKeyFile(const std::string& path, GKeyFile* file, size_t limit = 65536) 
       content.size(), G_KEY_FILE_NONE, nullptr);
 }
 
+int ReadOfflineAuthority(GKeyFile* file) {
+  const std::string path = CONSENT_INSTALLATIONS;
+  const auto separator = path.rfind('/');
+  if (separator == std::string::npos || separator == 0)
+    return -EINVAL;
+  // Only an absent leaf is a normal missing authority. A missing/unprotected
+  // ancestor is a setup error. Do not inherit OpenProtected's bool errno.
+  int directory = consentd::OpenProtected(path.substr(0, separator), true);
+  if (directory < 0)
+    return -EACCES;
+  int fd = openat(directory, path.substr(separator + 1).c_str(),
+      O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+  int saved = errno;
+  close(directory);
+  if (fd < 0)
+    return saved == ENOENT ? -ESTALE : -saved;
+  struct Descriptor {
+    int value;
+    ~Descriptor() { if (value >= 0) close(value); }
+  } descriptor{fd};
+  struct stat info = {};
+  int result = 0;
+  if (fstat(fd, &info) < 0)
+    result = -errno;
+  else if (!S_ISREG(info.st_mode) || info.st_nlink != 1 ||
+      info.st_uid != 0 || (info.st_mode & 0022))
+    result = -EACCES;
+  else if (info.st_size <= 0 || info.st_size > 1048576)
+    result = -EINVAL;
+  std::string content;
+  char buffer[4096];
+  while (result == 0) {
+    ssize_t count = read(fd, buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR)
+      continue;
+    if (count < 0) {
+      result = -errno;
+      break;
+    }
+    if (count == 0)
+      break;
+    if (content.size() + static_cast<size_t>(count) > 1048576) {
+      result = -E2BIG;
+      break;
+    }
+    content.append(buffer, static_cast<size_t>(count));
+  }
+  if (close(fd) < 0 && result == 0)
+    result = -errno;
+  descriptor.value = -1;
+  if (result != 0)
+    return result;
+  if (content.empty() || content.find('\0') != std::string::npos ||
+      !g_key_file_load_from_data(file, content.data(), content.size(),
+          G_KEY_FILE_NONE, nullptr) || Value(file, "authority", "schema") != "1")
+    return -EINVAL;
+  gsize count = 0;
+  gchar** groups = g_key_file_get_groups(file, &count);
+  bool valid = count <= 4096;
+  for (gsize i = 0; valid && i < count; ++i) {
+    const std::string group = groups[i];
+    if (group == "authority")
+      continue;
+    auto generation = Value(file, groups[i], "generation");
+    valid = !generation.empty() && generation.size() <= 128;
+    if (group.compare(0, 10, "operation ") == 0) {
+      valid = valid && group.size() > 10 &&
+          !Value(file, groups[i], "fingerprint").empty();
+      continue;
+    }
+    auto state = Value(file, groups[i], "state");
+    valid = valid && (state == "active" || state == "pending" || state == "removed");
+    if (group.compare(0, 8, "package ") == 0) {
+      valid = valid && group.size() > 8 && group.size() <= 263;
+    } else {
+      auto owner = Value(file, groups[i], "package");
+      valid = valid && !group.empty() && group.size() <= 255 &&
+          !owner.empty() && owner.size() <= 255;
+    }
+  }
+  g_strfreev(groups);
+  if (!valid)
+    return -EINVAL;
+  return 0;
+}
+
 }  // namespace
 
 namespace consentd {
@@ -419,6 +505,55 @@ bool ValidatePackageGeneration(const std::string& package,
       (state == "active" || state == "pending" || state == "removed");
   g_key_file_unref(inventory);
   return valid;
+}
+
+int CheckOfflineAuthority() {
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> inventory(
+      g_key_file_new(), g_key_file_unref);
+  return ReadOfflineAuthority(inventory.get());
+}
+
+int ValidateOfflineInstallation(const std::string& package,
+    const std::string& app, const std::string& generation) {
+  if (package.empty() || app.empty() || package.size() > 255 || app.size() > 255 ||
+      generation.empty() || generation.size() > 128)
+    return -EINVAL;
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> inventory(
+      g_key_file_new(), g_key_file_unref);
+  int result = ReadOfflineAuthority(inventory.get());
+  if (result != 0)
+    return result;
+  auto* file = inventory.get();
+  auto group = "package " + package;
+  for (const auto& name : {group, app}) {
+    if (!g_key_file_has_group(file, name.c_str()))
+      return -ESTALE;
+    auto state = Value(file, name.c_str(), "state");
+    auto current = Value(file, name.c_str(), "generation");
+    if ((state != "active" && state != "pending" && state != "removed") ||
+        current.empty() || current.size() > 128)
+      return -EINVAL;
+  }
+  auto owner = Value(file, app.c_str(), "package");
+  if (owner.empty() || owner.size() > 255)
+    return -EINVAL;
+  if (Value(file, group.c_str(), "state") != "active" ||
+      Value(file, app.c_str(), "state") != "active" || owner != package ||
+      Value(file, group.c_str(), "generation") != generation ||
+      Value(file, app.c_str(), "generation") != generation)
+    return -ESTALE;
+#ifndef CONSENT_TEST_BUILD
+  pkgmgrinfo_appinfo_h handle = nullptr;
+  if (pkgmgrinfo_appinfo_get_appinfo(app.c_str(), &handle) != 0)
+    return -ESTALE;
+  char* actual = nullptr;
+  bool valid = pkgmgrinfo_appinfo_get_pkgid(handle, &actual) == 0 &&
+      actual && package == actual;
+  pkgmgrinfo_appinfo_destroy_appinfo(handle);
+  if (!valid)
+    return -ESTALE;
+#endif
+  return 0;
 }
 
 }  // namespace consentd

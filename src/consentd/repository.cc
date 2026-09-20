@@ -17,6 +17,7 @@
 #include "consent.h"
 
 #include "common/localization.hh"
+#include "common/registration.hh"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -342,10 +343,15 @@ class Repository::Impl final {
 
   bool Open(std::string* error);
   Message Execute(const Peer& peer, const Message& request);
+  Message ImportOfflineRegistration(const Message& validated_record);
   Message Snapshot();
   void Tick();
   void Shutdown();
+  bool SetOfflineReconciliation(bool enabled) noexcept {
+    return std::exchange(offline_import_, enabled);
+  }
   InstallationValidator validator_;
+  OfflineInstallationValidator offline_validator_;
   std::function<bool(const std::string&, const std::string&)> package_validator_;
 
  private:
@@ -363,6 +369,9 @@ class Repository::Impl final {
   void SuspendSession(const std::string& session);
   void FinishCleanup();
   Message Register(const Peer& peer, const Message& request, bool remove);
+  Message CommonRegister(const std::string& operation_key, const Message& request, bool remove);
+  bool ObsoleteOfflineRegistration(const Message& request);
+  int OfflineInstallationStatus(const Message& definition);
   Message Evaluate(const Peer& peer, const Message& request, bool create);
   Message Prompt(const Peer& peer, const Message& request, bool respond);
   Message Result(const Peer& peer, const Message& request, bool cancel);
@@ -395,6 +404,7 @@ class Repository::Impl final {
   int64_t registry_revision_ = 0;
   bool fenced_ = false;
   bool cleanup_unknown_ = false;
+  bool offline_import_ = false;
   bool corrupt_ = false;
   int64_t expected_device_ = 0;
   int64_t expected_inode_ = 0;
@@ -719,9 +729,17 @@ void Repository::Impl::Replay() {
   for (const auto& item : definitions_) {
     const auto& config = item.second;
     bool active = Get(config, "active", "1") == "1";
-    if (active)
-      active = validator_ && validator_(Get(config, "package"), Get(config, "app"),
-          Get(config, "_install_identity"));
+    if (active) {
+      if (offline_import_) {
+        int status = OfflineInstallationStatus(config);
+        Require(status == 0 || status == -ESTALE, status,
+            "offline installation authority failed during registry replay");
+        active = status == 0;
+      } else {
+        active = validator_ && validator_(Get(config, "package"), Get(config, "app"),
+            Get(config, "_install_identity"));
+      }
+    }
     Message projected = config;
     projected["active"] = active ? "1" : "0";
     std::string packed = Pack(projected);
@@ -830,46 +848,10 @@ Message Repository::Impl::Definition(const std::string& id) {
 }
 
 void Repository::Impl::ValidateDefinition(const Message& definition) {
-  for (const char* key : {"definition", "package", "app", "enforcer", "default_locale"})
-    Require(Identifier(Get(definition, key)), -EINVAL, "invalid definition identity");
   Require(!Get(definition, "_install_identity").empty(), -EINVAL,
       "trusted installation identity required");
-  Integer(Get(definition, "policy_version"), 1, INT32_MAX);
-  Integer(Get(definition, "text_revision"), 1, INT32_MAX);
-  int level = Integer(Get(definition, "level"), 0, 3);
-  std::string modes = Get(definition, "modes");
-  Require(!modes.empty(), -EINVAL, "allowed grant modes required");
-  std::set<std::string> seen;
-  size_t start = 0;
-  do {
-    size_t end = modes.find(',', start);
-    std::string mode = modes.substr(start, end == std::string::npos ? end : end - start);
-    Require((mode == "ONCE" || mode == "SESSION" || mode == "TIMED" ||
-        mode == "PERSISTENT") && seen.insert(mode).second, -EINVAL,
-        "invalid allowed grant mode");
-    Require(level < 3 || mode == "ONCE", -EINVAL,
-        "level 3 permits ONCE only in initial policy");
-    if (end == std::string::npos)
-      break;
-    start = end + 1;
-  } while (true);
-  Number(definition, "retention_ms", 0, 0, kDayMs);
-  size_t messages = 0;
-  for (const auto& field : definition) {
-    if (field.first.compare(0, 8, "message.") != 0)
-      continue;
-    Require(field.second.size() <= 4096 && !field.second.empty() &&
-        g_utf8_validate(field.second.data(), field.second.size(), nullptr),
-        -EINVAL, "invalid localized message");
-    ++messages;
-  }
-  std::string prefix = "message." + Get(definition, "default_locale");
-  Require(messages >= 2 && messages <= 32 &&
-      !Get(definition, prefix + ".title").empty() &&
-      !Get(definition, prefix + ".body").empty(), -EINVAL,
-      "default locale title and body required");
   std::string error;
-  if (!consent::localization::ValidateDefinition(definition, &error))
+  if (!consent::registration::ValidateDefinition(definition, &error))
     throw Failure(-EINVAL, error);
 }
 
@@ -891,7 +873,14 @@ Message Repository::Impl::Register(const Peer& peer, const Message& request,
   Require(Identifier(package) && Identifier(Get(request, "operation_id")),
       -EINVAL, "package and installation operation required");
   Require(Member(peer.packages, package), -EACCES, "package delegation denied");
-  std::string key = Hash(peer.identity + ":" + Get(request, "operation_id"));
+  return CommonRegister(Hash(peer.identity + ":" + Get(request, "operation_id")), request, remove);
+}
+
+Message Repository::Impl::CommonRegister(const std::string& key, const Message& request,
+    bool remove) {
+  std::string package = Get(request, "package");
+  Require(Identifier(package) && Identifier(Get(request, "operation_id")),
+      -EINVAL, "package and installation operation required");
   Message input = request;
   input.erase("id");
   input.erase("protocol_request_id");
@@ -929,18 +918,19 @@ Message Repository::Impl::Register(const Peer& peer, const Message& request,
   } else {
     Message definition;
     for (const auto& item : request) {
-      if (item.first == "definition" || item.first == "package" || item.first == "app" ||
-          item.first == "enforcer" || item.first == "policy_version" ||
-          item.first == "text_revision" || item.first == "level" || item.first == "modes" ||
-          item.first == "default_locale" || item.first == "retention_ms" ||
-          item.first == "_install_identity" || item.first.compare(0, 8, "message.") == 0 ||
-          consent::localization::IsDefinitionField(item.first))
+      if (consent::registration::IsDefinitionField(item.first) ||
+          item.first == "_install_identity")
         definition.insert(item);
     }
     definition["active"] = "1";
     ValidateDefinition(definition);
-    Require(validator_ && validator_(package, Get(definition, "app"),
-        Get(definition, "_install_identity")), -EACCES, "installed package identity mismatch");
+    if (offline_import_) {
+      int status = OfflineInstallationStatus(definition);
+      Require(status == 0, status, "offline installation validation failed during registration");
+    } else {
+      Require(validator_ && validator_(package, Get(definition, "app"),
+          Get(definition, "_install_identity")), -EACCES, "installed package identity mismatch");
+    }
     std::string id = Get(definition, "definition");
     auto found = definitions.find(id);
     if (found != definitions.end()) {
@@ -1839,6 +1829,165 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
   throw Failure(-ENOSYS, "data method unsupported");
 }
 
+int Repository::Impl::OfflineInstallationStatus(const Message& definition) {
+  if (offline_validator_) {
+    int status = offline_validator_(Get(definition, "package"), Get(definition, "app"),
+        Get(definition, "_install_identity", Get(definition, "expected_generation")));
+    Require(status <= 0, -EINVAL, "offline installation validator returned invalid status");
+    return status;
+  }
+  return validator_ && validator_(Get(definition, "package"), Get(definition, "app"),
+      Get(definition, "_install_identity", Get(definition, "expected_generation"))) ? 0 : -ESTALE;
+}
+
+bool Repository::Impl::ObsoleteOfflineRegistration(const Message& request) {
+  auto found = definitions_.find(Get(request, "definition"));
+  if (found == definitions_.end())
+    return false;
+  const auto& current = found->second;
+  Require(Get(current, "package") == Get(request, "package") &&
+      Get(current, "app") == Get(request, "app"), -EACCES,
+      "definition namespace belongs to another app");
+  if (Get(current, "_install_identity") != Get(request, "expected_generation"))
+    return false;
+  auto current_policy = Integer(Get(current, "policy_version"), 1, INT32_MAX);
+  auto incoming_policy = Integer(Get(request, "policy_version"), 1, INT32_MAX);
+  auto current_text = Integer(Get(current, "text_revision"), 1, INT32_MAX);
+  auto incoming_text = Integer(Get(request, "text_revision"), 1, INT32_MAX);
+  // Each unchanged revision axis still promises identical meaning. A lower
+  // revision on the other axis must not conceal a malformed conflicting seed.
+  if (current_policy == incoming_policy) {
+    Message old_policy;
+    Message new_policy;
+    for (const auto& field : current) {
+      if (consent::localization::IsPolicyField(field.first) || field.first == "enforcer" ||
+          field.first == "level" || field.first == "modes" || field.first == "retention_ms")
+        old_policy.insert(field);
+    }
+    for (const auto& field : request) {
+      if (consent::localization::IsPolicyField(field.first) || field.first == "enforcer" ||
+          field.first == "level" || field.first == "modes" || field.first == "retention_ms")
+        new_policy.insert(field);
+    }
+    Require(old_policy == new_policy, kConflict, "same offline policy revision differs");
+  }
+  if (current_text == incoming_text) {
+    Message old_messages;
+    Message new_messages;
+    for (const auto& field : current) {
+      if (field.first == "default_locale" || field.first.compare(0, 8, "message.") == 0 ||
+          field.first.compare(0, 16, "locale_fallback.") == 0)
+        old_messages.insert(field);
+    }
+    for (const auto& field : request) {
+      if (field.first == "default_locale" || field.first.compare(0, 8, "message.") == 0 ||
+          field.first.compare(0, 16, "locale_fallback.") == 0)
+        new_messages.insert(field);
+    }
+    Require(old_messages == new_messages, kConflict, "same offline text revision differs");
+  }
+  Require(!((current_policy > incoming_policy && current_text < incoming_text) ||
+      (current_policy < incoming_policy && current_text > incoming_text)),
+      kConflict, "offline policy and text revisions cross");
+  if (Get(current, "active") == "0")
+    return true;
+  return current_policy >= incoming_policy && current_text >= incoming_text &&
+      (current_policy > incoming_policy || current_text > incoming_text);
+}
+
+Message Repository::Impl::ImportOfflineRegistration(const Message& validated_record) {
+  // The DB executor is serialized. Keep typed error propagation active through
+  // nested Ensure/recovery/replay too; no source file or IPC field can set it.
+  struct Restore {
+    bool& field;
+    bool previous;
+    ~Restore() { field = previous; }
+  } restore{offline_import_, offline_import_};
+  offline_import_ = true;
+  try {
+    Ensure();
+    const std::string operation_epoch = epoch_;
+    Require(!validated_record.empty() && validated_record.size() <= consent::kMaxFields,
+        -EINVAL, "invalid offline registration field count");
+    size_t bytes = 64;
+    for (const auto& field : validated_record) {
+      Require(consent::ValidField(field.first, field.second) &&
+          (consent::registration::IsDefinitionField(field.first) ||
+           field.first == "operation_id" || field.first == "expected_generation" ||
+           field.first == "method"), -EINVAL, "unexpected offline registration field");
+      bytes += 10 + field.first.size() + field.second.size();
+    }
+    Require(bytes <= consent::kMaxFrameSize, -E2BIG, "offline registration frame exceeds limit");
+    Require(Get(validated_record, "method", "register") == "register", -EINVAL,
+        "offline import supports registration only");
+    Message request = validated_record;
+    request["method"] = "register";
+    Require(Identifier(Get(request, "operation_id")) &&
+        Identifier(Get(request, "expected_generation")), -EINVAL,
+        "offline registration operation and expected generation required");
+    std::string error;
+    if (!consent::registration::ValidateDefinition(validated_record, &error))
+      throw Failure(-EINVAL, error);
+    request["_install_identity"] = Get(request, "expected_generation");
+    // This entry is reached only from the protected startup spool reader. Its
+    // operation namespace cannot collide with any online peer's hexadecimal
+    // receipt key. It never acquires, impersonates or relaxes a caller role.
+    int installation = OfflineInstallationStatus(request);
+    Require(installation == 0, installation,
+        installation == -ESTALE ? "offline registration installation is absent, inactive or stale" :
+        "offline installation authority validation failed before registration");
+    const std::string key = "offline-image-v1:" + Hash(Get(request, "operation_id"));
+    const std::string fingerprint = Hash(Pack(request));
+    auto prior = operations_.find(key);
+    bool obsolete = false;
+    if (prior != operations_.end()) {
+      obsolete = prior->second.compare(0, 12, "obsolete-v1:") == 0;
+      Require((obsolete ? prior->second.substr(12) : prior->second) == fingerprint,
+          kConflict, "installation operation payload conflict");
+    } else {
+      obsolete = ObsoleteOfflineRegistration(request);
+      if (obsolete) {
+        auto operations = operations_;
+        operations[key] = "obsolete-v1:" + fingerprint;
+        // Persist the outcome without changing any definition. Replay updates
+        // the applied registry revision but leaves matching grants/pending intact.
+        WriteRegistry(definitions_, operations, registry_revision_ + 1);
+        Replay();
+      }
+    }
+    Message result;
+    if (!obsolete)
+      result = CommonRegister(key, request, false);
+    Ensure();
+    Require(operation_epoch == epoch_, -ESTALE, "database changed during offline registration");
+    installation = OfflineInstallationStatus(request);
+    Require(installation == 0, installation,
+        installation == -ESTALE ? "offline installation changed before publication" :
+        "offline installation authority validation failed before publication");
+    auto metadata = Snapshot();
+    Require(Get(metadata, "epoch") == operation_epoch, -ESTALE,
+        "database changed during offline publication snapshot");
+    result.insert(metadata.begin(), metadata.end());
+    result["status"] = std::to_string(obsolete ? -ESTALE : 0);
+    if (obsolete)
+      result["reason"] = "obsolete-seed: a newer or deactivated definition is retained";
+    return result;
+  } catch (const Failure& failure) {
+    if ((failure.SqliteCode() & 0xff) == SQLITE_CORRUPT ||
+        (failure.SqliteCode() & 0xff) == SQLITE_NOTADB)
+      corrupt_ = true;
+    if (failure.Status() == kStorage)
+      fenced_ = true;
+    return {{"status", std::to_string(failure.Status())}, {"reason", failure.what()},
+        {"epoch", epoch_}, {"source", "DAEMON"}};
+  } catch (const std::bad_alloc&) {
+    return {{"status", std::to_string(-ENOMEM)}};
+  } catch (const std::exception&) {
+    fenced_ = true;
+    return {{"status", std::to_string(kStorage)}, {"reason", "offline registration failure"}};
+  }
+}
+
 Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
   try {
     Ensure();
@@ -1967,8 +2116,16 @@ void Repository::Impl::Shutdown() {
 Repository::Repository(std::string path, std::string recovery_dir)
     : impl_(new Impl(std::move(path), std::move(recovery_dir))) {}
 Repository::~Repository() = default;
+Repository::OfflineReconciliation::OfflineReconciliation(Repository& repository) noexcept
+    : repository_(repository), previous_(repository.impl_->SetOfflineReconciliation(true)) {}
+Repository::OfflineReconciliation::~OfflineReconciliation() noexcept {
+  repository_.impl_->SetOfflineReconciliation(previous_);
+}
 void Repository::SetInstallationValidator(InstallationValidator validator) {
   impl_->validator_ = std::move(validator);
+}
+void Repository::SetOfflineInstallationValidator(OfflineInstallationValidator validator) {
+  impl_->offline_validator_ = std::move(validator);
 }
 void Repository::SetPackageGenerationValidator(
     std::function<bool(const std::string&, const std::string&)> validator) {
@@ -1977,6 +2134,9 @@ void Repository::SetPackageGenerationValidator(
 bool Repository::Open(std::string* error) { return impl_->Open(error); }
 Message Repository::Execute(const Peer& peer, const Message& request) {
   return impl_->Execute(peer, request);
+}
+Message Repository::ImportOfflineRegistration(const Message& validated_record) {
+  return impl_->ImportOfflineRegistration(validated_record);
 }
 Message Repository::Snapshot() { return impl_->Snapshot(); }
 void Repository::Tick() { impl_->Tick(); }

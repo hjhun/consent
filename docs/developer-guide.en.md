@@ -463,3 +463,14 @@ use the configured GBS profile. Socket access errors require checking DAC,
 SMACK and role policy independently. Read credential/role logs without adding
 raw scope, conversation content or credentials. A daemon without exactly one
 valid activation listener must fail startup; direct bind is not a fallback.
+
+
+The compatible `consent.h` umbrella includes self-contained feature headers:
+`consent_common.h`, `consent_client.h`, `consent_params.h`, `consent_result.h`,
+`consent_registration.h`, `consent_request.h`, `consent_prompt.h`,
+`consent_session.h` and `consent_data.h`. Each compiles independently as C or C++.
+C wrappers are split by those functions; only private Guard/Call/Submit helpers
+are shared, and transport/cache ownership remains in `client.cc`.
+The explicit registration-only offline constructor is documented in
+[offline registration](offline-registration.en.md); ordinary clients never fall
+back to it after a connection failure.

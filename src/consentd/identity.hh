@@ -83,5 +83,12 @@ bool ValidateInstallation(const std::string& package, const std::string& app,
 bool ValidatePackageGeneration(const std::string& package,
                                const std::string& generation);
 
+// Offline startup uses a classified read of one protected authority FD.
+// Missing/pending/mismatched installations return -ESTALE; malformed sources,
+// schema, protection and I/O failures remain errors, never deferred records.
+int CheckOfflineAuthority();
+int ValidateOfflineInstallation(const std::string& package,
+    const std::string& app, const std::string& generation);
+
 }  // namespace consentd
 #endif  // CONSENTD_IDENTITY_HH_

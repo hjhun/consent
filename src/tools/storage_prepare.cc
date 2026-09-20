@@ -32,6 +32,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/offline_layout.hh"
+
 #ifndef CONSENT_STATE_DIR
 #define CONSENT_STATE_DIR "/opt/var/lib/consentd"
 #endif
@@ -203,6 +205,62 @@ bool StateName(const std::string& name) {
   return false;
 }
 
+void PrepareRegistrations(int authority, gid_t group) {
+  using namespace consent::offline;
+  int raw_fd = openat(authority, kRegistrationDirectory,
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (raw_fd < 0 && errno == ENOENT)
+    return;
+  Require(raw_fd >= 0, "cannot open offline registration directory");
+  Descriptor directory(raw_fd);
+  struct stat identity = {};
+  Require(fstat(raw_fd, &identity) == 0 && S_ISDIR(identity.st_mode) &&
+      identity.st_uid == 0 && !(identity.st_mode & 0027),
+      "offline registration directory protection rejected");
+  std::vector<Entry> entries;
+  size_t bytes = 0;
+  size_t records = 0;
+  DIR* listing = fdopendir(dup(raw_fd));
+  Require(listing != nullptr, "cannot enumerate offline registrations");
+  try {
+    errno = 0;
+    while (auto* found = readdir(listing)) {
+      std::string name = found->d_name;
+      if (name == "." || name == "..")
+        continue;
+      bool record = RegistrationName(name);
+      Require(record || PendingRegistrationName(name), "unexpected offline registration entry");
+      Require(entries.size() < kMaxRegistrationEntries, "offline entry count exceeded");
+      auto entry = File(raw_fd, name, 0, 07137);
+      Require(entry.identity.st_size >= 0 &&
+          static_cast<size_t>(entry.identity.st_size) <= kMaxRegistrationFileBytes,
+          "offline registration file size exceeded");
+      bytes += static_cast<size_t>(entry.identity.st_size);
+      records += record ? 1 : 0;
+      Require(bytes <= kMaxRegistrationBytes && records <= kMaxRegistrations,
+          "offline registration storage budget exceeded");
+      entries.push_back(std::move(entry));
+      errno = 0;
+    }
+    Require(errno == 0, "cannot enumerate complete offline registrations");
+    closedir(listing);
+  } catch (...) {
+    closedir(listing);
+    throw;
+  }
+  // The lifecycle EX lock excludes both image writers and the daemon. Verify
+  // every entry before changing metadata; never parse payloads as root.
+  for (const auto& entry : entries) {
+    SameEntry(raw_fd, entry);
+    Ownership(entry, 0, group, 0640);
+  }
+  Require(fchown(raw_fd, 0, group) == 0 && fchmod(raw_fd, 0750) == 0,
+      "offline registration directory ownership failed");
+  Label(raw_fd);
+  Require(fsync(raw_fd) == 0 && fsync(authority) == 0,
+      "offline registration labeling durability failed");
+}
+
 void Prepare(const std::string& state_path, const std::string& authority_path,
     uid_t user, gid_t group) {
   Require(geteuid() == 0 && user != 0, "root execution and a nonroot service account are required");
@@ -220,6 +278,7 @@ void Prepare(const std::string& state_path, const std::string& authority_path,
   if (old_lock.fd.Get() >= 0)
     Require(flock(old_lock.fd.Get(), LOCK_EX | LOCK_NB) == 0, "legacy Installer is active");
   auto installer = Lock(authority.Get(), "installations.lock", group, 0600);
+  PrepareRegistrations(authority.Get(), group);
 
   std::vector<Entry> entries;
   DIR* raw = fdopendir(dup(state.Get()));

@@ -86,6 +86,7 @@ static void usage(const char* program) {
       " session_state data_register data_derived data_release cleanup cleanup_list\n"
       "Options: --async --timeout-ms=N --repeat=N --expect-status=N\n"
       " --expect-decision=ALLOWED|DENIED|CONSENT_REQUIRED|...\n"
+      " --offline-image-root=ROOT (root-only registration; success means STAGED)\n"
       "register/update require package, app, expected_generation, operation_id,\n"
       " definition, enforcer, policy_version, text_revision, level, modes,\n"
       " default_locale and message.<locale>.title/body.\n"
@@ -102,6 +103,7 @@ int main(int argc, char** argv) {
   const char* package = NULL;
   const char* app = NULL;
   const char* expected_decision = NULL;
+  const char* offline_root = NULL;
   long expected_status = 0;
   long timeout = 5000;
   long repeat = 1;
@@ -137,6 +139,12 @@ int main(int argc, char** argv) {
     char* equal;
     if (!strcmp(argument, "--async")) {
       async = 1;
+      continue;
+    }
+    if (!strncmp(argument, "--offline-image-root=", 21)) {
+      offline_root = argument + 21;
+      if (!*offline_root)
+        failed = 1;
       continue;
     }
     if (!strncmp(argument, "--expect-status=", 16)) {
@@ -176,7 +184,8 @@ int main(int argc, char** argv) {
     usage(argv[0]);
     return 2;
   }
-  status = consent_client_create(&client);
+  status = offline_root ? consent_client_create_offline_registration(offline_root, &client) :
+      consent_client_create(&client);
   if (status) {
     print_result(status, NULL);
     consent_params_free(params);
@@ -211,7 +220,8 @@ int main(int argc, char** argv) {
       printf("callbacks=%d\ncallback_after_return=%s\n", state.callbacks,
           state.ordering_failure ? "false" : "true");
     } else if (!strcmp(method, "register") || !strcmp(method, "update")) {
-      status = consent_register(client, package, app, params);
+      status = !strcmp(method, "register") ? consent_register(client, package, app, params) :
+          consent_update(client, package, app, params);
     } else if (!strcmp(method, "unregister")) {
       status = consent_unregister(client, package, params);
     } else if (!strcmp(method, "request")) {
@@ -230,6 +240,8 @@ int main(int argc, char** argv) {
     }
     printf("iteration=%ld\n", iteration + 1);
     print_result(status, result);
+    if (offline_root && !strcmp(method, "register") && status == 0)
+      puts("registration_state=STAGED");
     if (status != expected_status)
       failed = 1;
     if (expected_decision) {

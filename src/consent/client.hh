@@ -18,6 +18,7 @@
 
 #include "consent.h"
 #include "common/message.hh"
+#include "common/offline_registration.hh"
 
 #include <memory>
 
@@ -48,5 +49,6 @@ struct consent_result {
 };
 struct consent_client {
   std::unique_ptr<consent::Client> impl;
+  std::unique_ptr<consent::offline::RegistrationWriter> offline;
 };
 #endif  // CONSENT_CLIENT_HH_

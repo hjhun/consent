@@ -49,6 +49,7 @@ Public C headers and pkg-config metadata for consent.
 Summary:    Tizen consent executable tests
 Group:      Development/Testing
 Requires:   %{name} = %{version}-%{release}
+Requires:   python3-base
 
 %description tests
 C API exercisers and isolated unit tests. This package does not grant test

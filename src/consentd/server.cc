@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "repository.hh"
+#include "common/offline_registration.hh"
 
 #ifndef CONSENT_STATE_DIR
 #define CONSENT_STATE_DIR "/opt/var/lib/consentd"
@@ -300,8 +301,43 @@ int Server::Run(int listener_fd) {
       repository_ = std::make_unique<Repository>(
           std::string(CONSENT_STATE_DIR) + "/consent.db", CONSENT_STATE_DIR);
       repository_->SetInstallationValidator(ValidateInstallation);
+      repository_->SetOfflineInstallationValidator(ValidateOfflineInstallation);
       repository_->SetPackageGenerationValidator(ValidatePackageGeneration);
-      ready = repository_->Open(&error);
+      std::vector<consent::Message> registrations;
+      ready = consent::offline::LoadRegistrations(CONSENT_AUTHORITY_DIR,
+          &registrations, &error) == 0;
+      // Keep strict authority classification through Open/Replay and the final
+      // Snapshot, including a source replacement after the initial preflight.
+      std::unique_ptr<Repository::OfflineReconciliation> reconciliation;
+      if (ready && !registrations.empty())
+        reconciliation = std::make_unique<Repository::OfflineReconciliation>(*repository_);
+      if (ready && !registrations.empty()) {
+        int status = CheckOfflineAuthority();
+        if (status != 0 && status != -ESTALE) {
+          error = "offline-authority-preflight status=" + std::to_string(status);
+          ready = false;
+        }
+      }
+      if (ready)
+        ready = repository_->Open(&error);
+      if (ready) {
+        for (size_t index = 0; index < registrations.size(); ++index) {
+          auto result = repository_->ImportOfflineRegistration(registrations[index]);
+          int status = static_cast<int>(consent::Number(result, "status", CONSENT_ERROR_STORAGE));
+          if (status == CONSENT_ERROR_STALE) {
+            // Missing/rotated installation authority cannot activate a record.
+            // Keep it immutable and continue with independent packages.
+            g_message("event=offline-registration state=deferred index=%zu status=%d", index, status);
+            continue;
+          }
+          if (status != 0) {
+            error = "offline registration reconciliation failed: " + std::to_string(status);
+            ready = false;
+            break;
+          }
+          g_message("event=offline-registration state=reconciled index=%zu", index);
+        }
+      }
       if (ready)
         snapshot = repository_->Snapshot();
     } catch (const std::exception& failure) {

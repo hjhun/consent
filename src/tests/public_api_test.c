@@ -113,6 +113,7 @@ static void existing_symbols(void) {
    * Invalid-handle calls also verify output initialization at those boundaries. */
   CHECK(consent_client_create(NULL) == CONSENT_ERROR_INVALID_PARAMETER);
   CHECK(consent_client_create_with_context(NULL, NULL) == CONSENT_ERROR_INVALID_PARAMETER);
+  CHECK(consent_client_create_offline_registration(NULL, NULL) == CONSENT_ERROR_INVALID_PARAMETER);
   CHECK(consent_client_destroy(NULL) == CONSENT_ERROR_INVALID_PARAMETER);
   CHECK(consent_async_detach(NULL, 1) == CONSENT_ERROR_INVALID_PARAMETER);
   CHECK(consent_params_create(NULL) == CONSENT_ERROR_INVALID_PARAMETER);

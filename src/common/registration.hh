@@ -13,18 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef TIZEN_CONSENT_H_
-#define TIZEN_CONSENT_H_
+#ifndef CONSENT_COMMON_REGISTRATION_HH_
+#define CONSENT_COMMON_REGISTRATION_HH_
 
-/* Public C API umbrella. Each feature header can also be included alone. */
-#include "consent_common.h"
-#include "consent_client.h"
-#include "consent_params.h"
-#include "consent_registration.h"
-#include "consent_request.h"
-#include "consent_prompt.h"
-#include "consent_session.h"
-#include "consent_data.h"
-#include "consent_result.h"
+#include "message.hh"
 
-#endif  // TIZEN_CONSENT_H_
+namespace consent {
+namespace registration {
+
+bool IsDefinitionField(const std::string& key);
+// Syntax and policy-shape validation only. Installation identity, ownership,
+// revision ordering and publication belong to the authoritative repository.
+// Private _install_identity is deliberately not required by offline staging.
+bool ValidateDefinition(const Message& definition, std::string* error = nullptr);
+
+}  // namespace registration
+}  // namespace consent
+#endif  // CONSENT_COMMON_REGISTRATION_HH_

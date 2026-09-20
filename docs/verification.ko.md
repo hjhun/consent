@@ -673,3 +673,104 @@ Offline 이미지 등록은 다음 별도 구현 단위입니다. 강제 전원 
 filesystem-full/device-write 실패는 미검증이며 정상 reboot나 주입한 storage 오류로
 대체하지 않습니다. 전체 malformed/quota wire 근거는 과거 명시한 snapshot 범위이고,
 이번에는 endpoint와 종료 검사를 재실행했습니다.
+
+## Build20–23: offline 등록과 기능별 C 헤더
+
+이번 단위의 완료 기준은 Build23입니다. Frozen tree는
+`971211be4af9187b9becb97d4cb919d6680ceee1`이며 source archive109개 파일을 모두
+해당 tree와 byte 단위로 대조했습니다. Archive SHA256은
+`1f326beeb77693e6b9609a24643dffdd04e36b0c6beedc1869c915d03775fb5e`입니다.
+[빌드 산출물](/var/tmp/consent-artifacts/gbs-build-23/)에는 소스, RPM4개,
+`snapshot.json`, `source-tree.txt`, `changed-files.tsv`, GBS/CTest 로그와 checksum이
+있습니다. 저장소 작업 디렉터리에서 다음 명령으로 빌드했습니다.
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+GBS는12개 통과, root 전용4개 skip(CTest 총16개)입니다. `root-fixtures.log`에는
+네 실행파일(storage preparation, offline identity, offline registration,
+image authority)의 실제 emulator 실행이 있습니다. Repository offline 회귀20그룹도
+함께 통과했고 transient unit은 exit0입니다. Private preparation fixture는 운영
+SMACK/systemctl 동작을 생략하며, 실제 target helper/service 시작에서 별도로 검증합니다.
+
+공개 C 헤더10개를 `src/consent/inc/`에서 기능별로 분리하고 `consent.h` umbrella를
+유지했습니다. C wrapper도 기능별로 분리했습니다. 41번째 공개 함수는 명시적인
+offline registration handle 생성 함수입니다. 같은 `consent_register()`가 DB나
+승인을 만들지 않고 영속 STAGED를 반환합니다. Update 등 다른 handle API는
+거부하며 일반 online 오류가 offline 쓰기로 전환되지 않습니다. CMake/spec의
+license 주석은 제거하고 소스 notice와 RPM License metadata는 유지했습니다.
+
+`public-installed-abi.log`는 고정 runtime/devel RPM과 archive의 consumer 시험만
+사용합니다. 설치된10개 헤더의 독립·중복·역순 include를 C11/C++17로 검증했습니다.
+C/C++ consumer를 GBS SDK loader로 실행했고 선언·export·양쪽 consumer 참조가
+정확히41개로 일치하며 C++ 구현 심볼은 노출되지 않습니다. 설치된 pkg-config의
+공개 `capi-base-common` 의존성도 확인했습니다. SDK 개발 파일은0.4.83이고 target
+runtime은 `capi-base-common-0.4.82-1` 그대로입니다. 일치하는 target0.4.82 devel을
+확보하지 못했으므로 target 헤더 설치·검증, core runtime upgrade, `--nodeps`나
+허위 Provides를 사용했다고 주장하지 않습니다.
+
+[Target 근거](/var/tmp/consent-artifacts/emulator-build-23/)에는 정확한
+`sdb -s emulator-26101` 명령과 고정 scenario script 복사본이 있습니다.
+Runtime·daemon·tests RPM만 정상 의존성 transaction으로 설치했습니다. 선택한
+emulator는 x86_64 Linux4.4.35이며 기존 security_fw UID/GID402를 사용합니다.
+
+| 근거 | 실제 결과와 범위 |
+| --- | --- |
+| `root-fixtures.log` | 보호 경로·0711 거부·FIFO/nonregular·128개/4MiB 상한·버전/해시/중복/변조 거부·sync 불확실성/재시도·root/thread/fork 제한·실제 nonroot 경로 접근·generation lifecycle·이미지 밖 대상 불변을 통과했습니다. |
+| 같은 로그의 repository 시험 | DB 소실 뒤 receipt dedup, 결정적 revision 순서, obsolete 원결과, 같은 generation의 unregister tombstone, 다른 package 보존, postcommit generation/DB 변경 fence를 통과했습니다. Typed malformed/I/O 오류가 import/Open/마지막 Snapshot까지 보존되고, 앞서 수행한 tentative invalidation도 rollback되어 기존 persistent 승인/revision을 유지합니다. 성공·예외 모두 strict mode가 복원됩니다. |
+| `offline.log` | Socket 없는 실제 C 등록이 STAGED를 반환하고 retry/conflict/미지원 메서드를 검증했습니다. Malformed와 schema2 authority 모두 preflight -22로 DB 생성 전에 시작이 차단됐습니다. 정상 내용 복원 후 복수 app·다른 package가 CONSENT_REQUIRED이며 live lifecycle 배제, 재시작, DB 삭제, unregister 후 미처리 old seed, 재설치 generation을 통과했습니다. Grant0과 정확한 integrity `ok`를 확인했습니다. |
+| `platform-offline.log` | 운영 daemon이 실제 설치된 `org.tizen.calendar` app/package만 import하고, 실제 `attach-panel-camera`에 대한 잘못된 package 주장과 stale generation을 거부했습니다. 중지한 DB를 readonly 검사하여 정상 정의만 존재하고 grant0임을 확인했습니다. 제품 roles는 변경 없이 기본 거부이며 caller PID18676·daemon PID18667의 로그를 연결했습니다. 실제 pre-hello 반환은 OUTCOME_UNKNOWN이며 endpoint 인증 거부로 해석하지 않습니다. |
+| `regression.log` | 새 격리 상태의 basic SYNC/ASYNC/UI/authorization/session/data cleanup, 비인가 caller, 독립 ONCE/cancel 경쟁, holder 재시작, cache, typed localization, partial-input 종료, pending-DB 종료와 공개 ABI를 모두 통과했습니다. |
+
+Fresh 회귀 supervisor는 패키지 소스 밖 artifact의 `regression-supervisor.sh`에
+보존했습니다. 고정된 기존 scenario를 phase별120초 제한으로 실행하며 원래 authority의
+lifecycle EX 잠금을 유지하고 state/authority/control3개 저장소를 보존·복원합니다.
+Revoke/update/suspend/독립 ACTIVE close/remove/recovery 뒤 첫 cache request는 원래
+lease 이내였습니다(37518/42431/34197/34553/38839/67470us). 종료 시험은 실제2바이트
+partial input, COMMIT 전 gate에 도착한 mutation, release 전 stop-admission,
+정상 process 종료와 재시작 후 영속 revoke를 확인합니다. 새 전체 malformed-wire/quota
+또는 강제 전원 차단 시험으로 확대 해석하지 않습니다.
+
+실제 성공한 주요 명령은 다음과 같습니다.
+
+```sh
+systemd-run --wait --pipe --unit=consent-offline-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-offline-test.sh
+systemd-run --wait --pipe --unit=consent-offline-platform-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-offline-platform-test.sh
+systemd-run --wait --pipe --unit=consent-regression-twentythree \
+  -p SmackProcessLabel=System /bin/sh /tmp/consent-regression.sh
+```
+
+중간 결과는 별도로 보존합니다. Build20은 최종 ancestor·저장 metadata 검증 보강 전의
+root/격리 trial 통과입니다. Build21은 GBS·root/ABI·실제 pkgmgr·기존 회귀가
+통과했으나 offline 음성 startup fixture가 GC된 unit의 `reset-failed`에서 중단됐습니다.
+Basic의 첫 시도도 기존 test state가 있어 fresh-state 전제에서 거절됐습니다.
+Build22는 script만10줄 추가/2줄 삭제했고 정상 malformed 시작 거부까지 도달했으나
+target에 `cmp`가 없어 중단됐습니다. Build23은 그1줄만 실행 성공을 확인하는
+sha256sum2회와 digest 비교로 대체했습니다(3줄 추가/1줄 삭제). Production 소스는
+21부터23까지 동일합니다. 성공한22 binary+23 script trial은
+`emulator-build-22/trial23-script.log`로 명시 구분했고, 위 최종23 결과는 모두23
+RPM/script를 사용했습니다.
+
+`cleanup.log`와 `installed-rpm-hashes.log`에서 원래 운영 DB/registry inode
+128673/128674, 원래 installations.conf 부재, 원본 격리 저장소 복원과 lifecycle
+잠금 해제를 확인했습니다. 운영 service/socket은 active이고 security_fw402/System,
+CAP_SYS_PTRACE-only(`0x80000`), NoNewPrivileges=yes입니다. 격리 service/socket은
+중지했고 일반 test daemon으로 복원했으며 observer/gate/임시 journal override가
+없습니다. 설치 바이너리7개의 hash가 정확한23 RPM payload와 일치합니다. Helper
+경로를 잘못 지정한 진단2회는 로그에 남겼고 실제 패키지의
+`/usr/sbin/consent-storage-prepare`로 최종 재확인하여 exit0입니다. Target의
+`/opt/var/lib/` 아래 `consent-offline-evidence-18021`,
+`consent-offline-platform-18618`, `consent-regression-evidence-18896`에는 fixture
+결과를 보존했으며 원본 저장소는 정상 경로에 돌려놓았습니다.
+
+이번 증분은 명시적인 root system-service/image 등록 API와 첫 시작 reconciliation의
+완료입니다. 제품 Installer transaction hook, 실제 승인 UI나 제품 role identity를
+배포한 것은 아닙니다. Reconciliation은 startup-only이므로 수정된/deferred authority는
+service 재시작이 필요합니다.23에서 reboot/poweroff를 새로 실행하지 않았으며 정상
+boot 근거는19 범위입니다. 강제 전원 차단, 실제 filesystem-full/device-write failure,
+automatic spool pruning은 검증 완료 주장에 포함하지 않습니다. 최종 근거 문단은
+고정 빌드 뒤 작성한 문서이며 그 source archive를 소급 변경하지 않습니다.
