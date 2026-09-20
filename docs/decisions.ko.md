@@ -222,6 +222,42 @@ schema 1에서 transaction으로 이행한다. 유효한 persistent grant·defin
 보존하며 임시 상태에는 기존 restart 무효화 정책을 적용한다. 알 수 없는 미래
 schema version은 명시적 오류로 차단한다.
 
+## D-09: 데이터 출처와 최종 승인 경계
+
+데이터 사용·파생 연산은 저장된 artifact 출처를 기준으로 검증한다. 여러 부모와
+다단계 파생의 모든 원본을 포함하며, 호출자가 보낸 조건 필드로 저장된
+grant/definition 연결을 대신하지 않는다. 파생 metadata 생성과 사용 가능한 데이터
+metadata 반환 전에 holder instance, subject/profile, session generation과 유효 수명,
+artifact 보관 기한, 철회, definition version, 신뢰 설치 generation을 확인한다.
+보호된 설치 authority는 SQLite transaction 밖에서 바뀔 수 있으므로 commit 후
+성공 게시 직전에도 해당 검증을 반복한다. 다음 주기적 Tick까지 기다려야만 이전
+설치를 거부하는 구조는 허용하지 않는다.
+
+접근 소비와 보관은 구분한다. ONCE 사용 횟수를 소비했다고 이미 획득한 artifact가
+무효가 되지는 않으며, 접근 grant의 만료를 artifact 보관 정책으로 대신하지 않는다.
+파생 artifact의 합성 receipt는 원본 획득 receipt가 아니다. 재검증으로 보관 기한을
+늘리거나 새 holder instance에 사용 권한을 이전하지 않는다. 게시 전 검증 실패로
+이미 commit된 artifact가 남더라도 동일한 출처 검증에 의해 사용할 수 없어야 한다.
+
+UI 응답 transaction에서 새로 승인한 grant를 기록한 뒤 현재 요청의 모든 조건을
+재평가한다. 소비하지 않는 QUERY 의미를 사용하고 전체·조건별 최종 결과를 함께
+산출한다. prompt 대기 중 기존 허용 조건이 철회·만료·소비될 수 있으므로 현재
+판단을 ALLOWED로 덮어쓰지 않는다. 자동으로 팝업을 다시 열지 않고 최종 결과를
+한 번 반환한다. 실제 실행 직전 AUTHORIZE의 원자적 AND 평가와 소비는 유지한다.
+
+재평가에서 부족한 조건이 발견되면 요청을 INVALIDATED와 명시적 사유로 완료하고
+실제 조건별 결과를 보존한다. 사용자가 새로 명시 승인한 grant는 유지하지만 이
+복합 요청은 진행하지 못한다. UI 거부 시 기존 조건은 현재 평가값을 보존하고
+이번에 거부한 조건을 DENIED로 기록한다. 재평가 예외는 transaction을 rollback하고
+오류를 반환하며 가상의 결정을 만들지 않는다. 이미 완료된 요청의 과거 결과는
+이후 철회 때문에 소급 변경하지 않는다.
+
+회귀 시험은 다음 Tick 전 generation 회전, commit과 게시 사이 회전, 혼합·중첩
+파생의 일부 원본 무효화, 다른 package artifact 보존, ONCE 소비 후 유효 보관을
+포함한다. UI 시험에서는 다른 조건 승인 대기 중 기존 허용 조건을 변경하고
+QUERY가 grant를 소비하지 않음을 확인한다. 이 결정은 수정 계약이며 build10
+checkpoint에서는 후속 구현·검증 전까지 해당 경로를 미완료로 명시한다.
+
 ## 완료 전에 확인할 초기 검토 사항
 
 - 이전 handle을 닫은 뒤 관련 DB와 journal 파일들을 함께 격리·정리해야 한다.

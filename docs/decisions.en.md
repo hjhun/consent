@@ -242,6 +242,49 @@ Version the new durable ACK table as schema 2 and migrate schema 1 transactional
 Preserve valid persistent grants/definitions and apply normal restart invalidation
 to transient state. Unknown future schema versions remain explicit errors.
 
+## D-09: Data provenance and final approval boundaries
+
+Validate data-use and derived-data operations against stored artifact provenance,
+including every source in multiple-parent and multi-level derivations. Caller
+requirement fields are not a replacement for the recorded grant/definition links.
+Check holder instance, subject/profile, session generation and active lifetime,
+artifact retention, revocation, definition version and trusted installation
+generation before creating derived metadata or returning usable data metadata.
+Repeat the applicable checks after commit and before publishing success, since
+the protected installation authority can change outside the SQLite transaction.
+Do not depend on a later periodic tick to reject an obsolete installation.
+
+Keep access consumption separate from retention: a consumed ONCE allowance does
+not itself invalidate an already acquired artifact, and access-grant expiry must
+not replace artifact retention policy. A derived artifact's synthetic receipt is
+not an original acquisition receipt. Revalidation must never extend retention or
+silently grant a new holder instance data-use rights. Failed publication checks
+must leave any committed artifact unusable under the same provenance checks.
+
+Within the UI response transaction, evaluate all current request conditions
+again after recording the newly approved grants. Use non-consuming QUERY
+semantics and derive the overall and per-condition final results together.
+Previously allowed conditions may have been revoked, expired or consumed while
+the prompt was open; never overwrite their current result with ALLOWED. Return
+one final result without automatically opening another prompt. AUTHORIZE still
+performs the atomic conjunction and consumption immediately before execution.
+
+If re-evaluation finds a missing condition, finish the request as INVALIDATED
+with a reason and retain its actual per-condition results. Explicitly approved
+new grants remain valid even though this combined request cannot proceed. On UI
+denial, retain current evaluations for existing conditions and mark the newly
+refused conditions DENIED. Evaluation exceptions roll back the transaction and
+return an error, never a fabricated decision. Later revocation does not rewrite
+the historical result of an already completed request.
+
+Required regression cases include generation rotation before the next tick,
+rotation between commit and publication, one invalid source in mixed and nested
+derivations, unaffected artifacts from other packages, and valid retention after
+ONCE consumption. UI tests must change an already allowed condition while another
+condition is awaiting approval and verify that QUERY does not consume grants.
+This decision defines the repair contract; the build10 checkpoint explicitly
+records these paths as incomplete until later implementation and verification.
+
 ## Initial review findings to verify before completion
 
 - Recovery must retire/quarantine the applicable DB and journal artifact set
