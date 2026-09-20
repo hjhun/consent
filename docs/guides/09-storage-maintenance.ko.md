@@ -96,7 +96,7 @@ monotonic clock 이동으로 실제 Tick의 분 단위 예약, 오류 fencing, �
 새 실행 파일과 기존 repository, provenance, storage fault, offline repository
 회귀를 SDK 헤더로 빌드하고 host GLib/SQLite에서 실행한 보조 native 검증입니다.
 GBS/emulator, 실제 디스크 부족·장치 I/O·전원 차단·지속 부하 검증을 뜻하지
-않습니다. target 실행 결과는 [검증 기록](../verification.ko.md)에 기록합니다.
+않습니다. target 실행 결과는 [검증 기록](07-verification.ko.md)에 기록합니다.
 
 ### Build 24 target 검증
 
@@ -157,6 +157,6 @@ ledger 전체를 잃으면 일부 과거 operation ID에 대한 정보도 잃습
 복구는 결과 불확실성을 유지하고 새 승인을 요구해야 합니다. reset을 넘어서는
 exactly-once 보장에는 추가 durable retry 프로토콜이 필요합니다.
 
-기존 경계는 [저장소 설계](../storage-design.ko.md),
-[설치 authority](../installation-authority.ko.md),
-[오프라인 등록](../offline-registration.ko.md)을 참고합니다.
+기존 경계는 [저장소 설계](../design/04-storage-design.ko.md),
+[설치 authority](03-installation-authority.ko.md),
+[오프라인 등록](04-offline-registration.ko.md)을 참고합니다.

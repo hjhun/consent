@@ -16,7 +16,11 @@
 #ifndef TIZEN_CONSENT_H_
 #define TIZEN_CONSENT_H_
 
-/* Public C API umbrella. Each feature header can also be included alone. */
+/**
+ * @file consent.h
+ * @brief Public C API umbrella; each feature header may also be included alone.
+ * @see CONSENT_MODULE
+ */
 #include "consent_common.h"
 #include "consent_client.h"
 #include "consent_params.h"

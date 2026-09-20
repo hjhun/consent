@@ -5,7 +5,8 @@
 Develop the Tizen consent framework: `consent`, a public C API library with a
 C++ implementation, and `consentd`, a C++ daemon. Keep this guide in English.
 
-Read `docs/CEP_Consent_Framework.md` before implementation and revisit the
+Start with `docs/README.md` for the documentation reading order.
+Read `docs/design/01-consent-framework.md` before implementation and revisit the
 relevant sections for each change. It is a design proposal, not a statement
 that its APIs, schema, or examples have already been implemented. Distinguish
 explicit requirements from proposals and open decisions. Direct user
@@ -95,7 +96,10 @@ src/
   tests/                # Unit and integration test source code
 packaging/              # RPM spec, SMACK manifest, systemd units
 scripts/                # Build/deployment/test orchestration, when needed
-docs/                   # Design, bilingual guides, architecture, test evidence
+docs/
+  README.md             # Documentation index and reading order
+  design/               # Numbered proposal, architecture, protocol and decisions
+  guides/               # Numbered bilingual development and integration guides
 ```
 
 Keep implementation, private headers, and test program source under `src/`.
@@ -247,16 +251,24 @@ user edits and untracked design files. Commit or push only when requested.
 
 ## Documentation and completion
 
-Keep `docs/CEP_Consent_Framework.md` as the design reference. Record resolved
+Keep `docs/design/01-consent-framework.md` as the design reference. Record resolved
 design choices and deviations with rationale; avoid silently rewriting the
 original proposal to imply implementation or verification.
 
-Deliver paired guides such as `docs/developer-guide.ko.md` and
-`docs/developer-guide.en.md`, plus `docs/architecture.ko.md` and
-`docs/architecture.en.md`. Keep each pair synchronized. Cover build/package
+Deliver paired guides such as `docs/guides/01-development.ko.md` and
+`docs/guides/01-development.en.md`, plus `docs/design/02-architecture.ko.md` and
+`docs/design/02-architecture.en.md`. Keep each pair synchronized. Cover build/package
 commands, deployment, API examples, identity rules, callbacks, tests, DB
 recovery, troubleshooting, and known limitations. Include Mermaid component,
 request/response sequence, and lifecycle/recovery diagrams matching the code.
+
+Keep the English root `README.md` as the project entry point and
+`docs/README.md` as the bilingual navigation index. Separate numbered design
+documents under `docs/design/` from numbered developer guides under
+`docs/guides/`. Keep document numbers in their titles and update relative links
+when paths change. Reserve Guide 02 for the public C API and Guide 08 for the
+Consent UI proof of concept; describe their actual implementation and validation
+status without implying production integration.
 
 A feature is complete only when implementation and packaging are integrated,
 relevant tests pass, available emulator checks have been performed, and the

@@ -36,6 +36,11 @@ SET(CONSENT_INSTALLATIONS "${CONSENT_AUTHORITY_DIR}/installations.conf" CACHE FI
   "Root-owned installation generation registry")
 OPTION(CONSENT_BUILD_TOOLS "Build C API exerciser programs" ON)
 OPTION(CONSENT_BUILD_TEST_DAEMON "Build isolated integration daemon" OFF)
+OPTION(CONSENT_BUILD_POC "Build isolated .NET approval UI and participant mocks" OFF)
+SET(CONSENT_POC_SOCKET_PATH "/opt/var/lib/consent-poc-runtime/consent.sock")
+SET(CONSENT_POC_STATE_DIR "/opt/var/lib/consent-poc-state")
+SET(CONSENT_POC_AUTHORITY_DIR "/opt/var/lib/consent-poc-authority")
+SET(CONSENT_POC_ROLE_CONFIG "/etc/consent-poc/roles.conf")
 OPTION(CONSENT_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 SET(CONSENT_TEST_ROOT "/tmp/consent-test" CACHE PATH
   "Root-protected isolated integration test directory")
@@ -64,6 +69,44 @@ INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/consentd.service"
   packaging/consentd.socket DESTINATION "${UNITDIR}")
 INSTALL(FILES packaging/roles.conf DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/consent"
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
-FILE(GLOB CONSENT_DOCUMENTS CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/docs/*.md")
-INSTALL(FILES ${CONSENT_DOCUMENTS}
-  DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+INSTALL(FILES README.md AGENTS.md LICENSE DESTINATION "${CMAKE_INSTALL_DOCDIR}")
+INSTALL(DIRECTORY docs/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/docs"
+  FILES_MATCHING PATTERN "*.md")
+
+IF(CONSENT_BUILD_POC)
+  CONFIGURE_FILE(packaging/consentd-poc.service.in consentd-poc.service @ONLY)
+  INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/consentd-poc.service"
+    packaging/consentd-poc.socket packaging/consent-poc-register.service
+    DESTINATION "${UNITDIR}")
+  INSTALL(FILES packaging/consent-poc-roles.conf
+    DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/consent-poc" RENAME roles.conf)
+  INSTALL(PROGRAMS packaging/consent-poc-register.sh
+    DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/poc" RENAME consent-poc-register)
+  FILE(GLOB_RECURSE CONSENT_UI_SOURCES CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/src/consent-ui/*.cs"
+    "${PROJECT_SOURCE_DIR}/src/consent-ui/*.csproj"
+    "${PROJECT_SOURCE_DIR}/src/consent-ui/*.xml")
+  LIST(FILTER CONSENT_UI_SOURCES EXCLUDE REGEX "/(obj|bin)/")
+  SET(CONSENT_UI_TPK "${PROJECT_BINARY_DIR}/org.tizen.consentui-0.1.0.tpk")
+  ADD_CUSTOM_COMMAND(OUTPUT "${CONSENT_UI_TPK}"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
+      --source-dir "${PROJECT_SOURCE_DIR}/src/consent-ui"
+      --work-dir "${PROJECT_BINARY_DIR}/poc-ui-build"
+      --output "${CONSENT_UI_TPK}" --tizen-net-version 14.0.0.19364
+    DEPENDS ${CONSENT_UI_SOURCES} "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
+    VERBATIM)
+  ADD_CUSTOM_TARGET(consent-ui-tpk ALL DEPENDS "${CONSENT_UI_TPK}")
+  INSTALL(FILES "${CONSENT_UI_TPK}" DESTINATION "${CMAKE_INSTALL_DATADIR}/consent/poc")
+  SET(CONSENT_NEGATIVE_TPK "${PROJECT_BINARY_DIR}/org.tizen.consentui.negative-0.1.0.tpk")
+  ADD_CUSTOM_COMMAND(OUTPUT "${CONSENT_NEGATIVE_TPK}"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
+      --source-dir "${PROJECT_SOURCE_DIR}/src/consent-ui"
+      --work-dir "${PROJECT_BINARY_DIR}/poc-negative-build"
+      --output "${CONSENT_NEGATIVE_TPK}" --tizen-net-version 14.0.0.19364
+      --project negative/ConsentUINegative.csproj
+      --package org.tizen.consentui.negative --assembly ConsentUINegative
+    DEPENDS ${CONSENT_UI_SOURCES} "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
+    VERBATIM)
+  ADD_CUSTOM_TARGET(consent-ui-negative-tpk ALL DEPENDS "${CONSENT_NEGATIVE_TPK}")
+  INSTALL(FILES "${CONSENT_NEGATIVE_TPK}" DESTINATION "${CMAKE_INSTALL_DATADIR}/consent/poc")
+ENDIF()

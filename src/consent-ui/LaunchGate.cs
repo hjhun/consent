@@ -1,0 +1,37 @@
+/*
+ * Copyright (c) 2026 Samsung Electronics Co., Ltd. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+namespace ConsentUI;
+
+internal sealed record LaunchRequest(string Operation, string? RequestId, string? Locale);
+
+internal sealed class LaunchGate
+{
+  private bool active;
+
+  public LaunchRequest? ReadInitial(Func<LaunchRequest> read)
+  {
+    // App-control senders have no authority to cancel/replace a visible choice.
+    // Do not even inspect later payloads (including DEFAULT launcher relaunch).
+    if (active) return null;
+    var request = read();
+    if (request.Operation != "http://tizen.org/appcontrol/operation/view" ||
+        !PromptSnapshot.ValidRequestId(request.RequestId) ||
+        !PromptSnapshot.ValidLocale(request.Locale))
+      throw new InvalidOperationException("Invalid initial app-control");
+    active = true;
+    return request;
+  }
+}

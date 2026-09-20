@@ -60,3 +60,20 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/storage_prepare.cc")
       RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
   ENDIF()
 ENDIF()
+
+IF(CONSENT_BUILD_POC)
+  ADD_EXECUTABLE(consent-installation-authority-poc installation_authority.cc)
+  TARGET_LINK_LIBRARIES(consent-installation-authority-poc PRIVATE consent-common PkgConfig::GLIB)
+  TARGET_COMPILE_DEFINITIONS(consent-installation-authority-poc PRIVATE
+    CONSENT_AUTHORITY_DIR="${CONSENT_POC_AUTHORITY_DIR}"
+    CONSENT_INSTALLATIONS="${CONSENT_POC_AUTHORITY_DIR}/installations.conf")
+  ADD_EXECUTABLE(consent-storage-prepare-poc storage_prepare.cc)
+  TARGET_INCLUDE_DIRECTORIES(consent-storage-prepare-poc PRIVATE "${PROJECT_SOURCE_DIR}/src")
+  TARGET_COMPILE_DEFINITIONS(consent-storage-prepare-poc PRIVATE
+    CONSENT_STATE_DIR="${CONSENT_POC_STATE_DIR}"
+    CONSENT_AUTHORITY_DIR="${CONSENT_POC_AUTHORITY_DIR}"
+    CONSENT_SERVICE_USER="${CONSENT_SERVICE_USER}"
+    CONSENT_SERVICE_UNIT="consentd-poc.service")
+  INSTALL(TARGETS consent-installation-authority-poc consent-storage-prepare-poc
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/poc")
+ENDIF()

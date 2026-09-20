@@ -99,7 +99,7 @@ The new executable and existing repository, provenance, storage-fault and offlin
 repository regressions were compiled with SDK headers and run against host GLib
 and SQLite as supplementary native checks. This is not a GBS/emulator, physical
 disk-full, device I/O, power-loss or sustained-load verification claim. Target
-execution belongs in [the verification record](../verification.en.md).
+execution belongs in [the verification record](07-verification.en.md).
 
 ### Build 24 target checkpoint
 
@@ -163,6 +163,6 @@ response/cache epoch alone cannot prove permanent deduplication of those unknown
 IDs. Recovery must retain uncertain-outcome semantics and require fresh approval;
 an across-reset exactly-once claim requires an additional durable retry protocol.
 
-See [storage design](../storage-design.en.md),
-[installation authority](../installation-authority.en.md) and
-[offline registration](../offline-registration.en.md) for the existing boundaries.
+See [storage design](../design/04-storage-design.en.md),
+[installation authority](03-installation-authority.en.md) and
+[offline registration](04-offline-registration.en.md) for the existing boundaries.

@@ -5,3 +5,5 @@
 /graphify-out/
 *.rpm
 __pycache__/
+/src/consent-ui/**/bin/
+/src/consent-ui/**/obj/
