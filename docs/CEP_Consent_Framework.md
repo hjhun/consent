@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 상태 | Draft — 설계 검토용 |
-| 문서 버전 | 0.3 |
+| 문서 버전 | 0.4 |
 | 작성일 | 2026-09-20 |
 | 대상 시스템 | Tizen AI OS |
 | 라이브러리 | `consent` — 공개 C API, 내부 C++ 구현 |
@@ -12,6 +12,7 @@
 | 저장소 | SQLite3 기반 `consent.db` |
 | 이벤트 루프 | GLib `GMainLoop` / `GMainContext` |
 | IPC endpoint | Unix domain stream socket `/run/.consentd.sock` |
+| IPC 직렬화 | bundle의 `parcel` library와 C++ `Parcelable`, 공통 IDL 기반 생성 코드 |
 | 기동 | `consentd.socket` → `consentd.service`, systemd socket activation |
 | CEP 식별자 | 미배정 |
 | 근거 | 본 대화에서 논의한 요구와 설계안 |
@@ -21,6 +22,8 @@
 **읽기 안내:** 요구·책임은 1~5절, 승인·세션 수명은 6절, C API는 7절, 시나리오는 8~10절, 다국어는 11절, 캐시·대화 데이터·삭제는 12절, DB는 13절, 운영·검증·미결정 사항은 14~22절에 정리한다. v0.2의 주요 추가 내용은 6.1~6.8, 7.7, 9.6~9.10, 12.5~12.11 및 세션·데이터 관련 SQL이다.
 
 v0.3은 4.2~4.10의 GLib 실행·스레드·잠금·소켓 프로토콜, 14.5~14.8의 systemd unit·FD 수명·종료, 15.1~15.4의 ucred·로그·인증에 대한 구현 지침을 추가한다. GMainLoop, 서브스레드 연결 처리, endpoint, socket activation과 peer credential 사용은 사용자 확정 요구다. 구체적인 스레드 개수·unit의 계정·큐 상한은 제품 환경에 맞춰 확정할 제안값이다.
+
+v0.4는 사용자 지시에 따라 client–consentd 통신에 `~/tizen/platform/core/base/bundle`의 parcel library를 사용하도록 확정한다. 기존 JSON wire 제안과 구현 중 검토한 GVariant wire 선택을 대체한다. 사용자가 허용한 통신 IDL과 간단한 compiler는 PO가 공통 메시지 규격을 유지하는 방법으로 채택했다. 4.8절의 parcel·IDL 계약은 구현 지침이며, 생성기·새 wire·GBS·emulator 검증 완료를 뜻하지 않는다. 상세 결정과 실제 검증 상태는 별도 결정 기록과 개발 가이드에서 구분한다.
 
 ## 1. 개요
 
@@ -60,6 +63,8 @@ v0.2부터 사용자와 agent의 논리적 대화 세션, 실제 connection, 세
 | U-16 | systemd service와 socket unit으로 socket activation을 지원한다. |
 | U-17 | socket의 peer credential/ucred를 이용해 client PID·UID 등의 정보를 얻고 로그로 출력한다. |
 | U-18 | GLib/GIO API를 활용해 이벤트·스레드·동기화·I/O·종료를 구현한다. |
+| U-19 | client와 consentd 사이의 통신은 bundle의 parcel library로 Parcelable 데이터를 교환한다. |
+| U-20 | 필요한 통신 IDL과 간단한 compiler를 검토·반영할 수 있으며 설계 문서를 정비해 개발을 계속한다. |
 
 ### 2.2 본 CEP의 제안
 
@@ -74,6 +79,7 @@ v0.2부터 사용자와 agent의 논리적 대화 세션, 실제 connection, 세
 - 세션 종료 시 접근·생성을 먼저 차단하고 데이터 삭제 완료는 보유자별 ACK로 추적한다.
 - 장기 client 연결은 고정 I/O 서브스레드의 GMainContext에서 multiplex하고, 짧은 작업만 GThreadPool에 배정한다.
 - 공유 상태는 GMutex와 소유 스레드 원칙으로 보호하며 GRecMutex는 필요한 재진입 구간에 제한한다.
+- U-19를 구현하는 공유 메시지는 작은 IDL을 원본으로 두고 C++ Parcelable 코드를 결정적으로 생성한다. 이는 U-20에 따라 PO가 채택한 구현 결정이며 범용 RPC compiler 도입을 뜻하지 않는다.
 
 ### 2.3 목표
 
@@ -156,7 +162,7 @@ DB 쓰기는 초기 구현에서 하나의 직렬화된 작업 경로를 사용�
 |---|---|---|---|
 | Main thread | GMainContext + GMainLoop | listener 접수, 시작·종료, signal, 정책·요청·session 상태 투영, timer, UI 연동 조정 | client read/write, 사용자 응답, SQLite commit 대기 |
 | I/O 서브스레드 | 고정 개수 GThread, 각자 GMainContext + GMainLoop | 연결 소유, ucred 취득, async read/write, frame 조립, 송신 큐, 단절 감지 | 사용자 응답·DB 결과를 blocking wait |
-| 작업 pool | 상한 있는 GThreadPool | JSON·schema·scope 정규화 등 짧고 독립적인 작업 | 연결 수명 전체 점유, 승인 팝업 대기 |
+| 작업 pool | 상한 있는 GThreadPool | parcel payload·IDL schema 검증, scope 정규화 등 짧고 독립적인 작업 | 연결 수명 전체 점유, 승인 팝업 대기 |
 | DB executor | 전용 GThread + GAsyncQueue | SQLite 연결 소유, 모든 초기 read/write 직렬화, transaction·복구 | 사용자 응답, socket I/O |
 
 기본안은 I/O 서브스레드 1개에서 여러 연결을 비동기로 관리하고, 필요할 때 고정 개수를 늘리는 것이다. 작업 pool 크기는 실측으로 정한다. 연결 수만큼 스레드를 무제한 생성하지 않는다. 접수 자체는 main에서 수행할 수 있지만, incoming handler에서는 짧은 admission·참조 전달만 하고 실제 client 프로토콜 처리는 서브스레드로 넘긴다.
@@ -263,10 +269,10 @@ GMutex는 공유 전에 초기화하고 모든 사용자·job 종료 후 clear�
 
 endpoint는 pathname 형식의 AF_UNIX/SOCK_STREAM `/run/.consentd.sock`이다. 이름의 점은 파일 이름의 일부이며 abstract socket을 뜻하지 않는다. SOCK_STREAM은 message 경계를 보존하지 않으므로 한 번 read한 데이터가 한 요청이라고 가정하지 않는다. [Linux unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html)
 
-wire 형식 초안은 `4-byte unsigned big-endian payload length + UTF-8 JSON payload`다. payload에는 protocol version, message kind, protocol_request_id, method·params 또는 result·error를 둔다. 최종 직렬화 규격은 구현 단계에서 고정하지만 길이 제한·correlation·에러 계약은 필수다.
+wire 형식은 `4-byte unsigned big-endian payload length + parcel payload`로 한다. payload는 bundle의 `tizen_base::Parcel`과 `tizen_base::Parcelable`을 사용하는 공통 메시지다. protocol version, message kind, protocol_request_id, method·params 또는 result·error를 명시적으로 표현한다. 정수와 길이는 `Parcel::SetByteOrder(true)`로 big-endian을 지정하며 native C 구조체의 메모리 표현을 전송하지 않는다. JSON/GVariant blob을 감싼 것을 Parcelable 메시지 구현으로 취급하지 않는다. 아래 JSON 예시는 도메인 모델 설명용이며 IPC 인코딩 규격이 아니다.
 
 - header·body의 분할 수신, 여러 frame의 합쳐진 수신, EOF 중간 종료를 처리한다.
-- 크기 검증 전 payload 길이만큼 메모리를 할당하지 않는다. 최대 frame bytes·JSON 깊이·requirements 개수·연결별 in-flight 수를 제한한다.
+- 크기 검증 전 payload 길이만큼 메모리를 할당하지 않는다. 최대 frame bytes·IDL record 깊이·문자열 길이·배열 및 requirements 개수·연결별 in-flight 수를 제한한다.
 - 한 연결은 하나의 reader와 하나의 직렬 송신 큐를 사용한다. 여러 thread가 같은 stream에 frame을 직접 write하지 않는다.
 - 읽기·쓰기 각각 하나의 진행 중 async 작업을 기본으로 하고 callback 완료 후 다음 단계로 간다. read와 write는 별도의 방향으로 진행할 수 있다.
 - 접수 응답과 최종 완료가 역전되지 않게, 같은 request의 receipt를 먼저 송신 큐에 넣는다. 이미 완료된 결과도 이후 frame으로 큐잉한다.
@@ -275,6 +281,27 @@ wire 형식 초안은 `4-byte unsigned big-endian payload length + UTF-8 JSON pa
 - handshake·불완전 frame에는 별도 기한을 둔다. 유효한 장기 구독 연결의 단순 idle을 사용자 승인 기한과 혼동해 닫지 않는다.
 
 GInputStream/GOutputStream의 async read/write 계열과 GCancellable을 사용한다. 송신 버퍼는 async 완료까지 보관한다. partial I/O를 직접 구현할 경우 offset과 WOULD_BLOCK 처리를 유지한다. request마다 GCancellable을 무분별하게 공유하지 않고, 연결 단위 취소와 operation 취소의 범위를 구별한다.
+
+#### 4.8.1 Parcelable 메시지와 경계 검사
+
+기존 AUL `ac581e7`의 `src/aul/socket/packet.hh`처럼 메시지 객체가 `Parcelable`을 구현하고 `WriteToParcel()`/`ReadFromParcel()`에서 필드 순서를 정의한다. `Parcel::WriteParcelable()`과 `GetData()`/`GetDataSize()`로 frame을 구성한다. 공개 C API는 내부 C++ 타입이나 wire buffer의 소유권을 호출자에게 노출하지 않는다.
+
+- 생성된 reader는 모든 정수 읽기의 오류를 확인하고 길이·개수를 할당/반복 전에 검사한다. 문자열은 wire 길이, 남은 바이트, 끝 NUL, 내부 NUL 부재, UTF-8을 확인한다.
+- 조사한 parcel 구현의 `ReadString()`은 선언 길이에 따라 먼저 할당하며 안전한 문자열 종료를 별도로 검증하지 않는다. 비신뢰 frame에는 이를 직접 적용하지 않고 Parcel의 정수·byte 읽기를 사용하는 제한된 공통 reader를 둔다.
+- 조사한 `ReadParcelable()`은 가상 `ReadFromParcel()` 호출 후 성공을 반환한다. 따라서 생성 객체가 decode 오류/유효성을 별도로 보존하고 호출자가 검사해야 한다. 이 반환값만으로 메시지를 신뢰하지 않는다.
+- 모든 필드를 읽은 뒤 reader 위치와 payload 크기가 일치해야 한다. 잘린 필드, 알 수 없는 버전·메시지 종류, 중복 필드, 남은 바이트, 잘못된 correlation은 거부한다.
+- 정렬과 직렬화 순서를 고정해 작업 fingerprint를 안정적으로 계산한다. 임의 padding이나 포인터 값은 직렬화하지 않는다. 초기 primitive는 고정 폭 정수와 길이가 제한된 문자열로 시작하며 bool/float/native struct의 ABI 표현에 의존하지 않는다.
+- Parcel과 STL의 메모리 할당 예외는 C ABI·GLib callback 경계 안에서 처리한다. 초기화 실패나 부분 decode 객체를 성공 결과로 노출하지 않는다.
+
+#### 4.8.2 작은 IDL과 compiler
+
+IDL은 공유 메시지의 버전·필드·타입·상한에 대한 단일 원본이다. 단순한 선언 문법 또는 JSON 형식의 IDL로 고정 폭 정수, bounded UTF-8 문자열, record, bounded array를 표현한다. Python 표준 라이브러리 기반의 작은 compiler로 C++ Parcelable 선언·정의와 검증 경로를 생성한다. 범용 서비스 실행기나 네트워크 호출 코드는 생성하지 않는다.
+
+IDL과 compiler 소스는 `src/` 아래에 둔다. CMake가 빌드 디렉터리에 생성물을 만들고 client와 consentd가 같은 결과를 링크한다. Python은 빌드·테스트 의존성으로 제한하며 설치된 라이브러리와 데몬의 실행 시 의존성이 아니다. 생성 코드에도 기존 appfw 형식의 copyright와 Apache-2.0 전체 고지를 넣는다.
+
+compiler는 중복 이름/필드, 알 수 없는 타입, 잘못된 상한, 지원하지 않는 재귀 구조를 오류로 처리한다. 입력에서 임의 코드를 평가하거나 실행하지 않는다. 동일한 IDL은 timestamp 없이 동일한 출력을 생성해야 하며 실패 시 부분 생성물을 정상 산출물로 남기지 않는다. 정확한 문법·메시지 목록·필드 번호/순서·호환성 규칙은 실제 schema와 함께 문서화한다. wire 변경 시 version과 시험 벡터를 갱신하며 기존 payload를 새 형식으로 추측해 읽지 않는다.
+
+생성 코드의 roundtrip 외에도 잘림, 초과 길이/개수, 잘못된 문자열 종료, 중복, trailing bytes, 잘못된 version, 분할 frame을 검증한다. compiler의 결정성·오류 진단과 CMake 재생성도 시험한다. 호스트 생성 성공만으로 대상 parcel ABI·GBS 빌드·emulator 통신 검증을 대체하지 않는다.
 
 ### 4.9 DB와 main projection의 일관성
 
@@ -1459,7 +1486,7 @@ SIGTERM·SIGINT는 glib-unix의 signal source를 main context에 attach해 받�
 
 ### 14.8 GLib·systemd 빌드와 호환성
 
-기본 링크 대상은 `glib-2.0`, `gio-2.0`, `gio-unix-2.0`, `libsystemd`, `sqlite3`이며 GLib Unix signal header는 `<glib-unix.h>`를 사용한다. 개발 빌드에서는 pkg-config로 실제 include·link flag를 가져온다. `_GNU_SOURCE`는 Linux ucred를 사용하는 translation unit에서 시스템 헤더보다 먼저 정의하거나 빌드 옵션으로 설정한다.
+기본 링크 대상은 `glib-2.0`, `gio-2.0`, `gio-unix-2.0`, `libsystemd`, `sqlite3`, `parcel`이며 GLib Unix signal header는 `<glib-unix.h>`를 사용한다. parcel은 bundle 저장소에서 제공하는 실제 pkg-config 이름이며 C++ 헤더는 `<parcel/parcel.hh>`와 `<parcel/parcelable.hh>`다. 개발 빌드에서는 pkg-config로 실제 include·link flag를 가져온다. IDL compiler의 Python은 별도 빌드·시험 의존성이다. `_GNU_SOURCE`는 Linux ucred를 사용하는 translation unit에서 시스템 헤더보다 먼저 정의하거나 빌드 옵션으로 설정한다.
 
 사용 GLib·systemd 최소 버전은 대상 Tizen SDK에서 확정한다. 최신 웹 문서의 라이브러리 버전을 대상 기기 버전으로 가정하지 않는다. 최신 편의 API 없이도 GMainLoop, GThread, GThreadPool, GMutex, GAsyncQueue, GIO async stream, Linux SO_PEERCRED와 기본 sd-daemon API로 구성할 수 있도록 한다. GLib structured logging을 채택할 경우 지원 버전을 확인하고 기본 로그 adapter와의 호환 경로를 둔다.
 
@@ -1732,6 +1759,9 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 | A-58 | slow reader로 무효화 송신 큐 초과 | 연결 종료 후 client cache UNSYNCED, 재동기화 전 재사용 금지 |
 | A-59 | ucred 연결·종료 로그 확인 | client instance별 PID·UID·GID·이유 표시, 민감 payload 미출력 |
 | A-60 | shutdown 기한 내 holder ACK 미완료 | cleanup 복구 정보 유지, 허위 CLOSED 저장 없이 다음 기동에서 복구 |
+| A-61 | IDL 생성 Parcelable을 client와 consentd가 교환 | 실제 parcel library로 같은 필드·고정 byte order를 복원, GBS 및 emulator에서 확인 |
+| A-62 | 잘린 parcel, 초과 길이/개수, NUL 오류, trailing bytes, 잘못된 version | 할당·접근 전에 제한 검사, 부분 객체로 요청 실행 금지 |
+| A-63 | 같은 IDL 반복 생성, 잘못된 schema, IDL 수정 후 빌드 | 동일 출력, 명확한 실패, 양측 코드 재생성 및 라이선스 유지 |
 
 성능 기준값과 지원 locale별 화면 품질 기준은 구현 전 제품 요구로 추가한다. 이 문서 작성 과정에서 위 제품 테스트가 실행되었다는 의미는 아니다.
 
@@ -1764,7 +1794,7 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 | O-23 | I/O worker·pool·queue 상한 | Tizen 메모리·동시 client·UI 제어 경로 부하 실측 |
 | O-24 | GLib/GIO·systemd 최소 버전 | 대상 SDK API와 unit 지시어 지원 확인 |
 | O-25 | service 계정·socket group·실행 경로 | 패키징 정책, 기존 서비스 접근 권한, StateDirectory 지원 |
-| O-26 | wire version·최대 frame·timeout | client ABI 호환, framing 크기와 handshake·send backpressure 정책 |
+| O-26 | parcel IDL의 상세 schema·wire version·최대 frame·timeout | parcel 사용과 작은 생성기는 확정. 상세 필드·호환성·framing 크기·handshake·backpressure는 구현과 검증으로 고정 |
 | O-27 | 종료·로그 backend | journal·Tizen 로그 adapter, shutdown budget·레이트 제한 |
 
 ## 21. 대화 요구 추적
@@ -1790,6 +1820,8 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 | UDS /run/.consentd.sock | 4.8, 14.5~14.6 |
 | systemd socket activation | 14.5~14.8 |
 | ucred의 PID·UID·GID 로그 | 15.1~15.4 |
+| bundle parcel library 기반 Parcelable 통신 | 2.1, 4.8, 14.8, 19.2 |
+| 통신 IDL·간단한 compiler와 설계 문서 정비 | 4.8.2, 19.2, 20 |
 
 ## 22. 참고 자료와 문서 이력
 
@@ -1805,9 +1837,12 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 - [Linux unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html): Unix socket와 peer credential.
 - [systemd.socket](https://man7.org/linux/man-pages/man5/systemd.socket.5.html), [systemd.service](https://man7.org/linux/man-pages/man5/systemd.service.5.html): upstream systemd manual의 man7 배포본.
 - [sd_listen_fds](https://man7.org/linux/man-pages/man3/sd_listen_fds.3.html), [sd_is_socket_unix](https://man7.org/linux/man-pages/man3/sd_is_socket.3.html), [sd_notify](https://man7.org/linux/man-pages/man3/sd_notify.3.html): activation FD 검증과 readiness.
+- 로컬 `~/tizen/platform/core/base/bundle`의 `src/parcel/parcel.hh`, `parcelable.hh`, `parcel.cc`, `parcel.pc.in`: 실제 parcel API, 오류 처리, byte order, 의존성. 대상 SDK API 지원은 별도로 확인한다.
+- AUL `ac581e7`의 `src/aul/socket/packet.hh`: 기존 appfw Parcelable 메시지와 소유권 스타일 참고.
 
 | 버전 | 변경 |
 |---|---|
 | 0.1 | 대화 내용을 통합. 사용자 요구와 제안을 구분하고 API·상태·다국어·캐시·복수 승인·DB·복구·검증 계획을 작성 |
 | 0.2 | 논리적 대화 세션·connection 수명·재연결·SESSION 캐시를 기본 범위로 추가. 접근 승인과 결과 보관·reuse를 분리하고 취득 receipt·data-use permit·provenance·holder cleanup 계약, API·DB·수용 기준을 통합 개정 |
 | 0.3 | GMainLoop·고정 I/O 서브스레드·bounded GThreadPool·GMutex/GRecMutex 규칙을 추가. `/run/.consentd.sock` UDS와 systemd socket/service unit, 상속 FD·ucred 로그 C++ 예시, GLib dispatch·framing·backpressure·종료 계약 및 추가 수용 기준 반영 |
+| 0.4 | 사용자 요구로 JSON/GVariant wire 선택을 bundle parcel·Parcelable로 대체. 작은 IDL/compiler, 제한된 reader, 생성·호환성·라이선스·빌드 의존성과 검증 기준을 추가. 구현 완료와 설계 결정을 구별 |

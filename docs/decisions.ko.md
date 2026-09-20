@@ -142,12 +142,33 @@ SQLite 3.50.2를 보고했다. 검증 기록에는 실제 명령을 남겨야 �
 검증 조건으로 채택한다. root도 역할 검사를 우회하지 않는다. 역할 설정은 신원이
 검증될 때까지 비어 있는 기본 거부 상태로 시작한다.
 
-CEP의 JSON 인코딩은 제안이다. 추가 직렬화 의존성을 줄이기 위해 4바이트 big-endian
-길이와 GLib GVariant `a{ss}` payload를 사용하는 v1을 허용한다. payload byte order,
-필수 필드, untrusted/normal-form 검사, UTF-8, 중복 거부, frame·field·개수 상한,
-구조화한 문자열 인코딩, canonical fingerprint, 시험 벡터를 구현에서 명시해야 한다.
-공개 C ABI는 wire 표현에 종속시키지 않고 비-GLib 구현에 충분한 규격을 문서화한다.
-호환성은 가정하지 않고 검증한다.
+사용자의 후속 요구에 따라 초기 GVariant 선택을 `platform/core/base/bundle`의
+실제 `parcel` library로 대체한다. 4바이트 big-endian 길이 frame 안에 생성한 C++
+`tizen_base::Parcelable` 메시지를 넣는다. 양측에서 `SetByteOrder(true)`로 고정 폭
+정수와 길이의 byte order를 지정한다. 공개 C ABI는 wire 표현과 분리한다. 이전
+GVariant 빌드 결과는 중간 검증이며 새 프로토콜의 검증 근거가 아니다.
+
+## D-06: 작은 IDL compiler와 제한된 Parcel 읽기
+
+사용자가 허용한 consent 전용 IDL과 Python 표준 라이브러리 기반 compiler를 채택한다.
+소스·schema는 `src/`에 두고 빌드 디렉터리에 결정적인 C++ Parcelable 코드를 생성해
+client와 daemon이 공유한다. Python은 빌드·시험 의존성이다. 제한된 문자열·배열,
+record, 고정 폭 정수를 지원하고 중복 선언, 알 수 없는 타입, 잘못된 상한, 지원하지
+않는 재귀 구조를 거부한다. 생성물에도 전체 라이선스 고지를 넣는다. 범용 RPC
+runtime으로 확장하거나 기존 GLib/UDS 실행 모델을 교체하지 않는다.
+
+모든 primitive read 결과, 할당 전 길이, 남은 바이트, UTF-8, 문자열 종료, 중복,
+correlation, version, trailing bytes를 검사한다. 조사한 Parcel `ReadString()`은
+wire 길이만큼 먼저 할당하며 문자열의 안전한 종료를 보장하지 않는다. 비신뢰
+문자열에는 Parcel 정수·raw-byte API에 기반한 제한된 helper를 사용한다.
+`ReadParcelable()`은 void virtual reader 호출 후 항상 성공을 반환하므로 생성
+객체가 decode 오류 상태를 별도로 보존·노출해야 한다.
+
+native struct·native endian·float/double을 피한다. 부분 송신이 끝날 때까지 Parcel
+또는 소유한 바이트를 유지하며 할당 예외를 C ABI·GLib 경계에서 처리한다. 결정적
+생성, 잘못된 IDL, wire 시험 벡터, 잘림·초과·malformed parcel, 실제 emulator 통신을
+검증한다. 독립적인 DB/registry canonical 형식과 wire versioning은 명시적으로
+구별한다. CEP v0.4는 이 요구를 기록하며 구현 완료를 주장하지 않는다.
 
 ## 완료 전에 확인할 초기 검토 사항
 
@@ -174,6 +195,10 @@ CEP의 JSON 인코딩은 제안이다. 추가 직렬화 의존성을 줄이기 �
   권한 검사 어댑터를 참고한다.
 - AUL `ac581e7`: `src/aul/launch_with_result.cc`는 mutex 안에서 콜백 항목의 소유권을
   이전하고 잠금 해제 후 콜백을 호출한다.
+- AUL `ac581e7`: `src/aul/socket/packet.hh`와 `socket/client.cc`는 기존 Parcelable
+  작성·송신 패턴을 보여준다. Bundle `5ef6073`(2026-01-14)에 제한된 codec에 필요한
+  정수·byte order·reader 위치 API가 있다. 새로운 capacity 생성자·UInt8 메서드는
+  대상 확인 없이 사용하지 않는다.
 - 확인 가능한 tizen-watcher 이력은 2026-02-02의 `a1de9f6`부터다. 요청한 레이아웃과
   현재 패키징의 근거로 사용하고 1월까지의 수작업 스타일은 AMD/AUL을 참고한다.
 - 대상 architecture·의존성 버전, 역할 신원, 설치 세대 확인 수단, 자원·시간 상한,

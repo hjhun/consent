@@ -58,6 +58,8 @@ For new C++ code, follow the observed conventions:
 - Validate parameters at API boundaries, return consistent errors, and keep
   implementation symbols hidden. Never let C++ exceptions cross the C ABI.
 - Preserve license notices and follow the repository's Apache-2.0 license.
+  Every new source file, including generated code and tests, must contain the
+  full copyright and Apache-2.0 notice used by the reference appfw code.
 - Use the platform logging conventions with useful error context; do not log
   raw conversation data, sensitive scope values, or credentials.
 
@@ -120,6 +122,12 @@ verify the target settings instead of copying service identities blindly.
 - Use `AF_UNIX` / `SOCK_STREAM` at `/run/.consentd.sock` and systemd socket
   activation through `consentd.socket` and `consentd.service`. Validate inherited
   FDs and ownership; do not independently bind or unlink the systemd endpoint.
+- Use the actual parcel library from `~/tizen/platform/core/base/bundle` for
+  client-daemon Parcelable messages. Keep a small shared IDL and deterministic
+  compiler under `src/`, with generated C++ code shared by both endpoints.
+  Specify byte order and validate primitive reads, bounded strings/arrays,
+  message version, and full payload consumption. Do not trust `ReadParcelable()`
+  alone to report decoding failure or apply unbounded `ReadString()` to input.
 - Obtain and log kernel `SO_PEERCRED` PID/UID/GID. A shared UID alone does not
   establish an application role; integrate platform identity/authorization.
 - Keep listener/lifecycle work on a GLib main loop, connection I/O on a bounded

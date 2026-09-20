@@ -152,13 +152,37 @@ An initial root daemon and `0660 root:system_share` socket are accepted subject 
 target group, participant DAC, and SMACK verification. Root does not bypass role
 checks. Role configuration starts empty/default-deny until identities are proven.
 
-The CEP JSON encoding is a proposal. Accept a version-1 GLib GVariant `a{ss}`
-payload with a four-byte big-endian length to avoid another serialization
-dependency. The implementation must specify payload byte order, required fields,
-untrusted/normal-form validation, UTF-8, duplicate rejection, frame/field/count
-limits, structured-string encoding, canonical fingerprints, and test vectors.
-Keep public C ABI independent of this wire representation and document enough for
-a non-GLib implementation. Compatibility is a tested property, not an assumption.
+The user's subsequent requirement replaces the initial GVariant choice with the
+actual `parcel` library from `platform/core/base/bundle`. Use generated C++
+`tizen_base::Parcelable` messages inside the four-byte big-endian length frame.
+Call `SetByteOrder(true)` on both sides for fixed-width integer fields and lengths.
+Keep public C ABI independent of the wire representation. Earlier GVariant build
+results are intermediate evidence and do not validate the replacement protocol.
+
+## D-06: Small IDL compiler and bounded Parcel decoding
+
+Adopt a consent-specific IDL and a Python-standard-library compiler as permitted
+by the user. Store source/schema under `src/`, generate deterministic C++
+Parcelable code into the build directory, and share it between client and daemon.
+Python is a build/test dependency. Use bounded strings/arrays, records, and
+fixed-width integers; reject duplicate declarations, unknown types, invalid
+bounds, and unsupported recursion. Generated files carry the full license notice.
+Do not grow this into a general RPC runtime or replace the required GLib/UDS model.
+
+Validate all primitive read results, lengths before allocation, remaining bytes,
+UTF-8, string termination, duplicates, correlation, version, and trailing bytes.
+The inspected Parcel `ReadString()` allocates from the wire length before
+validating data and does not establish safe string termination. Use bounded
+helpers built on Parcel's integer/raw-byte APIs for untrusted strings.
+`ReadParcelable()` always returns success after its void virtual reader, so
+generated objects must preserve and expose their own decode error state.
+
+Avoid native structs, native-endian encoding and float/double. Keep the Parcel or
+owned encoded bytes alive across partial writes. Handle allocation exceptions at
+C ABI and GLib boundaries. Test deterministic generation, invalid IDL, known wire
+vectors, truncated/oversized/malformed Parcel data, and actual emulator exchange.
+The independent DB/registry canonical format must remain explicitly separate
+from wire versioning. CEP v0.4 records this requirement without claiming completion.
 
 ## Initial review findings to verify before completion
 
@@ -188,6 +212,10 @@ a non-GLib implementation. Compatibility is a tested property, not an assumption
   shows socket-derived identity and platform authorization adapters.
 - AUL `ac581e7`: `src/aul/launch_with_result.cc` transfers callback ownership under
   a mutex and invokes the callback after releasing it.
+- AUL `ac581e7`: `src/aul/socket/packet.hh` and `socket/client.cc` show the existing
+  Parcelable/write/send pattern. Bundle `5ef6073` (2026-01-14) already provides
+  the integer, byte-order and reader-position APIs needed for the bounded codec;
+  avoid relying on newer capacity constructors or UInt8 methods without target checks.
 - Available tizen-watcher history starts with `a1de9f6` on 2026-02-02. Use it for
   requested layout/current packaging; use January AMD/AUL for the historical
   handwritten-style criterion.
