@@ -745,7 +745,7 @@ The source implements10 independent public C headers under `src/consent/inc/`,
 with `consent.h` preserved as the umbrella, and splits C wrappers by function.
 The new41st exported function creates an explicit offline registration handle.
 The same public `consent_register()` returns durable STAGED, without creating
-consent.db or approvals. Other handle operations, including update, are rejected;
+consent.db or approvals. Other domain operations, including update, are rejected;
 ordinary online errors never enable offline writes. CMake/spec license comments
 are omitted; source notices and the RPM License metadata remain.
 

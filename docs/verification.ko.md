@@ -698,7 +698,7 @@ SMACK/systemctl 동작을 생략하며, 실제 target helper/service 시작에�
 공개 C 헤더10개를 `src/consent/inc/`에서 기능별로 분리하고 `consent.h` umbrella를
 유지했습니다. C wrapper도 기능별로 분리했습니다. 41번째 공개 함수는 명시적인
 offline registration handle 생성 함수입니다. 같은 `consent_register()`가 DB나
-승인을 만들지 않고 영속 STAGED를 반환합니다. Update 등 다른 handle API는
+승인을 만들지 않고 영속 STAGED를 반환합니다. Update 등 다른 도메인 API는
 거부하며 일반 online 오류가 offline 쓰기로 전환되지 않습니다. CMake/spec의
 license 주석은 제거하고 소스 notice와 RPM License metadata는 유지했습니다.
 
