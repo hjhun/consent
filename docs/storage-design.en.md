@@ -146,6 +146,16 @@ server-selected policy/text revisions, exact scope, purpose, holder/recipient,
 allowed modes and retention. A random token is bound to the request and UI
 identity/process instance; a new display rotates it. Expiry, cancellation,
 session generation changes and policy changes invalidate old responses.
+After an ALLOWED UI response inserts its explicit new grants, the same
+transaction rechecks every condition in QUERY mode. It never consumes ONCE.
+If a previously satisfied condition expired, was revoked or was consumed while
+UI waited, the request finishes INVALIDATED with a reason and current per-row
+decisions. The newly approved grant remains available, but no new prompt opens
+automatically. DENIED responses also recheck the previously satisfied conditions
+and mark only the conditions refused by this prompt as DENIED. A recheck error
+rolls back the transaction and leaves the request pending. Once finalized, a
+request's recorded outcome is historical; actual execution always needs a new
+authoritative check.
 Fallback is exact locale, explicit `ko-KR → ko` or `en-US/en-GB → en`, then
 registered default. Unregistered general script fallback is not guessed.
 Current templates are literal UTF-8: `{...}` placeholders are rejected until a
@@ -165,6 +175,21 @@ metadata, with expiry measured from acquisition, not registration or reuse.
 Repeated registration returns the original artifact and deadline. Derived
 artifacts retain all parent grant dependencies, the earliest expiry and highest
 sensitivity; cross-session/holder/purpose/scope expansion is rejected.
+Each derivative materializes the union of its parents' transitive source-grant
+dependencies. A shared validator checks exact holder/process/use context,
+subject/profile, current session generation/deadlines, artifact state/expiry,
+source revocation, current policy and installed generation. Every parent is
+checked before derivation; original/derived registration, data checking and the
+`check(operation=reuse-data)` alias repeat validation after commit before
+publishing success. An external installation change therefore does not depend
+on the next timer tick to deny stale provenance. A committed but unpublished
+artifact remains recorded and becomes cleanup-pending on reconciliation.
+
+ONCE consumption or TIMED access-grant expiry alone does not erase separately
+retained data: the artifact's inherited retention deadline remains the limit.
+Deleting a physical parent copy does not by itself revoke a retained child;
+the child's transitive grant dependencies and inherited deadline still apply.
+Explicit revocation or installation/policy invalidation blocks dependent copies.
 
 Close, revocation and TTL expiry block use before cleanup. A holder's original
 process instance can ACK its own artifacts. A restarted process with the same
@@ -208,7 +233,22 @@ repository tests; they do not claim concurrent IPC coverage.
 registry directory-sync uncertainty across retry/restart and corruption-code
 preservation across rollback. A metadata-corruption fault stays sticky on the
 original connection until it is closed, so repeated failing incarnation reads
-cannot masquerade as successful recovery. The test exits nonzero on any failed assertion.
+cannot masquerade as successful recovery. Injected `SQLITE_FULL` and
+`SQLITE_IOERR_WRITE` return codes exercise repeated failure and successful retry:
+the DB inode, epoch and quarantine inventory stay unchanged, and the existing
+persistent approval and definition survive. This tests error classification;
+it does not fill a filesystem or reproduce an actual device write failure.
+The test exits nonzero on any failed assertion.
+
+`repository_provenance_test.cc` checks B-only installation rotation without a
+timer tick through A+B parents and multiple derivative levels, unrelated package
+isolation, ONCE/TIMED access versus retention, and inherited deadlines. Its
+test-only SQLite interposers rotate the installation authority immediately after
+the real COMMIT returns for original/derived registration and both data-check
+routes. It requires an error instead of success and verifies that committed
+unpublished artifacts remain unusable and discoverable for cleanup.
+`repository_ui_test.cc` covers prior-condition changes while UI waits and the
+full-AND finalization contract, including rollback on a reevaluation error.
 
 `repository_crash_test.cc` pauses a child writer before journal synchronization,
 before main-DB synchronization and after successful commit before response,
@@ -224,6 +264,12 @@ check on the same `Repository` must recover a new epoch with no old approvals.
 Both cases also reopen the database and verify integrity. These tests do not
 demonstrate abrupt power-loss durability or ONCE-consumption durability across
 restart. The validation guide identifies which source snapshot actually passed.
+The fixture defaults to `/tmp`, which can be tmpfs on the emulator. To exercise
+its persistent filesystem, use
+`repository-crash-test --state-root /opt/var/lib/consent-test` after creating
+that isolated protected test root. Each scenario creates and removes only its
+own `mkdtemp` child. Selecting a persistent path still does not simulate power
+loss or force the device's physical cache behavior.
 
 GBS builds and emulator execution are recorded in the project validation guide;
 this document is not evidence that each acceptance criterion has passed.

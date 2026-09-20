@@ -167,3 +167,25 @@ projection transaction을 수행하며 두 파일이 하나의 원자적 transac
 검출합니다. registry에는 사용자 결정·사용 기록이 없으므로 복구 시 되살리지
 않습니다. DB 전체 소실 시 정리 메타데이터도 사라질 수 있습니다. holder는 새
 epoch에서 사용을 차단하고 재조정해야 하며 물리 삭제가 완료됐다고 추정하면 안 됩니다.
+
+## Holder 재시작 후 정리
+
+새 holder는 위임된 subject/profile과 reconcile=1로
+consent_cleanup_get_pending을 호출해 차단된 데이터를 발견합니다. stable holder
+신원을 이전 process instance와 별도로 검증하며 cleanup만 허용합니다. 사용/등록은
+기존 소유 instance와 유효한 provenance가 계속 필요합니다. Schema2는 artifact
+소유자를 덮어쓰지 않고 인증된 ACK actor를 별도 기록합니다.
+
+```mermaid
+sequenceDiagram
+  participant H as 재시작 holder
+  participant D as consentd
+  participant DB as SQLite executor
+  H->>D: cleanup_list(context, reconcile=1)
+  D->>DB: stable holder와 context 검증
+  DB-->>H: 상한이 있는 차단 artifact metadata
+  H->>H: 실제 holder cleanup 시도
+  H->>D: data_release(artifact, success, reconcile=1)
+  D->>DB: ACK actor와 성공/실패 저장
+  DB-->>H: DELETED 또는 CLEANUP_FAILED
+```

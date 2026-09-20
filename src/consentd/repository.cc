@@ -375,6 +375,8 @@ class Repository::Impl final {
   std::string GrantKey(const Message& request, int index,
       const Message& definition);
   bool ReceiptValid(const std::string& receipt);
+  void ValidateArtifactProvenance(const Peer& peer, const Message& request,
+      const std::string& artifact);
   void ValidateDefinition(const Message& definition);
   void ResetRuntime();
 
@@ -1456,6 +1458,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     std::string decision = Get(request, "decision");
     Require(decision == "ALLOWED" || decision == "DENIED", -EINVAL,
         "invalid UI decision");
+    Message reevaluated;
     std::string mode = Get(request, "grant_mode", "ONCE");
     if (decision == "ALLOWED") {
       Require(mode == "ONCE" || mode == "SESSION" || mode == "TIMED" || mode == "PERSISTENT",
@@ -1480,17 +1483,37 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
             .Bind(8, mode).Bind(9, expires).Bind(10, mode == "ONCE" ? 1 : -1).Run();
       }
     }
+    // Conditions that were satisfied when the prompt opened can expire,
+    // be revoked or be consumed while UI waits. Recheck the entire AND in
+    // this transaction without consuming ONCE grants or adopting UI roles.
+    std::vector<std::string> grants;
+    reevaluated = CheckConditions(peer, pending, &grants, false);
+    if (decision == "ALLOWED" && Get(reevaluated, "decision") != "ALLOWED")
+      decision = "INVALIDATED";
+    if (decision == "DENIED") {
+      for (int i = 0; i < count; ++i) {
+        std::string key = "r" + std::to_string(i) + ".decision";
+        if (Get(pending, key) != "ALLOWED")
+          reevaluated[key] = "DENIED";
+      }
+    }
     Message final_payload = pending;
     for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
       final_payload.erase(field);
     for (int i = 0; i < count; ++i) {
       std::string key = "r" + std::to_string(i) + ".decision";
-      if (decision == "ALLOWED" || Get(final_payload, key) != "ALLOWED")
-        final_payload[key] = decision;
+      final_payload[key] = Get(reevaluated, key);
+    }
+    if (decision == "INVALIDATED") {
+      final_payload["reason"] = "authorization conditions changed while awaiting approval";
+      reevaluated["reason"] = final_payload["reason"];
     }
     Statement update(db_, "UPDATE requests SET state=?,token='',payload=? WHERE id=? AND state='PENDING'");
     update.Bind(1, decision).Bind(2, Pack(final_payload)).Bind(3, Get(pending, "request_id")).Run();
-    result = {{"request_id", Get(pending, "request_id")}, {"decision", decision}};
+    result = std::move(reevaluated);
+    result["request_id"] = Get(pending, "request_id");
+    result["decision"] = decision;
+    result["cacheable"] = "0";
   }
   Bump();
   transaction.Commit();
@@ -1512,6 +1535,44 @@ Message Repository::Impl::Revoke(const Peer& peer, const Message& request) {
   Bump();
   transaction.Commit();
   return {};
+}
+
+void Repository::Impl::ValidateArtifactProvenance(const Peer& peer, const Message& request,
+    const std::string& artifact) {
+  Context(peer, request);
+  SessionState(peer, request, true);
+  Statement metadata(db_, "SELECT session,holder,instance,purpose,recipient,scope,expires,state "
+      "FROM artifacts WHERE id=?");
+  metadata.Bind(1, artifact);
+  Require(metadata.Row(), -ENOENT, "artifact not found");
+  Require(metadata.Text(0) == Get(request, "session") && metadata.Text(1) == peer.identity &&
+      metadata.Text(2) == peer.instance && metadata.Text(3) == Get(request, "purpose") &&
+      metadata.Text(4) == Get(request, "recipient") && metadata.Text(5) == Get(request, "scope"),
+      -EACCES, "artifact ownership or use mismatch");
+  Require(metadata.Text(7) == "ACTIVE" && metadata.Int(6) > Now(), -ESTALE,
+      "artifact blocked or expired");
+  // Derived registration materializes the union of all parents' source grants;
+  // this is the transitive policy provenance, independent of parent residency.
+  Statement sources(db_, "SELECT grants.revoked,grants.version,definitions.active,definitions.config "
+      "FROM artifact_grants "
+      "JOIN grants ON grants.id=artifact_grants.grant_id "
+      "JOIN definitions ON definitions.id=grants.definition "
+      "WHERE artifact_grants.artifact=?");
+  sources.Bind(1, artifact);
+  bool found = false;
+  while (sources.Row()) {
+    found = true;
+    Message definition = Unpack(sources.Text(3));
+    Require(sources.Int(0) == 0 && sources.Int(2) == 1 &&
+        sources.Text(1) == Get(definition, "policy_version"), -ESTALE,
+        "artifact provenance revoked or policy changed");
+    Require(validator_ && validator_(Get(definition, "package"), Get(definition, "app"),
+        Get(definition, "_install_identity")), -ESTALE,
+        "artifact installation identity changed");
+    // Access expiry/ONCE consumption does not shorten the separately granted
+    // retention interval. Artifact expiry, revocation and policy still apply.
+  }
+  Require(found, -ESTALE, "artifact provenance missing");
 }
 
 Message Repository::Impl::Data(const Peer& peer, const Message& request) {
@@ -1658,6 +1719,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
           -EACCES, "parent artifact ownership or use mismatch");
       Require(row.Text(7) == "ACTIVE" && row.Int(6) > Now(), -ESTALE,
           "parent artifact unavailable");
+      ValidateArtifactProvenance(peer, request, parent);
       expires = std::min(expires, row.Int(6));
       level = std::max(level, row.Int(8));
     }
@@ -1683,25 +1745,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
     return {{"artifact", id}, {"permit", id}, {"expires", std::to_string(expires)}};
   }
   if (method == "data_check") {
-    Statement row(db_, "SELECT session,holder,instance,purpose,recipient,scope,expires,state "
-        "FROM artifacts WHERE id=?");
-    row.Bind(1, Get(request, "artifact"));
-    Require(row.Row(), -ENOENT, "artifact not found");
-    Require(row.Text(0) == Get(request, "session") && row.Text(1) == peer.identity &&
-        row.Text(2) == peer.instance && row.Text(3) == Get(request, "purpose") &&
-        row.Text(4) == Get(request, "recipient") && row.Text(5) == Get(request, "scope"),
-        -EACCES, "artifact ownership or use mismatch");
-    Require(row.Text(7) == "ACTIVE" && row.Int(6) > Now(), -ESTALE,
-        "artifact blocked or expired");
-    Statement grants(db_, "SELECT revoked,config FROM artifact_grants JOIN grants ON grants.id=grant_id "
-        "JOIN definitions ON definitions.id=grants.definition WHERE artifact=?");
-    grants.Bind(1, Get(request, "artifact"));
-    while (grants.Row()) {
-      Require(grants.Int(0) == 0, -ESTALE, "artifact provenance revoked");
-      Message definition = Unpack(grants.Text(1));
-      Require(validator_ && validator_(Get(definition, "package"), Get(definition, "app"),
-          Get(definition, "_install_identity")), -ESTALE, "artifact installation identity changed");
-    }
+    ValidateArtifactProvenance(peer, request, Get(request, "artifact"));
     transaction.Commit();
     return {{"decision", "ALLOWED"}};
   }
@@ -1773,6 +1817,12 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
       Require(validator_ && validator_(Get(item->second, "package"), Get(item->second, "app"),
           Get(item->second, "_install_identity")), -ESTALE,
           "installation changed before reply publication");
+    }
+    bool data_check = method == "data_check" ||
+        (method == "check" && Get(request, "operation") == "reuse-data");
+    if (data_check || method == "data_register" || method == "data_register_derived") {
+      ValidateArtifactProvenance(peer, request,
+          data_check ? Get(request, "artifact") : Get(result, "artifact"));
     }
     auto metadata = Snapshot();
     result.insert(metadata.begin(), metadata.end());

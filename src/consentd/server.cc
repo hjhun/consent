@@ -628,6 +628,7 @@ void Server::Write(const std::shared_ptr<Connection>& connection) {
 void Server::Close(const std::shared_ptr<Connection>& connection, const char* reason) {
   if (connection->closed)
     return;
+  const auto pending_input_bytes = connection->input.size();
   connection->closed = true;
   Destroy(connection->read_source);
   Destroy(connection->write_source);
@@ -637,11 +638,11 @@ void Server::Close(const std::shared_ptr<Connection>& connection, const char* re
   connection->input.clear();
   clients_.erase(connection->id);
   --connections_;
-  g_message("event=client-disconnected instance=%llu pid=%ld uid=%lu gid=%lu reason=%s",
+  g_message("event=client-disconnected instance=%llu pid=%ld uid=%lu gid=%lu reason=%s pending_input_bytes=%zu",
       static_cast<unsigned long long>(connection->id),
       static_cast<long>(connection->peer.pid),
       static_cast<unsigned long>(connection->peer.uid),
-      static_cast<unsigned long>(connection->peer.gid), reason);
+      static_cast<unsigned long>(connection->peer.gid), reason, pending_input_bytes);
 }
 
 void Server::Publish(const consent::Message& snapshot) {

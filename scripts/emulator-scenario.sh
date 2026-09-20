@@ -112,11 +112,63 @@ case "$phase" in
   cache)
     "$tools/consent-cache-scenario-isolated" "$(cat "$state/generation")"
     ;;
+  ui-reevaluate)
+    "$scenario" ui-reevaluate "$(cat "$state/generation")"
+    ;;
   races)
     "$scenario" races "$(cat "$state/generation")"
     ;;
   wire)
+    systemctl start consentd-isolated.service
+    daemon_pid=$(systemctl show consentd-isolated.service -p MainPID --value)
+    quota_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
+      grep "$daemon_pid)" | grep -c 'reason=uid-connection-limit' || true)
+    pressure_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
+      grep "$daemon_pid)" | grep -Ec 'reason=(output-limit|write-timeout)' || true)
     "$tools/wire-scenario"
+    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = "$daemon_pid" ]
+    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" > "$runtime/wire-daemon.log"
+    quota_after=$(grep -c 'reason=uid-connection-limit' "$runtime/wire-daemon.log" || true)
+    pressure_after=$(grep -Ec 'reason=(output-limit|write-timeout)' "$runtime/wire-daemon.log" || true)
+    [ "$((quota_after - quota_before))" = 4 ]
+    [ "$pressure_after" -gt "$pressure_before" ]
+    echo "PASS wire same daemon PID=$daemon_pid quota_rejections=4 output-pressure-reason-confirmed"
+    ;;
+  shutdown)
+    systemctl start consentd-isolated.service
+    daemon_pid=$(systemctl show consentd-isolated.service -p MainPID --value)
+    rm -f "$runtime/shutdown-ready"
+    wait_unit=consent-partial-$$
+    systemd-run --unit="$wait_unit" -p SmackProcessLabel=System \
+      -p StandardOutput=journal -p StandardError=journal \
+      "$tools/wire-scenario" --shutdown-wait
+    attempt=0
+    while [ ! -e "$runtime/shutdown-ready" ] && [ "$attempt" -lt 40 ]; do
+      sleep 0.05
+      attempt=$((attempt + 1))
+    done
+    [ -e "$runtime/shutdown-ready" ]
+    waiter_pid=$(systemctl show "$wait_unit" -p MainPID --value)
+    [ "$waiter_pid" -gt 0 ]
+    systemctl stop consentd-isolated.socket consentd-isolated.service
+    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = 0 ]
+    [ "$(systemctl show consentd-isolated.service -p Result --value)" = success ]
+    [ "$(systemctl show consentd-isolated.service -p ExecMainCode --value)" = 1 ]
+    [ "$(systemctl show consentd-isolated.service -p ExecMainStatus --value)" = 0 ]
+    attempt=0
+    while [ "$(systemctl show "$wait_unit" -p MainPID --value)" != 0 ] && [ "$attempt" -lt 20 ]; do
+      sleep 0.05
+      attempt=$((attempt + 1))
+    done
+    [ "$(systemctl show "$wait_unit" -p MainPID --value)" = 0 ]
+    [ "$(systemctl show "$wait_unit" -p Result --value)" = success ]
+    [ "$(systemctl show "$wait_unit" -p ExecMainCode --value)" = 1 ]
+    [ "$(systemctl show "$wait_unit" -p ExecMainStatus --value)" = 0 ]
+    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | grep 'stage=database-drained'
+    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | \
+      grep "pid=$waiter_pid .*reason=daemon-shutdown pending_input_bytes=2"
+    journalctl -u "$wait_unit" --no-pager -o cat -n 8
+    echo "PASS partial-I/O shutdown daemon PID=$daemon_pid normal exit and database-drained"
     ;;
   holder-restart)
     "$scenario" holder-seed "$(cat "$state/generation")"
@@ -190,7 +242,7 @@ case "$phase" in
     ;;
   *) echo "Unknown phase: $phase" >&2; exit 2 ;;
 esac
-if [ "$phase" != basic ]; then
+if [ "$phase" != basic ] && [ "$phase" != shutdown ]; then
   systemctl is-active consentd-isolated.service
 fi
 # Daemon owns the live DB. Perform SQLite readback only with the service stopped.

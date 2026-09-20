@@ -301,3 +301,94 @@ generation/retention/revocation 공통 검증과 검증 경계 사이 generation
 현재 조건 전체의 최종 UI 재평가는 미완료입니다. 실제 AUTHORIZE는 필수 조건의
 AND를 다시 평가하며 request/result/cache는 보호 작업 실행 permit이 아닙니다.
 이 UI advisory 공백도 빌드10 완료 범위에 포함하지 않습니다.
+
+## 빌드11: 시험 초기화 실패, RPM 없음
+
+소스 tree `f4414b0a1fac5861ef9a1d445b5e18471d773062`는 컴파일됐지만
+CTest는4/5만 통과했다. 새 일반 저장소 오류 fixture가 영구 승인 요청을
+만들 때 필수 `operation_id`를 누락하여 FULL/IOERR 주입 전에 실패했다.
+빌드11 RPM 및 emulator 검증을 주장하지 않는다. 소스 archive, 빌드 로그,
+`LastTest.log`, 실패 설명은 `/var/tmp/consent-artifacts/gbs-build-11-failed/`에
+보존했다. 후속 소스에서 operation identity를 추가했으며 이후 성공 결과는
+해당 후속 snapshot의 증거로 구분한다.
+
+## 빌드12: provenance·UI 최종 평가·저장소 오류 회귀
+
+GBS 소스 tree `bea3323de93eb4d843bad2293dc3ed790354e529`, 소스 archive
+SHA256 `5ffd2d2e5a9cf02a917cd281d1b40add34f95f735948e629cfe06db9d949fb6f`에서
+CTest 7개 suite가 모두 통과했다. 고정 소스, RPM 4개, 전체 빌드 로그,
+`LastTest.log`, 파일 목록과 checksum은
+`/var/tmp/consent-artifacts/gbs-build-12/`에 있다. 빌드 명령:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+assert를 켜고 실행했다: client0.59초, crash0.35초, fault0.11초,
+provenance1.60초, repository3.42초, UI1.56초, IDL0.13초. 새 저장소 시험
+2개도 패키징됐다. 정확히 이 runtime/library/test RPM을 `emulator-26101`에
+설치했다. 후속 working tree 변경은 이 증거에 포함하지 않는다. emulator
+스크립트도 최신 작업 파일이 아니라 해당 tree에서 추출했다.
+
+실제 명령은 다음 형식이며 각 phase에 별도 unit을 사용했다.
+
+```sh
+systemd-run --wait --pipe --unit=consent-ui-twelve -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh ui-reevaluate
+# consent-races-twelve/races, consent-holder-twelve/holder-restart,
+# consent-cache-twelve/cache, consent-wire-twelve/wire도 각각 실행.
+systemd-run --wait --pipe --unit=consent-storage-twelve -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/repository-provenance-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-fault-test; /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test'
+```
+
+`/var/tmp/consent-artifacts/emulator-build-12/`의 결과:
+
+- `ui.log`: 실제 C API/Parcel/daemon으로 철회, TIMED 만료, 다른 실행의
+  ONCE 소비, 정상 AND, DENIED를 통과했다. 각각 최종 콜백 1회이며 후속
+  prompt/response 재호출은 실패했다. 새로 승인한 B는 소비되지 않은 ONCE
+  1회를 유지한다. A가 부족하면 실제 조건별 결과·사유와 함께 전체가
+  terminal INVALIDATED가 된다. 별도 저장소 UI suite는 UI-only 신원,
+  재평가 예외 rollback, 같은 토큰 재시도도 검증한다.
+- `races-holder-cache.log`: 독립 연결 ONCE 경쟁과 원격 취소/응답/deadline
+  경쟁, 새 holder 프로세스의 정리 목록 발견·실패·재시도·ACK가 통과했다.
+  원래 cache lease 내 무효화 경과시간은 철회37696µs, 정책37577µs,
+  suspend37560µs, 제거34184µs, DB 삭제54128µs다. 독립 ACTIVE→close
+  cache 무효화는 **이 빌드의 검증 범위가 아니다**.
+- `storage.log`: target에서 provenance 6개가 통과했다. Tick 없이 B만
+  generation을 회전하면 A+B 다단계 파생을 차단하며 다른 package는 유지한다.
+  소비된 ONCE/만료된 TIMED 접근 승인은 독립 보관 권한을 없애거나 TTL을
+  연장하지 않는다. 실제 SQLite COMMIT 반환 직후 generation 회전 주입으로
+  register/derive/data-check/reuse-data의 이전 성공 게시를 차단하고 DB에 남은
+  자식도 사용하지 못한다. 실제 제품 Installer hook이 아닌 격리 authority
+  주입 시험이다.
+- 같은 로그에 UI 7개와 fault 4개가 있으며 FULL/IOERR_WRITE에서도 DB
+  inode·epoch·grant·quarantine 목록을 보존한다. 이 fixture들은 `/tmp`의
+  격리 상태를 사용한다. crash 5개는 영속 `/opt/var/lib/consent-test`의
+  fixture 하위 디렉터리에서 실제 hot journal, unlink+SIGKILL,
+  동일한 살아 있는 writer의 unlink 복구까지 통과했다.
+- `shutdown-wire.log`: wire는 daemon PID17458 유지, checker 정확히
+  허용24/거부4, 실제 output-limit 사유를 확인했다. pressure는 완전한 frame
+  2060개/78280바이트를 보냈고 별도 client가 응답했다. 성공한 각 script phase는
+  integrity가 정확히 `ok`, schema2, 기대 metadata임을 검사한 뒤 PASS를 출력한다.
+
+### 빌드12 shutdown fixture 실패와 남은 응답 게시 경합
+
+엄격한 shutdown 스크립트는 **실패했다**. service stop 뒤 systemd가 unit을
+GC하여 새 show 조회가 필요한 `ExecMainCode=1` 대신 기본값 `0`을 반환했다.
+`shutdown-debug.log`에 실제 실패 조건을 보존했다. waiter journal 및
+`shutdown-daemon.log`에는 PID17664의 SIGTERM 처리, fixture PID17674의
+`reason=daemon-shutdown pending_input_bytes=2`, 이후 database-drained가 있다.
+fixture는 EOF를 보고 성공했다. 그래도 전체 종료 status 검증은 충족하지
+못했으며 pending DB transaction drain 증거도 아니다. 후속 fixture는
+관찰할 unit 객체를 유지한 뒤 stop한다.
+
+이 snapshot 이후 응답 게시 경합을 추가로 발견했다. `Execute`는 provenance
+검사 전에 epoch를 확인하지만 마지막 `Snapshot()`이 그 검사 중 삭제된 DB를
+복구하여 이전 성공 결과에 새 epoch를 붙일 수 있다. 이 빌드는 해당 경합이나
+DB 삭제 계약을 완료하지 않았다. 다음 snapshot에서 초기 Ensure 직후 epoch와
+마지막 snapshot을 비교하고, 불일치 시 이전 성공 필드 없는 오류를 반환해야
+한다. 실제 commit 후 unlink·복구 및 승인 미복원도 회귀로 확인한다. 위에서
+검증한 설치 generation/provenance 수정과는 별도의 제한이다.
+
+빌드13 working tree 변경은 이 증거에 포함하지 않는다. 후속 필수 항목은
+이 epoch 수정, 독립 ACTIVE→close cache 무효화, 엄격한 부분 I/O shutdown
+재검증, 접수된 DB 변경 중 shutdown drain이다. 제품 역할/실제 UI/Installer
+hook, 타입 있는 지역화, 급작스러운 전원 차단은 별도 통합·수용 격차로 남는다.

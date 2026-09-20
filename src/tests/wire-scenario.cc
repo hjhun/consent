@@ -15,6 +15,7 @@
  */
 #include "common/message.hh"
 
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -302,11 +303,42 @@ void SlowReader() {
       "live monitor remained responsive (verify output-limit/write-timeout in daemon log)\n",
       sent, transmitted, transmitted / frame_size);
 }
+
+void ShutdownWait() {
+  constexpr const char* marker = "/tmp/consent-test/shutdown-ready";
+  Connection connection;
+  Require(connection.Hello(), "shutdown initial authenticated hello");
+  Require(connection.Send(std::vector<uint8_t>{0, 0}), "shutdown partial header");
+  const gint64 started = g_get_monotonic_time();
+  // The supervising test removes any old marker before starting this mode.
+  // Exclusive creation prevents a stale marker or symlink from causing an
+  // earlier stop than this connection's actual partial write.
+  int ready = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  Require(ready >= 0, "create fresh shutdown-ready marker");
+  Require(close(ready) == 0, "close shutdown-ready marker");
+  puts("READY wire shutdown: authenticated connection has a two-byte partial header");
+  gint64 remaining = 2000000 - (g_get_monotonic_time() - started);
+  Require(remaining > 0 && connection.Closed(static_cast<unsigned>(remaining / 1000)),
+      "daemon shutdown did not close partial input within two seconds");
+  gint64 elapsed = g_get_monotonic_time() - started;
+  Require(elapsed <= 2000000, "shutdown close exceeded two seconds");
+  printf("PASS wire shutdown: partial-input connection closed in %lld us "
+      "(supervisor must verify systemctl stop and database-drained log)\n",
+      static_cast<long long>(elapsed));
+}
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
+  if (argc != 1 && (argc != 2 || strcmp(argv[1], "--shutdown-wait"))) {
+    fprintf(stderr, "Usage: %s [--shutdown-wait]\n", argv[0]);
+    return 2;
+  }
   try {
+    if (argc == 2) {
+      ShutdownWait();
+      return 0;
+    }
     Framing();
     Malformed();
     ConnectionLimit();

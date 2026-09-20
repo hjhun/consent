@@ -169,6 +169,17 @@ rejected until a typed formatting schema is available. Level 3 permits ONCE
 only. Increment `policy_version` for a changed policy meaning; increment
 `text_revision` for revised translations.
 
+An approval response re-evaluates the full current AND of requirements without
+consuming ONCE grants. For example, A was already allowed while B awaited a
+choice. If A expires, is revoked or is consumed by another operation before the
+user approves B, the request ends as `INVALIDATED`, with current per-condition
+results (A `CONSENT_REQUIRED`, B `ALLOWED`). The explicit, still-valid B grant is
+retained and remains unused. This does not authorize the combined operation.
+The old request is terminal and cannot reopen its prompt automatically; an
+authenticated requester must initiate a new request with fresh request/operation
+IDs if further approval is needed. Actual protected work still requires
+`AUTHORIZE` against all conditions.
+
 For example, an authenticated enforcement service can make an advisory check
 with the following C API sequence. Every nonzero status blocks execution.
 
@@ -241,6 +252,14 @@ selected development emulator as root with the `System` security label.
 `endpoint-fixture` is a separate manual endpoint-authentication fixture excluded
 from CTest because it uses the actual `/run/.consentd.sock` path. Follow the
 [validation evidence](verification.en.md) setup before using it.
+
+Keep shutdown evidence separate for incomplete IPC input, a request waiting for
+UI, and DB work that is actually pending. The manual `wire-scenario --shutdown-wait` fixture proves closure of a connection
+holding a partial header;
+the supervisor also checks normal service exit and the `database-drained` log.
+That alone does not prove a pending DB job was completed. A request awaiting UI
+holds neither a DB transaction nor a worker, so its disconnect/restart behavior
+is a separate scenario. See the recorded results for the exact tested boundary.
 
 Keep process kills, orderly reboots and abrupt emulator power interruption as
 separate test scenarios. Forced DB deletion must target only an isolated test

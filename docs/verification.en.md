@@ -323,3 +323,101 @@ re-evaluation of all current conditions is incomplete. Authoritative AUTHORIZE
 still reevaluates the required conjunction; request/result/cache is not a permit
 to perform protected actions. This separate UI advisory gap is not counted as
 completed by the build10 tests.
+
+## Build11: failed fixture setup, no RPM
+
+The source tree `f4414b0a1fac5861ef9a1d445b5e18471d773062` compiled, but
+CTest passed only4/5: the new generic storage-failure fixture omitted its
+required `operation_id` while creating a persistent approval request. The test
+failed before FULL/IOERR injection. No build11 RPM or emulator validation is
+claimed. The source archive, build log, `LastTest.log` and failure description
+remain in `/var/tmp/consent-artifacts/gbs-build-11-failed/`. Subsequent source
+adds the missing operation identity; successful later results belong to that
+later snapshot.
+
+## Build12: provenance, UI final evaluation and storage-error regressions
+
+GBS source tree `bea3323de93eb4d843bad2293dc3ed790354e529`, source archive
+SHA256 `5ffd2d2e5a9cf02a917cd281d1b40add34f95f735948e629cfe06db9d949fb6f`,
+passed all 7 CTest suites. Frozen source, four RPMs, full build log,
+`LastTest.log`, file manifests and checksums are in
+`/var/tmp/consent-artifacts/gbs-build-12/`. The build command was:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+The tests ran with assertions enabled: client0.59s, crash0.35s, fault0.11s,
+provenance1.60s, repository3.42s, UI1.56s, IDL0.13s. Both new repository tests
+are packaged. The exact runtime/library/test RPMs were installed on
+`emulator-26101`; subsequent working tree changes are excluded from this claim.
+The emulator script was extracted from this tree, not the later working tree.
+
+Actual commands used the following form, with separate units for each phase:
+
+```sh
+systemd-run --wait --pipe --unit=consent-ui-twelve -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh ui-reevaluate
+# Repeat with consent-races-twelve/races, consent-holder-twelve/holder-restart,
+# consent-cache-twelve/cache, consent-wire-twelve/wire.
+systemd-run --wait --pipe --unit=consent-storage-twelve -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/repository-provenance-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-fault-test; /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test'
+```
+
+Results under `/var/tmp/consent-artifacts/emulator-build-12/`:
+
+- `ui.log`: real C API/Parcel/daemon passes revoke, TIMED expiry, externally
+  consumed ONCE, normal AND and DENIED cases. Each produces one final callback;
+  subsequent prompt/response attempts fail. Newly approved B remains a single
+  unused ONCE allowance. Missing A produces terminal INVALIDATED with its real
+  condition result and a reason. The isolated storage UI suite additionally
+  verifies UI-only identity, exception rollback and retry of the same token.
+- `races-holder-cache.log`: independent ONCE contention and remote
+  cancel/respond/deadline races pass; a new holder process discovers cleanup,
+  reports failure and retries/ACKs. Live cache invalidation remains before the
+  original lease expires: revoke37696us, policy37577us, suspend37560us,
+  unregister34184us, DB deletion54128us. Independent ACTIVE→close cache
+  invalidation is **not** covered by this build.
+- `storage.log`: six provenance cases pass on the target. No-Tick B-only
+  generation rotation blocks A+B descendants while another package remains
+  usable; consumed ONCE and expired TIMED access do not erase independent
+  retention or extend its TTL. Actual SQLite COMMIT-return hooks rotate
+  generation for register/derive/data-check/reuse-data; no stale success is
+  published and persisted children cannot be used. These are isolated injected
+  authority tests, not real product Installer lifecycle integration.
+- The same storage log records all seven UI scenarios and four fault cases,
+  including FULL/IOERR_WRITE preserving DB inode, epoch, grants and quarantine
+  inventory. Those fixtures use `/tmp` isolated state. The five crash cases use
+  persistent `/opt/var/lib/consent-test` fixture subdirectories, including a
+  validated hot journal, unlink+SIGKILL and same-live-writer unlink recovery.
+- `shutdown-wire.log`: wire passes with unchanged daemon PID17458, exact
+  24 admitted/4 rejected checker connections and actual output-limit reason.
+  Pressure sent 2060 complete frames/78280 bytes; a separate client remains
+  responsive. Every successful script phase asserts integrity exactly `ok`,
+  schema2 and expected metadata before PASS.
+
+### Build12 shutdown fixture failure and known publication gap
+
+The strict shutdown script **failed**, rather than accepting a default success
+status: after service stop, systemd garbage-collected the unit and a new show
+query returned default `ExecMainCode=0` instead of the required `1`.
+`shutdown-debug.log` preserves the traced assertion. The waiter journal and
+`shutdown-daemon.log` do show PID17664 receiving SIGTERM, closing fixture PID17674
+with `reason=daemon-shutdown pending_input_bytes=2`, then database-drained;
+the fixture observes EOF and reports success. This does not satisfy the full
+strict exit-status assertion and does not prove pending DB transaction drain.
+The follow-up fixture will retain the observed unit objects before stopping.
+
+Review after this snapshot also found an unresolved DB publication race:
+`Execute` checks its epoch before provenance validation, but the final
+`Snapshot()` may recover a DB deleted during that validation and attach its new
+epoch to an old success result. This build does **not** close that race or
+complete the DB deletion contract. The next snapshot must compare the final
+snapshot with the epoch captured immediately after initial Ensure, reject a
+mismatch without old success fields, and test real post-commit unlink plus
+recovery without restoring approvals. This limitation is distinct from the
+installation-generation/provenance fixes verified above.
+
+Build13 working tree changes are not part of this evidence. Remaining targeted
+work is the epoch fix, independent ACTIVE→close cache invalidation, strict
+partial-I/O shutdown retry and an accepted DB mutation drained during shutdown.
+Product roles/real UI/Installer hooks, typed localization and abrupt power loss
+remain separate integration or acceptance gaps.

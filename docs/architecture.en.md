@@ -176,3 +176,25 @@ transaction. Durable independent DB identity detects replacement by an older val
 DB. Recovery never copies user decisions or usage from the registry. Existing
 cleanup metadata can be lost with the whole DB; holders must treat a new epoch as
 invalidation and reconcile, not assume physical deletion succeeded.
+
+## Cleanup after holder restart
+
+A restarted holder discovers blocked data through `consent_cleanup_get_pending`
+with its delegated subject/profile and `reconcile=1`. The stable holder identity
+is checked independently of the old process instance. This grants cleanup only;
+use/registration still requires the owning instance and valid provenance. Schema2
+records the authenticated ACK actor separately without rewriting artifact ownership.
+
+```mermaid
+sequenceDiagram
+  participant H as Restarted holder
+  participant D as consentd
+  participant DB as SQLite executor
+  H->>D: cleanup_list(context, reconcile=1)
+  D->>DB: Stable holder and context check
+  DB-->>H: Bounded blocked artifact metadata
+  H->>H: Attempt actual holder cleanup
+  H->>D: data_release(artifact, success, reconcile=1)
+  D->>DB: Persist ACK actor and success/failure
+  DB-->>H: DELETED or CLEANUP_FAILED
+```

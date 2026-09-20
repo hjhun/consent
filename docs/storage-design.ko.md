@@ -144,6 +144,15 @@ argo만 prompt를 생성합니다. check는 UI를 열지 않습니다. prompt에
 문구는 literal UTF-8이며 typed schema와 scope 결합 formatter를 구현하기 전에는
 `{...}` placeholder를 거부합니다.
 
+UI ALLOWED 응답으로 명시적인 신규 승인을 추가한 뒤 같은 트랜잭션 안에서 모든
+조건을 QUERY 방식으로 다시 확인하며 ONCE는 소비하지 않습니다. UI 대기 중 기존
+조건이 만료·철회되거나 다른 작업에서 소비되었다면 전체 요청은 이유와 현재 조건별
+결과를 포함한 INVALIDATED로 확정합니다. 새로 승인한 grant는 유지하지만 자동으로
+새 prompt를 열지 않습니다. DENIED 응답도 이전에 충족된 조건의 현재 상태를 확인하고
+이번 prompt에서 거부한 조건만 DENIED로 표시합니다. 재검증 오류는 트랜잭션을
+rollback하고 요청을 PENDING으로 유지합니다. 확정된 요청 결과는 이력이며 실제
+실행은 항상 새 원본 권한 확인을 요구합니다.
+
 논리 세션과 IPC 연결을 분리합니다. 세션 제어는 인증된 subject/profile 및 소유
 프로세스 인스턴스에 결합됩니다. ACTIVE 사용은 현재 generation과 idle·절대·lease
 기한을 요구합니다. 명시적인 suspend와 lease 만료는 CONNECTION_BOUND 또는
@@ -157,6 +166,20 @@ idle·절대 수명을 연장하지 않습니다. 초기 구현에는 사용자 
 artifact와 기한을 반환합니다. 파생 artifact는 모든 부모의 grant 의존 관계,
 가장 빠른 만료, 가장 높은 등급을 상속하며 다른 세션/holder/목적/scope로 확장하지
 않습니다.
+
+파생 artifact는 부모가 가진 원본 grant 의존 관계의 전이적 합집합을 저장합니다.
+공통 검증기는 정확한 holder/프로세스/사용 문맥, subject/profile, 현재 세션
+generation·기한, artifact 상태·TTL, 원본 철회 여부, 현재 정책과 설치 세대를
+확인합니다. 파생 등록 전 모든 부모를 검사하고 원본/파생 등록, data_check 및
+`check(operation=reuse-data)`도 커밋 후 성공 발행 직전에 다시 검증합니다.
+따라서 외부 설치 세대 변경을 다음 timer tick까지 기다리지 않고 거부합니다.
+커밋되었지만 성공을 발행하지 못한 artifact도 기록을 유지하고 정합 시 정리 대상으로
+전환합니다.
+
+ONCE 소비나 TIMED 접근 승인 만료만으로 별도 보관 권한이 있는 데이터를 지우지
+않습니다. artifact가 상속한 보관 기한을 적용합니다. 물리적인 부모 사본 삭제만으로
+보관 중인 자식을 철회하지도 않습니다. 자식의 전이적 원본 grant 의존 관계와 상속한
+기한은 계속 적용하며 명시적 철회·설치/정책 무효화는 모든 의존 사본의 사용을 차단합니다.
 
 종료·철회·TTL 만료는 먼저 사용을 차단합니다. 원래 holder 프로세스 인스턴스가
 자신의 artifact 정리를 ACK할 수 있습니다. 같은 인증된 안정 holder 신원의
@@ -195,7 +218,19 @@ heartbeat/idle 분리, 복수 부모 TTL 상속, receipt 재시도 기한 및 �
 `sqlite3_step`, `sqlite3_close`를 대체합니다. 재시도/재시작의 디렉터리 동기화
 불확실 차단과 rollback 이후 손상 코드 보존을 결정적으로 검사합니다. 메타데이터
 손상 주입은 원래 연결이 닫힐 때까지 유지되므로 반복 실패하는 incarnation 조회를
-복구 성공으로 오인하는 테스트가 아닙니다. 실패 시 비영 종료합니다.
+복구 성공으로 오인하는 테스트가 아닙니다. `SQLITE_FULL`과 `SQLITE_IOERR_WRITE`
+반환 코드를 주입하여 반복 실패와 정상 재시도를 검사합니다. DB inode·epoch·격리
+파일 목록은 변하지 않고 기존 지속 승인과 정의는 보존되어야 합니다. 이는 오류
+분류 검증이며 실제 파일시스템 용량 소진이나 기기의 쓰기 실패를 재현하지 않습니다.
+실패 시 비영 종료합니다.
+
+`repository_provenance_test.cc`는 timer tick 없이 B 설치 세대만 회전시켜 A+B
+부모와 여러 단계 파생 데이터의 거부, 다른 패키지 격리, ONCE/TIMED 접근과 보관의
+분리 및 기한 상속을 검사합니다. 테스트 전용 SQLite interposer는 원본/파생 등록과
+두 데이터 확인 경로에서 실제 COMMIT 반환 직후 설치 authority를 회전시킵니다.
+성공 대신 오류가 나야 하고 이미 커밋된 미발행 artifact도 사용할 수 없으며 정리
+목록에 나타나야 합니다. `repository_ui_test.cc`는 UI 대기 중 기존 조건 변경과
+전체 AND 확정, 재검증 오류 rollback을 검사합니다.
 
 `repository_crash_test.cc`는 자식 writer를 journal 동기화 직전, main DB 동기화
 직전 및 커밋 성공 후 응답 전에 멈추고 SIGKILL을 보냅니다. 재개 후 지속 승인
@@ -209,6 +244,11 @@ main DB를 삭제한 뒤 writer를 강제 종료합니다. 쓰기 중 삭제 후
 합니다. 두 경우 모두 DB를 다시 열어 무결성도 확인합니다. 돌발 전원 차단 내구성이나
 재시작에 걸친 ONCE 소비 내구성의 증거를 대신하지 않습니다. 실제 통과한 소스
 snapshot은 검증 문서에서 구분합니다.
+기본 fixture 경로는 `/tmp`이며 emulator에서는 tmpfs일 수 있습니다. 보호된
+전용 테스트 디렉터리를 만든 뒤
+`repository-crash-test --state-root /opt/var/lib/consent-test`로 영속 파일시스템을
+검증할 수 있습니다. 각 경우는 자신이 만든 `mkdtemp` 하위 디렉터리만 정리합니다.
+영속 경로 선택 자체가 전원 차단이나 기기의 물리 캐시 동작을 재현하지는 않습니다.
 
 GBS 빌드와 emulator 실행 증거는 프로젝트 검증 문서에 기록합니다. 이 문서만으로
 모든 수용 기준을 통과했다고 주장하지 않습니다. 돌발 emulator 종료/전원 차단,

@@ -132,6 +132,7 @@ static void approve(const char* scope, const char* mode, const char* session,
   set(lookup, "prompt_token", token);
   set(lookup, "decision", "ALLOWED");
   set(lookup, "grant_mode", mode);
+  if (!strcmp(mode, "TIMED")) set(lookup, "duration_ms", "1000");
   CHECK(consent_respond(ui, lookup, &result) == 0);
   consent_result_free(result);
   gint64 deadline = g_get_monotonic_time() + 5000000;
@@ -217,8 +218,8 @@ static void await_decision(consent_decision_e decision) {
   CHECK(callbacks == 1 && callback_status == 0 && callback_decision == decision);
 }
 
-static consent_params_t* pending(const char* scope, const char* deadline) {
-  consent_params_t* request = query(scope, NULL, NULL);
+static consent_params_t* pending_request(consent_params_t* request,
+    const char* deadline, int mixed) {
   char id[128];
   snprintf(id, sizeof(id), "%s-pending-%u", phase, ++serial);
   set(request, "client_request_id", id);
@@ -238,6 +239,10 @@ static consent_params_t* pending(const char* scope, const char* deadline) {
     status = consent_get_request_result(ui, lookup, &result);
   }
   CHECK(status == 0 && consent_result_get_decision(result) == CONSENT_DECISION_PENDING);
+  if (mixed) {
+    CHECK(!strcmp(consent_result_get(result, "r0.decision"), "ALLOWED"));
+    CHECK(!strcmp(consent_result_get(result, "r1.decision"), "CONSENT_REQUIRED"));
+  }
   set(lookup, "request_id", consent_result_get(result, "request_id"));
   consent_result_free(result);
   set(lookup, "locale", "en");
@@ -247,6 +252,96 @@ static consent_params_t* pending(const char* scope, const char* deadline) {
   set(lookup, "grant_mode", "ONCE");
   consent_result_free(result);
   return lookup;
+}
+
+static consent_params_t* pending(const char* scope, const char* deadline) {
+  return pending_request(query(scope, NULL, NULL), deadline, 0);
+}
+
+static void authorize_definition(const char* definition, const char* scope,
+    consent_decision_e expected) {
+  consent_params_t* p = query(scope, NULL, NULL);
+  set(p, "r0.definition", definition);
+  set(p, "mode", "AUTHORIZE");
+  char operation[128];
+  snprintf(operation, sizeof(operation), "%s-authorize-%u", phase, ++serial);
+  set(p, "operation_id", operation);
+  set(p, "step_id", "read");
+  consent_result_t* result = NULL;
+  CALL(consent_check(ui, p, 5000, &result));
+  CHECK(consent_result_get_decision(result) == expected);
+  consent_result_free(result);
+  consent_params_free(p);
+}
+
+static void ui_reevaluate(const char* install_generation) {
+  char operation[128];
+  snprintf(operation, sizeof(operation), "%s-define-a", phase);
+  define("demo.app", "demo.read", operation, install_generation);
+  snprintf(operation, sizeof(operation), "%s-define-b", phase);
+  define("demo.app2", "demo.other", operation, install_generation);
+  const char* cases[] = {"revoke", "timed-expiry", "once-consumed", "normal", "denied"};
+  for (int test = 0; test < 5; ++test) {
+    char scope[128];
+    snprintf(scope, sizeof(scope), "%s-%s", phase, cases[test]);
+    approve(scope, test == 1 ? "TIMED" : test == 2 || test == 3 ? "ONCE" :
+        "PERSISTENT", NULL, NULL);
+    consent_params_t* request = query(scope, NULL, NULL);
+    CALL(consent_params_add_requirement(request, "demo.other", "read", scope,
+        "answer", ""));
+    set(request, "r1.holder", "scenario");
+    consent_params_t* lookup = pending_request(request, "5000", 1);
+    consent_result_t* result = NULL;
+    if (test == 0 || test == 4) {
+      consent_params_t* revoke = params();
+      set(revoke, "definition", "demo.read");
+      CALL(consent_revoke(ui, revoke, &result));
+      consent_result_free(result);
+      consent_params_free(revoke);
+    } else if (test == 1) {
+      g_usleep(1100000);
+    } else if (test == 2) {
+      authorize_definition("demo.read", scope, CONSENT_DECISION_ALLOWED);
+    }
+    if (test == 4) set(lookup, "decision", "DENIED");
+    consent_decision_e expected = test == 3 ? CONSENT_DECISION_ALLOWED :
+        test == 4 ? CONSENT_DECISION_DENIED : CONSENT_DECISION_INVALIDATED;
+    CALL(consent_respond(ui, lookup, &result));
+    CHECK(consent_result_get_decision(result) == expected);
+    CHECK(!strcmp(consent_result_get(result, "r0.decision"),
+        test == 3 ? "ALLOWED" : "CONSENT_REQUIRED"));
+    CHECK(!strcmp(consent_result_get(result, "r1.decision"),
+        test == 4 ? "DENIED" : "ALLOWED"));
+    if (expected == CONSENT_DECISION_INVALIDATED) {
+      CHECK(consent_result_get(result, "reason") != NULL);
+      CHECK(*consent_result_get(result, "reason") != '\0');
+    }
+    consent_result_free(result);
+    await_decision(expected);
+    CALL(consent_get_request_result(ui, lookup, &result));
+    CHECK(consent_result_get_decision(result) == expected);
+    consent_result_free(result);
+    CHECK(consent_get_prompt(ui, lookup, &result) < 0);
+    CHECK(consent_respond(ui, lookup, &result) < 0);
+    if (test != 4) {
+      authorize_definition("demo.other", scope, CONSENT_DECISION_ALLOWED);
+      authorize_definition("demo.other", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+    }
+    if (test == 3) {
+      authorize_definition("demo.read", scope, CONSENT_DECISION_ALLOWED);
+      authorize_definition("demo.read", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+      CALL(consent_get_request_result(ui, lookup, &result));
+      CHECK(consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
+      consent_result_free(result);
+    }
+    for (int i = 0; i < 20; ++i) {
+      while (g_main_context_iteration(NULL, FALSE)) {}
+      g_usleep(1000);
+    }
+    CHECK(callbacks == 1);
+    consent_params_free(lookup);
+    printf("PASS UI current AND: %s, one final callback, no repeat prompt\n", cases[test]);
+  }
 }
 
 static void races(void) {
@@ -404,7 +499,7 @@ static void holder_reconcile(void) {
 
 int main(int argc, char** argv) {
   if (argc != 3) {
-    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled GENERATION\n", argv[0]);
+    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled|ui-reevaluate GENERATION\n", argv[0]);
     return 2;
   }
   snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1], g_get_monotonic_time());
@@ -428,6 +523,12 @@ int main(int argc, char** argv) {
     printf("PASS %s\n", argv[1]);
     consent_client_destroy(ui);
     consent_client_destroy(client);
+    return 0;
+  }
+  if (!strcmp(argv[1], "ui-reevaluate")) {
+    ui_reevaluate(argv[2]);
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
     return 0;
   }
   if (!strcmp(argv[1], "races")) {

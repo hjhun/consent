@@ -320,7 +320,7 @@ int main(int argc, char** argv) {
   g_free(session);
   g_free(generation);
   g_free(suspended_generation);
-  puts("PASS live SESSION cache invalidated by suspend/close");
+  puts("PASS live SESSION cache invalidated by suspend; suspended session closed");
 
   g_free(warm("persistent", NULL, NULL));
   p = params();

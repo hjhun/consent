@@ -170,6 +170,16 @@ scope·purpose·recipient를 함께 표시해야 합니다. 타입 있는 포맷
 정책 의미가 변경되면 `policy_version`, 번역이 수정되면 `text_revision`을
 증가시킵니다.
 
+승인 응답은 ONCE 승인을 소비하지 않고 현재 요구 조건 전체의 AND를 다시
+판정합니다. 예를 들어 A는 이미 허용된 상태에서 B에 대한 선택을 기다렸는데,
+사용자가 B를 승인하기 전에 A가 만료·철회되거나 다른 작업에서 소비되면 요청은
+`INVALIDATED`로 종료합니다. 조건별 결과는 현재 상태(A `CONSENT_REQUIRED`,
+B `ALLOWED`)를 나타내며, 명시적으로 선택했고 여전히 유효한 B 승인은 소비하지
+않고 유지합니다. 결합된 작업의 실행을 허용한 결과는 아닙니다. 기존 요청은
+종료 상태이며 자동으로 승인 화면을 다시 열지 않습니다. 추가 승인이 필요하면
+인증된 요청자가 새 request/operation ID로 요청을 시작해야 합니다. 실제 보호
+작업은 여전히 전체 조건에 대한 `AUTHORIZE`가 필요합니다.
+
 아래는 인증된 집행 서비스가 C API로 사전 조회하는 예입니다. 0이 아닌
 status에서는 실행을 차단합니다.
 
@@ -241,6 +251,14 @@ C API 실행 프로그램은 `METHOD [PACKAGE [APP]] key=value ...`, `--async`,
 `System` security label로만 실행합니다. `endpoint-fixture`는 실제
 `/run/.consentd.sock`을 사용하는 별도 수동 endpoint 인증 도구이므로 CTest에서
 제외합니다. 실행 전 [검증 증거](verification.ko.md)의 준비 절차를 따릅니다.
+
+미완성 IPC 입력, UI 승인을 기다리는 요청, 실제 대기 중인 DB 작업의 종료
+증거는 구분합니다. 수동 `wire-scenario --shutdown-wait`는 일부 header만 받은
+연결의 종료를 확인하며 supervisor가 서비스 정상 종료와 `database-drained`
+로그도 확인합니다. 이것만으로 대기 중이던 DB 작업의 완료를 입증하지는 않습니다.
+UI를 기다리는 요청은 DB transaction이나 worker를 점유하지 않으므로 그 요청의
+연결 단절·재시작 동작은 별도 시나리오입니다. 실제로 확인한 경계는 검증 기록을
+참조합니다.
 
 프로세스 강제 종료, 정상 재부팅, emulator 전원 강제 중단을 별도 시나리오로
 기록합니다. 강제 DB 삭제는 격리된 테스트 상태 또는 선택한 개발 emulator의
