@@ -1,0 +1,183 @@
+# 구현 결정 기록
+
+날짜: 2026-09-20. 이 문서는 PO·아키텍트의 구현 지침이며 코드 완성이나 검증
+완료를 뜻하지 않는다. `CEP_Consent_Framework.md`는 설계 제안으로 유지한다.
+실제 구현 상태와 검증 근거는 한·영 개발 및 아키텍처 가이드에 기록한다.
+
+## 협업과 산출물
+
+- Herdr `w1:pA` 패널은 제품 범위, 설계 결정, 검토, 사용자 소통을 담당한다.
+  기존 Codex `w1:pJ` 패널은 구현·통합을 담당한다. 이 패널 ID는 현재 개발
+  세션에만 해당한다.
+- 구현 담당은 결정 사항의 근거·선택지·추천을 PO 패널로 전달하고, 답변을
+  기다리는 동안 독립 작업을 계속한다. 일상 기술 결정은 사용자 재승인 없이
+  처리한다.
+- CEP와 `AGENTS.md`를 보존한다. 사용자의 후속 지시로 완료·검증한 단위마다
+  commit/push한다. PO 패널만 Git index·commit·push를 변경하고 구현 에이전트는
+  준비된 파일 목록을 보고한다. 참고 appfw 저장소는 계속 읽기 전용이다.
+- 모든 소스에 기존 appfw 형식의 Samsung copyright와 Apache-2.0 전체 고지를
+  표기한다. 헤더·테스트·도구와 빌드·스크립트 파일의 언어에 맞는 고지도 포함하며
+  이 작업에서는 SPDX만 있는 임시 표기로 대체하지 않는다.
+- 기반, 승인·세션 흐름, 캐시, 데이터 수명을 검토 가능한 단위로 통합한다.
+  일부 단계 완료를 전체 프레임워크 완성으로 보고하지 않는다.
+- 운영 코드, 테스트 어댑터, 호스트 검사, 실제 플랫폼 통합 검증을 구별하고
+  제품 연동의 미완료 사항을 명시한다.
+
+## D-01: 역할 인증과 패키지 소유권
+
+보호된 설정의 기본 거부 정책을 채택한다. 커널 peer credential, 소켓 보안
+라벨, 검증된 실행파일 신원을 함께 사용한다. 공유 UID, root UID, 실행파일
+이름, 호출자가 주장한 역할만으로는 충분하지 않다. 명시적으로 전달받은
+패키지명과 app ID의 관계는 `pkgmgr-info`로 검증한다.
+
+설정·실행파일·상위 디렉터리의 소유권과 권한으로 비인가 변경을 막는다.
+실행파일 신원이 불명확하거나 삭제된 경우, 필수 라벨 부재, 설정 오류는
+거부한다. 프로세스 신원은 접수한 peer의 수명과 연결해야 하며, 재사용된 PID
+조회는 인증이 아니다. 대상의 pidfd 또는 동등한 수명 확인 수단을 조사한다.
+
+실제 argo, Capability Manager, Context Engine, 승인 UI, Installer, 세션 제어
+주체, holder의 신원은 플랫폼 근거로 확인한다. 경로·라벨·기존 privilege를
+만들어 가정하지 않는다. 미설정 역할은 거부 상태를 유지한다. 역할 검사는
+Subject/profile 위임, 정의 소유권, enforcement owner, prompt/session 결합
+검증을 대신하지 않는다.
+
+AMD의 Cynara 소켓 credential 어댑터를 참고하되 대상 의존성과 정책을 확인한
+뒤 채택한다. 테스트 신원 어댑터는 별도 빌드 target과 격리된 설정·상태에서
+사용하며 운영 실행파일에 인증 우회 옵션을 제공하지 않는다.
+
+로컬 `libcynara-commons`에서는 주의가 필요하다. 2025-07-01의 `3ca3518f` commit이
+`cynara_session_from_pid()`의 프로세스 시작 시각을 제거했다. 확인한 구현은 헤더
+설명과 달리 PID 문자열만 반환하므로 peer 수명을 증명하지 못한다. 소켓 credential
+helper도 thread-safe하지 않다고 선언한다. 두 가정을 그대로 가져오지 않는다.
+
+## D-02: 직렬 SQLite 내구성과 복구
+
+SQLite를 소유하는 DB executor 하나로 시작한다. `journal_mode=DELETE`,
+`synchronous=EXTRA`, foreign key 활성화, 제한된 busy 대기를 사용하고 대상에서
+설정값을 다시 조회해 확인한다. EXTRA는 rollback journal 제거 후 디렉터리
+동기화를 포함한다. 실제 저장장치와 재부팅 동작은 별도 검증이 필요하다.
+[SQLite 동기화 문서](https://www.sqlite.org/pragma.html#pragma_synchronous)를 참고한다.
+
+일반 DB 작업과 복구가 같은 직렬화 경계를 사용한다. 시작뿐 아니라 실행 중
+파일 소실·교체·사용 불가 상태를 감지한다. 같은 경로를 재생성하기 전에 이전
+DB handle을 종료하고 DB generation을 변경하며 요청·캐시·세션을 무효화한다.
+불확실한 상태에서 권한을 허용하지 않는다. 권한 오류, 저장공간 부족, 임의 I/O
+오류를 DB 삭제 사유로 취급하지 않는다. 정의로 사용자 승인을 추론하지 않는다.
+
+## D-03: 정의 전용 복구 원본
+
+동적 등록을 복구하려면 `consent.db`와 독립된 원본이 필요하다. 크기가 제한되고
+보호된 consentd 전용 정의 registry를 정의의 원하는 상태에 대한 원본으로 삼고
+DB에 트랜잭션으로 반영한다. 기존 패키지 consent manifest 규격이 존재한다고
+가정하지 않는다.
+
+registry에는 schema/revision, 검증한 package/app/install 신원, 등록 인스턴스,
+정책·번역 전체, 제거 tombstone, fingerprint에 결합한 작업 중복 방지 정보를
+저장한다. 사용자 결정·grant·사용 기록·session은 저장하지 않는다. 같은 작업의
+재시도는 등록 인스턴스를 유지하되, 제거·재설치 후 같은 정의 내용에 과거 grant가
+다시 연결되지 않게 한다.
+
+하나의 DB executor에서 다음 순서로 처리한다.
+
+1. 인증된 Installer 권한, package/app 소유권, 요청 fingerprint, 현재 설치
+   신원을 검증한다.
+2. 같은 디렉터리의 임시 파일에 새 registry를 쓰고 파일 동기화, 원자적 rename,
+   디렉터리 동기화를 수행한다.
+3. 한 DB 트랜잭션에서 정의, 관련 무효화, 반영한 registry revision을 갱신한다.
+   commit 후 성공과 이벤트를 전달한다.
+
+두 저장 단계는 하나의 원자적 트랜잭션이 아니다. registry 확정 후 DB 반영이
+실패하면 권한 허용을 차단하고 적절한 저장소/결과 불명 오류를 반환한다. 같은
+작업 ID의 재시도·재적용으로 수렴시킨다. rename/sync 실패 후 이전 snapshot을
+확정 원본인 것처럼 취급하지 않는다. DB가 정상이어도 READY 또는 권한 허용 전에
+미반영 registry를 재조정한다.
+
+DB 소실 시 검증된 registry에서 정의만 재생성하고 새 승인을 요구한다. 설치
+소유권과 설치 신원을 다시 검증하며 불확실한 정의는 비활성 상태로 둔다.
+registry도 소실·손상되면 재등록이 필요하며 복구했다고 가장하지 않는다.
+tombstone은 패키지가 설치된 상태여도 제거한 정의가 복원되지 않게 한다.
+전체 상태 소실만으로 holder 정리 완료를 증명할 수 없으며 생존 holder의
+무효화와 재조정이 필요하다.
+
+인증된 Installer가 제공하는 보호된 설치 generation 원본을 사용한다. 새 설치마다
+generation을 회전시키고 uninstall은 tombstone을 남긴다. 형식·검증·expected
+generation 결합과 준비·시험 도구는 이 저장소에 구현한다. 실제 플랫폼 Installer의
+수명 hook 배포는 별도 통합 의존성이다. 근거가 없거나 불일치하면 등록·활성화를
+명시 오류로 거부한다. 초 단위 설치 시각·version·root inode/ctime만으로 동일
+설치 인스턴스를 증명하지 않는다.
+
+DB 작업 전과 commit 후 결과 게시 전에 pathname 신원을 확인한다. 중지 중 정상
+형식의 과거 DB로 바꾼 경우도 감지하도록 예상 DB 신원·인스턴스를 별도의 보호된
+제어 메타데이터에 저장한다. 무결성 검사나 DB와 함께 복사된 UUID는 최신성을
+증명하지 못한다. 특권 주체의 임의 in-place rollback까지 inode 검사로 감지한다고
+주장하지 않는다. 살아 있는 SQLite 파일을 별도로 open/read/close해 검증하면 POSIX
+잠금에 영향을 줄 수 있으므로 피한다.
+[SQLite 손상 지침](https://www.sqlite.org/howtocorrupt.html)을 참고한다.
+
+## D-04: 실행 모델과 공개 API 계약
+
+CEP의 GLib/GIO 모델을 유지한다. main loop는 수명, 제한된 I/O context는 연결,
+worker는 짧은 작업, DB executor는 직렬 DB 작업을 담당한다. 승인 대기 중
+worker·mutex·DB 트랜잭션을 점유하지 않는다. 소유권과 종료 순서를 명확히 한다.
+
+`consent_register()`에 패키지명과 app ID를 별도 인자로 제공하고 패키지 단위로
+제거한다. async request/check 접수와 최종 결정을 구별한다. 접수된 결과는
+소유 dispatcher에서 API 반환 이후 최대 한 번, 라이브러리 잠금 없이 전달한다.
+명시적 source와 nested loop 금지 계약을 사용한다. GLib `invoke()`는 직접 실행될
+수 있다. [GLib 계약](https://docs.gtk.org/glib/method.MainContext.invoke.html)을 참고한다.
+
+QUERY는 승인 소비나 UI 생성을 하지 않는다. AUTHORIZE는 모든 조건 평가와
+일회성 사용 기록을 원자적으로 처리한다. 캐시는 실제 실행의 최종 확인을
+대신하지 않는다. 재시작 시 세션 무효화와 holder cleanup ACK 의미를 유지한다.
+
+## D-05: 초기 대상과 wire 선택
+
+구현 패널은 x86_64, kernel 4.4.35, SMACK을 지원하는 systemd 244, GLib 2.80.5,
+SQLite 3.50.2를 보고했다. 검증 기록에는 실제 명령을 남겨야 한다. 이 커널에서는
+제안한 pidfd 경로를 사용할 수 없다. 엄격한 소켓 라벨·credential·실행파일 검증과
+신원 조회 전후 및 요청 시 프로세스 시작 시각 확인을 사용한다. connect부터 최초
+조회까지의 PID 재사용 한계는 명시하며 완전히 제거했다고 주장하지 않는다.
+
+초기 root daemon 및 `0660 root:system_share` socket을 대상 group·참여자 DAC·SMACK
+검증 조건으로 채택한다. root도 역할 검사를 우회하지 않는다. 역할 설정은 신원이
+검증될 때까지 비어 있는 기본 거부 상태로 시작한다.
+
+CEP의 JSON 인코딩은 제안이다. 추가 직렬화 의존성을 줄이기 위해 4바이트 big-endian
+길이와 GLib GVariant `a{ss}` payload를 사용하는 v1을 허용한다. payload byte order,
+필수 필드, untrusted/normal-form 검사, UTF-8, 중복 거부, frame·field·개수 상한,
+구조화한 문자열 인코딩, canonical fingerprint, 시험 벡터를 구현에서 명시해야 한다.
+공개 C ABI는 wire 표현에 종속시키지 않고 비-GLib 구현에 충분한 규격을 문서화한다.
+호환성은 가정하지 않고 검증한다.
+
+## 완료 전에 확인할 초기 검토 사항
+
+- 이전 handle을 닫은 뒤 관련 DB와 journal 파일들을 함께 격리·정리해야 한다.
+  DB는 없고 rollback journal만 남은 시작 상황도 포함한다. 새 generation에 이전
+  DB의 journal을 재적용하지 않는다.
+- 데몬 중지 중 유효한 과거 SQLite DB로 교체하는 시험이 필요하다. 일반 무결성
+  검사만으로 결정의 최신성을 확인할 수 없다.
+- registry 디렉터리 sync 실패 후에는 내구성이 다시 확보될 때까지 권한 차단을
+  유지한다. rename한 snapshot을 읽었다는 사실이 내구성을 증명하지는 않는다.
+- 손상 분류는 감지 시점부터 보존한다. 나중의 DB 오류 상태는 rollback/finalize로
+  바뀔 수 있고, 무결성 검사는 SQL 실행 오류 없이 손상 설명을 반환할 수 있다.
+- 패키지 제거에는 app ID 없이 안정된 Installer 작업 ID와 예상 설치 generation을
+  결합해야 한다. 같은 이름으로 재설치한 후 도착한 과거 제거 재시도가 새 설치를
+  지우면 안 된다. 패키지명 일치를 재시도 신원으로 가정하지 않고 신규 API에 반영한다.
+- tizen-watcher metadata parser plugin은 Installer의 설치·업데이트·제거·rollback
+  hook 사례다. 참고 저장소를 수정하지 않는 consent 전용 plugin이 통합 경로가 될 수
+  있지만 callback 자체가 영속 설치 generation을 제공하지는 않는다.
+
+## 근거와 미확정 제품 설정
+
+- AMD `29ed218b`: `src/modules/component-manager/src/worker.{h,cc}`의 작업 소유권과
+  `Quit()`/`Join()`, `src/modules/cynara-core/cynara_manager.cc`의 소켓 신원·플랫폼
+  권한 검사 어댑터를 참고한다.
+- AUL `ac581e7`: `src/aul/launch_with_result.cc`는 mutex 안에서 콜백 항목의 소유권을
+  이전하고 잠금 해제 후 콜백을 호출한다.
+- 확인 가능한 tizen-watcher 이력은 2026-02-02의 `a1de9f6`부터다. 요청한 레이아웃과
+  현재 패키징의 근거로 사용하고 1월까지의 수작업 스타일은 AMD/AUL을 참고한다.
+- 대상 architecture·의존성 버전, 역할 신원, 설치 세대 확인 수단, 자원·시간 상한,
+  서비스 계정·라벨, 외부 holder/UI 연동은 실제 구현 근거로 확정해야 한다.
+- GBS RPM 생성, emulator 설치·API 실행, 장애 주입, 재부팅은 각각 다른 검증이다.
+  process kill이나 정상 재부팅으로 강제 전원 차단 내구성을 증명하지 않는다.
+  CEP 수용 기준을 코드 검토만으로 통과 처리하지 않는다.

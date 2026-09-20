@@ -1,0 +1,199 @@
+# Implementation decisions
+
+Date: 2026-09-20. These are PO/architect decisions for implementation, not claims
+of completed code or validation. `CEP_Consent_Framework.md` remains the design
+proposal. Record actual implementation and evidence in the paired developer and
+architecture guides.
+
+## Coordination and delivery
+
+- Herdr pane `w1:pA` owns product scope, architecture decisions, review, and user
+  communication. Existing Codex pane `w1:pJ` owns implementation and integration.
+  Pane IDs describe this development session only.
+- The implementation lead reports decisions with evidence, alternatives, and a
+  recommendation to the PO pane, and continues independent work while awaiting a
+  decision. Routine engineering decisions do not need another user approval.
+- Preserve the CEP and `AGENTS.md`. The user's subsequent instruction authorizes
+  commits and pushes for each completed, verified increment. The PO pane is the
+  sole Git index/commit/push owner; implementation agents report ready file sets.
+  Reference appfw repositories remain read-only.
+- Every source file must carry the existing appfw-style Samsung copyright and
+  full Apache-2.0 notice. Include headers, tests, tools, and language-appropriate
+  notices in build/script files; an SPDX-only placeholder is insufficient here.
+- Integrate foundation, approval/session flows, cache, and data lifecycle in
+  reviewable increments. A partial increment is not full framework completion.
+- Production code, test adapters, host checks, and real platform integration
+  evidence must be distinguishable. Product integration gaps remain explicit.
+
+## D-01: Authenticated roles and package ownership
+
+Adopt a protected, default-deny role configuration backed by kernel peer
+credentials, socket security label, and verified executable identity. A shared
+UID, root UID, executable basename, or caller-supplied role is insufficient.
+Use `pkgmgr-info` to validate the explicit package-name/app-ID relationship.
+
+Configuration, executable, and parent-directory ownership and permissions must
+prevent untrusted modification. Reject ambiguous executable identity, deleted
+executables, required label absence, and invalid configuration. Process identity
+must remain bound to the accepted peer lifetime; querying a reused PID is not
+authentication. Check target support for pidfd or equivalent lifecycle evidence.
+
+Discover real argo, Capability Manager, Context Engine, approval UI, Installer,
+session-controller, and holder identities from platform evidence. Do not invent
+paths, labels, or existing privileges. An unconfigured role remains denied.
+Role checks do not replace subject/profile delegation, definition ownership,
+enforcement-owner checks, or prompt/session binding.
+
+The AMD Cynara socket-credential adapter is a useful platform reference. Select
+dependencies only after checking target availability and policy. Test identity
+adapters belong to separate build targets and isolated configuration/state;
+production must not expose an authentication-bypass switch.
+
+Local `libcynara-commons` source needs particular care: commit `3ca3518f`
+(2025-07-01) removed process creation time from `cynara_session_from_pid()`;
+the inspected implementation returns only a PID string despite the header
+description. It cannot establish peer lifetime. The socket credential helpers
+also declare themselves not thread-safe. Do not inherit either assumption.
+
+## D-02: Serialized SQLite durability and recovery
+
+Start with one SQLite-owning DB executor, `journal_mode=DELETE`,
+`synchronous=EXTRA`, foreign keys enabled, and bounded busy waits. Verify pragma
+readback on the target. EXTRA includes directory synchronization after rollback
+journal removal; actual storage and reboot behavior still require testing.
+See [SQLite synchronization documentation](https://www.sqlite.org/pragma.html#pragma_synchronous).
+
+Use one recovery barrier shared with ordinary DB jobs. Detect missing/replaced
+files and unusable storage during operation as well as startup. Retire old
+handles before recreating the pathname, change DB generation, invalidate pending
+work/caches/sessions, and prevent authorization from uncertain state. Do not
+interpret permission, full-storage, or arbitrary I/O errors as permission to wipe
+the database. Recovered user approvals must never be inferred from definitions.
+
+## D-03: Definitions-only recovery authority
+
+Dynamic registration needs a recovery source independent of `consent.db`.
+Use a bounded, protected, daemon-owned definitions registry as the authoritative
+desired state for definitions. The DB holds its transactional projection.
+This choice does not claim an existing installed consent-manifest format.
+
+The registry contains schema/revision, verified package/app/install identity,
+registration incarnation, complete policy/translations, removal tombstones, and
+hash-bound operation deduplication information. It never contains user decisions,
+grants, usage, or sessions. Identical retries preserve the incarnation; removal
+and reinstallation must not reconnect old grants to identical definition text.
+
+The single DB executor performs this sequence:
+
+1. Validate authenticated Installer authority, package/app ownership, request
+   fingerprint, and current installation identity.
+2. Write the next registry snapshot to a temporary file in the same directory;
+   synchronize it, rename it atomically, then synchronize the directory.
+3. In one DB transaction apply definitions, all related invalidations, and the
+   applied registry revision. Publish success/events after commit.
+
+These are two persistence boundaries. If the registry is durable but DB
+application fails, fence authorization, report a storage/unknown-outcome error
+as appropriate, and converge by replay/retry with the same operation identity.
+A failed rename/sync does not justify pretending the old snapshot is authoritative.
+Reconcile before READY or authorization, including when the DB itself is intact.
+
+On DB loss, rebuild only definitions from the validated registry and require new
+approval. Revalidate installed ownership and installation identity; uncertain
+definitions remain inactive. Registry loss/corruption requires re-registration,
+not invented reconstruction. Tombstones prevent restoration of removed
+definitions even while their package remains installed. Total loss cannot prove
+holder cleanup; surviving holders must invalidate and reconcile their state.
+
+Use a protected installation-generation authority supplied by the authenticated
+Installer. Each new installation rotates its generation; uninstall persists a
+tombstone. Implement the format, validation, expected-generation binding, and
+provisioning/test tooling here. Actual platform Installer lifecycle-hook
+deployment is a separate integration dependency. Missing or mismatched evidence
+must reject registration/activation explicitly. Second-resolution installation
+time, version, and root inode/ctime are not sufficient proof of one installation.
+
+Check DB pathname identity before work and after commit before publishing.
+Store expected DB identity/incarnation in separate protected control metadata to
+detect a valid stale DB substituted while stopped. Integrity checking or a UUID
+copied with the DB cannot prove freshness. Arbitrary privileged in-place rollback
+is not proven detectable by inode checks. Do not independently open/read/close
+the live SQLite file for validation; this can interfere with POSIX locks.
+See [SQLite corruption guidance](https://www.sqlite.org/howtocorrupt.html).
+
+## D-04: Execution and public API contracts
+
+Keep the CEP GLib/GIO model: main-loop lifecycle, bounded I/O contexts and short
+worker jobs, and the serialized DB executor. Do not wait for approval while
+holding a worker, mutex, or DB transaction. Use explicit ownership and shutdown.
+
+Keep package and app as separate `consent_register()` arguments and remove by
+package. Async request/check acceptance is separate from the decision. Deliver
+accepted results on the owner dispatcher after API return, at most once and
+without library locks; use explicit sources and the no-nested-loop contract.
+GLib `invoke()` may run inline; see the
+[GLib contract](https://docs.gtk.org/glib/method.MainContext.invoke.html).
+
+QUERY does not consume or open UI. AUTHORIZE evaluates all conditions and
+records one-time consumption atomically. Cache results never replace
+authoritative execution checks. Session restart invalidation and holder cleanup
+ACK semantics remain mandatory.
+
+## D-05: Initial target and wire choices
+
+The implementation panel reports x86_64, kernel 4.4.35, systemd 244 with SMACK,
+GLib 2.80.5, and SQLite 3.50.2. Its verification records must capture the exact
+commands. The old kernel does not provide the proposed pidfd path. Use the strict
+socket-label/credential/executable adapter with process-start verification before
+and after identity lookup and on requests. Document the remaining connect-to-first
+lookup PID-reuse limitation; do not claim it is eliminated.
+
+An initial root daemon and `0660 root:system_share` socket are accepted subject to
+target group, participant DAC, and SMACK verification. Root does not bypass role
+checks. Role configuration starts empty/default-deny until identities are proven.
+
+The CEP JSON encoding is a proposal. Accept a version-1 GLib GVariant `a{ss}`
+payload with a four-byte big-endian length to avoid another serialization
+dependency. The implementation must specify payload byte order, required fields,
+untrusted/normal-form validation, UTF-8, duplicate rejection, frame/field/count
+limits, structured-string encoding, canonical fingerprints, and test vectors.
+Keep public C ABI independent of this wire representation and document enough for
+a non-GLib implementation. Compatibility is a tested property, not an assumption.
+
+## Initial review findings to verify before completion
+
+- Recovery must retire/quarantine the applicable DB and journal artifact set
+  after closing old handles, including startup with missing DB and surviving
+  rollback journal. A fresh generation must not replay a previous DB's journal.
+- Test offline substitution by a valid older SQLite DB; ordinary integrity checks
+  cannot establish that decisions are current.
+- A failed registry directory sync keeps authorization fenced until durability
+  is re-established. Reading the renamed snapshot does not establish durability.
+- Carry corruption classification from its detection point; later connection
+  error state may be changed by rollback/finalization, and a failed integrity
+  check can return a description without a SQLite execution error.
+- Package removal needs a stable Installer operation ID and expected installation
+  generation, without requiring an app ID. A delayed retry after same-name
+  reinstallation must not remove the new installation. Reflect this in the new
+  API rather than assuming package-name equality proves retry identity.
+- The tizen-watcher metadata parser plugin demonstrates Installer install,
+  upgrade, uninstall, and rollback hooks. A consent-owned plugin is a possible
+  integration route without changing reference repositories, but the callbacks
+  do not themselves provide a durable installation generation.
+
+## Evidence and unresolved product settings
+
+- AMD `29ed218b`: `src/modules/component-manager/src/worker.{h,cc}` shows explicit
+  worker ownership and `Quit()`/`Join()`; `src/modules/cynara-core/cynara_manager.cc`
+  shows socket-derived identity and platform authorization adapters.
+- AUL `ac581e7`: `src/aul/launch_with_result.cc` transfers callback ownership under
+  a mutex and invokes the callback after releasing it.
+- Available tizen-watcher history starts with `a1de9f6` on 2026-02-02. Use it for
+  requested layout/current packaging; use January AMD/AUL for the historical
+  handwritten-style criterion.
+- Target architecture, dependency versions, role identities, installation
+  generation source, resource/time limits, service identity/labels, and external
+  holder/UI integration must be established by implementation evidence.
+- GBS RPM generation, emulator installation/API runs, fault injection, and reboot
+  are separate validation results. Process kill or orderly reboot does not prove
+  abrupt power-loss resilience. Do not mark CEP acceptance cases passed by review.
