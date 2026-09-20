@@ -153,6 +153,8 @@ lookup PID-reuse limitation; do not claim it is eliminated.
 An initial root daemon and `0660 root:system_share` socket are accepted subject to
 target group, participant DAC, and SMACK verification. Root does not bypass role
 checks. Role configuration starts empty/default-deny until identities are proven.
+The later non-root deployment requirement is specified in D-12; this paragraph
+records the identity used for the earlier verified builds.
 
 The user's subsequent requirement replaces the initial GVariant choice with the
 actual `parcel` library from `platform/core/base/bundle`. Use generated C++
@@ -345,6 +347,147 @@ unsupported versions, locale/token races, bounded expansion, and literal-data
 handling. Prove that a 30-day approval cannot authorize a 90-day request and that
 cache, retries, receipts and artifacts retain the same scope binding. Record
 native unit, GBS and real C API/emulator results separately from this decision.
+
+## D-11: Public C headers and Tizen error values
+
+Keep the public C API in `src/consent/inc/consent.h`; this directory contains no
+private C++ headers. Preserve the installed `<consent.h>` and pkg-config contract.
+Include platform `<tizen.h>` and declare `capi-base-common` as a public pkg-config
+dependency and build/devel dependency. Reference `core/api/common` commit
+`0e569d4`, `include/tizen.h` and `include/tizen_error.h`.
+
+Use corresponding Tizen constants for NONE, INVALID_PARAMETER, OUT_OF_MEMORY,
+PERMISSION_DENIED, BUSY, NOT_FOUND, TIMEOUT and DISCONNECTED. BUSY maps to
+RESOURCE_BUSY, NOT_FOUND to NO_SUCH_FILE, TIMEOUT to CONNECTION_TIME_OUT and
+DISCONNECTED to ENDPOINT_NOT_CONNECTED; these preserve the existing errno values.
+WOULD_DEADLOCK uses WOULD_CAUSE_DEADLOCK. Expose names for additional standard
+errors returned by the API, including stale state and argument/frame limits.
+
+The platform has no allocated `TIZEN_ERROR_CONSENT` base. Follow its documented
+module-error rule: PROTOCOL, OUTCOME_UNKNOWN, SESSION_INACTIVE, SESSION_CLOSED,
+CONFLICT and STORAGE occupy `TIZEN_ERROR_MIN_MODULE_ERROR + 0..5` in that order.
+These are consent-local values, not a claim of platform-wide allocation. Preserve
+their distinct recovery meanings; another API's `TIZEN_ERROR_STORAGE` is not an
+appropriate substitute. Daemon and tests use the same public enum, and
+`consent_error_string()` continues to describe the local errors.
+
+This corrects the unpublished v0.1 numeric contract. Rebuild and upgrade clients,
+library and daemon together; compatibility with old `-200x` consumers is not
+claimed. Historical verification output keeps its original numbers. Parcelable
+framing is unchanged. Verify C/C++ consumers, exported ABI, module-range and
+standard-value assertions, GBS and actual IPC error paths.
+
+The RPM spec retains `License: Apache-2.0` package metadata, without a license
+comment header as the user requested. CMake configuration files also omit these
+comments. Source-code license notices remain required. The subsequent header
+organization requirement splits public declarations by function under `inc`,
+preserving `consent.h` as an umbrella and moving private implementation helpers
+outside the public directory.
+
+## D-12: Non-root service and separated installation authority
+
+The user requires a security-account service and an RPM-installed relative
+`basic.target.wants/consentd.service` symlink, following AMD. The selected emulator
+has no literal `security` account; its platform security account is `security_fw`,
+UID/GID 402. Use that existing account as the interpretation stated to the user,
+without creating an additional account. Record the actual name explicitly.
+
+Keep `Requires/After/Sockets=consentd.socket` and the existing default dependencies.
+Add `WantedBy=basic.target`; do not add `Before=basic.target`. The service starts
+at boot and inherits the systemd listener. This is compatible with socket
+activation but no longer means startup only on demand. The socket remains
+root:system_share 0660; the client still verifies its PID 1/root creator, label
+and original bind address independently of the daemon's runtime UID.
+
+Daemon-writable state stays at `/opt/var/lib/consentd`: directory 0700, database
+and definitions registry 0600 owned by the selected account. Check root-owned
+ancestors and a daemon-owned state leaf separately from root-protected role and
+executable paths. Put external installation authority in
+`/opt/var/lib/consent-authority`, root:selected-primary-group 0750, with
+`installations.conf` root:same-group 0640. Daemon access is read-only. Keep writer
+locks, temporary files, rename and directory sync in that protected directory.
+
+A root-only preparation helper validates paths, owners, file types and link
+counts before migrating existing state, preserves DB inode/incarnation and
+durable decisions, and changes the state directory owner last. Daemon and
+authority writer hold a shared lifecycle lock; migration holds it exclusively.
+Stop a legacy daemon before migration. Interrupted migration is retryable;
+uncertain state or invalid links must prevent startup. Systemd StateDirectory
+and RPM ownership handling must not preempt these checks by recursively changing
+ownership. The helper must run with the privileges needed for preparation while
+the long-running daemon remains restricted to its selected account.
+The privileged preparation process may start with a different SMACK label.
+Set `security.SMACK64=System` only on validated managed directory/file descriptors
+and sync them before completion. Production labeling failures block startup;
+only an explicitly compiled non-SMACK fixture may omit labeling. Re-run parent
+directory sync on retries, and never alter lifecycle-lock metadata before taking
+the appropriate lock.
+
+Read-only target probes of `security_fw` with SMACK System and NoNewPrivileges
+showed that CAP_SYS_PTRACE alone permits the required cross-UID executable
+lookup; without it `/proc/1/exe` was denied. Restrict daemon ambient and bounding
+capabilities to that capability unless new evidence requires a change. Do not
+copy AMD's broader capabilities or add DAC override. Observed supplemental
+groups are not authentication evidence. Preserve executable/starttime/SMACK
+validation, default-deny roles and the documented old-kernel PID race limit.
+
+Validate the actual selected account, migration preservation and rejection,
+authority publication/read permissions, cross-UID real API flows, recovery and
+normal boot. Earlier root-daemon evidence does not verify this deployment.
+
+## D-13: Offline registration during image installation
+
+This is an implementation contract; completion is recorded separately in the
+verification guide. The installing system service must be able to call
+`consent_register()` while consentd and its socket are absent during image
+creation. RPM scriptlet handling or a definition-registration CLI alone is
+insufficient.
+
+Add `consent_client_create_offline_registration(image_root, &client)`. The explicit
+registration-only handle permits `consent_register()` without connecting. Success
+means a durable **STAGED** definition, not activation or approval. Other handle
+operations, including update, return INVALID_OPERATION. Preserve process/thread
+ownership and C ABI validation. Ordinary client creation remains online; permission
+errors, invalid peers, timeout and uncertain sent operations never cause implicit
+offline writes.
+
+The initial writer is root-only; the actual system service identity is not yet
+provided. Do not infer its executable, UID or SMACK role. Resolve the explicit image
+root using protected directory FDs and no-follow traversal. Keep writes within its
+canonical `opt/var` tree, without environment overrides or `consent.db` access.
+A caller inside the image may select `/`; this still requires the lifecycle lock
+that excludes a live daemon. Acquire locks before changing protected metadata.
+
+Extend the generation authority tool with `--image-root`. The trusted image
+installer uses stable IDs for begin/attach/commit and commits only after confirming
+durable installation. Pass that generation to the public registration API. Preserve
+expected-generation checks and operation receipts for existing authority. Missing
+authority does not justify restoring old generations or assuming installation
+success. This supplies a fresh-image path without replacing C API registration.
+
+Versioned root-protected records contain package/app, operation ID, expected
+generation, the complete validated definition and canonical fingerprint. Limits
+are 64 KiB per record, 128 records and 4 MiB total. Same-ID/same-content retries
+succeed; changed content conflicts. File fsync, rename and directory fsync precede
+success; uncertain outcomes require the same ID retry. Host files are root:root
+0700/0600 without target NSS or host SMACK requirements. Target preparation
+validates and sets the actual read group and System label before daemon access;
+production labeling errors remain failures.
+
+The serialized DB executor shares registration validation/mutation while keeping
+verified offline sources distinct from online authenticated callers. Do not invent
+an Installer Peer. Revalidate actual pkgmgr app/package relationship and protected
+active generation through the final publication boundary. Missing, pending, stale
+or uninstalled generations remain inactive; unrelated valid packages proceed.
+Malformed or improperly protected sources are errors. Keep deduplication in the
+durable definitions registry so DB loss or reboot cannot replay older policy or
+reactivate removed definitions. Never store approvals, execution receipts, sessions,
+artifacts or application data in image records.
+
+Verify actual daemonless C calls, retries/conflicts, path isolation, interrupted
+writes, first-start reconciliation, multiple apps/packages, stale generations and
+DB recovery without approval restoration. This does not complete the external
+production Installer transaction adapter.
 
 ## Initial review findings to verify before completion
 

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 상태 | Draft — 설계 검토용 |
-| 문서 버전 | 0.5 |
+| 문서 버전 | 0.7 |
 | 작성일 | 2026-09-20 |
 | 대상 시스템 | Tizen AI OS |
 | 라이브러리 | `consent` — 공개 C API, 내부 C++ 구현 |
@@ -13,7 +13,7 @@
 | 이벤트 루프 | GLib `GMainLoop` / `GMainContext` |
 | IPC endpoint | Unix domain stream socket `/run/.consentd.sock` |
 | IPC 직렬화 | bundle의 `parcel` library와 C++ `Parcelable`, 공통 IDL 기반 생성 코드 |
-| 기동 | `consentd.socket` → `consentd.service`, systemd socket activation |
+| 기동 | `basic.target.wants` service 기동 및 `consentd.socket`의 listening FD 상속 |
 | CEP 식별자 | 미배정 |
 | 근거 | 본 대화에서 논의한 요구와 설계안 |
 
@@ -26,6 +26,14 @@ v0.3은 4.2~4.10의 GLib 실행·스레드·잠금·소켓 프로토콜, 14.5~14
 v0.4는 사용자 지시에 따라 client–consentd 통신에 `~/tizen/platform/core/base/bundle`의 parcel library를 사용하도록 확정한다. 기존 JSON wire 제안과 구현 중 검토한 GVariant wire 선택을 대체한다. 사용자가 허용한 통신 IDL과 간단한 compiler는 PO가 공통 메시지 규격을 유지하는 방법으로 채택했다. 4.8절의 parcel·IDL 계약은 구현 지침이며, 생성기·새 wire·GBS·emulator 검증 완료를 뜻하지 않는다. 상세 결정과 실제 검증 상태는 별도 결정 기록과 개발 가이드에서 구분한다.
 
 v0.5는 11.5절에 기존 승인 필드와 결합한 typed template v1의 구현 계약을 추가한다. 일반적인 복합 scope 언어나 전체 국제화 formatter의 구현 완료를 의미하지 않는다. PO 결정은 `decisions.ko.md`의 D-10, 실제 검증은 `verification.ko.md`에서 구분한다.
+
+v0.6은 사용자 지시에 따라 공개 C 헤더의 `src/consent/inc/` 배치, Tizen 오류 상수 사용,
+실제 계정 확인에 근거한 비-root service 및 AMD 방식 `basic.target.wants` 설치를
+명세한다. 계정·권한·상태 이전의 구현과 실제 검증은 결정 기록 및 검증 문서로 구분한다.
+
+v0.7은 system service의 이미지 생성 중 offline `consent_register()` 계약과 기능별
+공개 C 헤더 구성을 추가한다. 구현·검증 완료를 의미하지 않으며 D-13과 검증 문서를
+함께 참조한다.
 
 ## 1. 개요
 
@@ -508,6 +516,18 @@ ACTIVE 또는 SUSPENDED에서 CLOSING으로 전이하는 DB 커밋이 신규 권
 
 동기 API에 `_sync` postfix를 사용하지 않는다. 초기 대화의 `consent_request_sync()`와 `consent_check_sync()`는 본 문서의 공개 API가 아니다.
 
+공개 C API 헤더는 `src/consent/inc/consent.h`에 두고 이 디렉터리에 private C++
+선언을 넣지 않는다. 기능별 C 헤더로 나누고 `consent.h`는 통합 헤더로 유지한다.
+대응하는 구현도 공통 ABI 검증을 중복하지 않는 범위에서 기능별로 분리한다.
+설치된 소비자의 `<consent.h>` 및 pkg-config 사용 계약은 유지한다.
+오류 enum은 플랫폼 `<tizen.h>`의 상수를 사용하며 공개 의존성은 `capi-base-common`이다.
+표준 errno와 같은 오류는 대응하는 `TIZEN_ERROR_*` 별칭을 사용한다. TIMEOUT은 기존
+`-ETIMEDOUT`과 같은 `TIZEN_ERROR_CONNECTION_TIME_OUT`, WOULD_DEADLOCK은
+`TIZEN_ERROR_WOULD_CAUSE_DEADLOCK`이다. 정확한 표준 동치가 없는 여섯 consent 오류는
+`TIZEN_ERROR_MIN_MODULE_ERROR`부터 지역 enum으로 구분한다(D-11). 임의 플랫폼 모듈
+base를 배정하지 않는다. 출시 전 숫자 계약 정비이므로 기존 개발 소비자·library·daemon은
+함께 재빌드·갱신하며 이전 숫자 오류와의 혼합 배포를 지원한다고 주장하지 않는다.
+
 ### 7.2 인터페이스 초안
 
 아래 선언은 ABI 방향을 보여준다. 구조체 접근자·생성자 전체와 오류값 숫자는 구현 설계에서 확정한다. 객체는 opaque handle로 제공해 필드 추가 시 ABI 변경을 줄인다.
@@ -656,6 +676,24 @@ request/check의 기존 데이터 사용은 `operation=reuse-data`와 artifact·
 ASYNC 요청이 진행 중인 세션이 종료되면 해당 요청을 INVALIDATED로 완료한다. SUSPENDED에서는 신규 prompt와 승인 적용을 중지한다. 초기 정책은 표시 중 prompt를 닫고 관련 PENDING 요청을 INVALIDATED로 종료하며, 재개 후 필요하면 새 요청으로 시작한다. 과거 UI 응답을 새 generation에 자동 적용하지 않는다.
 
 이미 비활성 세션에 새 request/check를 시도하면 SESSION_INACTIVE 또는 SESSION_CLOSED 계열 API 오류를 반환한다. 이는 승인 부족을 뜻하는 CONSENT_REQUIRED가 아니며 argo가 새 팝업으로 해결하려고 반복하지 않는다. 같은 오류는 SYNC 반환 status와 ASYNC callback status에서 동일 의미를 가진다. ACTIVE 세션에서 TTL이 지난 artifact를 사용하는 경우에는 DATA_EXPIRED 사유를 제공하고, 기존 데이터 복구가 아니라 별도의 원본 재조회·승인 경로를 선택하게 한다.
+
+### 7.8 이미지 설치 중 offline 등록
+
+이미지 생성 중에는 daemon이나 socket이 없으므로 설치 담당 system service가
+명시적인 `consent_client_create_offline_registration(image_root, &client)`로 handle을
+생성하고 같은 `consent_register()`를 호출할 수 있어야 한다. 성공은 보호된 등록
+record의 영속 저장(STAGED)이며 활성화 또는 사용자 승인이 아니다. update를 포함한
+다른 handle API는 INVALID_OPERATION으로 거부하고 일반 online 오류를 offline
+쓰기의 근거로 사용하지 않는다.
+
+설치 generation 도구의 `--image-root` 모드로 begin/attach/commit을 수행하되
+신뢰된 설치 담당자가 실제 설치의 영속 완료를 확인한 뒤 commit한다. 정의 등록은
+그 generation을 사용하는 공개 C API로 수행한다. root 보호 record만 기록하고
+consent DB·승인·session은 생성하지 않는다. 첫 기동 시 준비 helper가 파일 보호와
+label을 정합하고, daemon은 실제 pkgmgr app/package 관계와 active generation을
+검증해 공통 등록 경로로 반영한다. 오래된 record가 재설치·제거·DB 복구를 통해 이전
+정의나 승인을 부활시키면 안 된다. 경로 격리, 잠금, 용량, 재시도와 검증 경계는
+`decisions.ko.md`의 D-13을 따른다.
 
 ## 8. 요청 상태와 기한
 
@@ -1383,9 +1421,12 @@ DB의 artifact·holder 레코드는 실제 데이터 사본 목록을 담는 제
 
 ### 14.5 systemd socket activation
 
-systemd가 `/run/.consentd.sock`을 bind/listen하고 연결 요청으로 consentd를 기동한다. `Accept=no`를 사용해 단일 consentd 프로세스에 listening FD를 전달한다. client마다 데몬을 별도 실행하는 `Accept=yes` 모델은 사용하지 않는다. [systemd.socket](https://man7.org/linux/man-pages/man5/systemd.socket.5.html)
+systemd가 `/run/.consentd.sock`을 bind/listen한다. service는 부팅 시 시작하며 필요한 경우 연결 요청으로도 기동한다. `Accept=no`를 사용해 단일 consentd 프로세스에 listening FD를 전달한다. client마다 데몬을 별도 실행하는 `Accept=yes` 모델은 사용하지 않는다. [systemd.socket](https://man7.org/linux/man-pages/man5/systemd.socket.5.html)
 
-아래는 패키징 초안이다. `/run/.consentd.sock` 경로와 socket activation은 확정이다. 실행 파일 경로, 전용 계정·그룹, timeout·backlog 값은 배포 환경에서 확정한다. 예시의 `consentd` 사용자와 `consent` 그룹은 패키지가 준비해야 하며 실제 계정의 존재를 가정하지 않는다.
+아래는 선택한 emulator의 확인된 계정과 최신 배포 계약을 반영한 unit 예시다.
+플랫폼 보안 계정은 `security_fw`(UID/GID 402)이며 문자 그대로의 `security` 계정은
+없었다. 새 계정을 만들지 않고 이 기존 계정을 사용한다. 다른 제품에서는 실제 계정과
+capability를 다시 검증한다. 구현·시험 완료 여부는 검증 문서에 별도로 기록한다.
 
 `consentd.socket`:
 
@@ -1396,7 +1437,7 @@ Description=Tizen Consent Daemon Socket
 [Socket]
 ListenStream=/run/.consentd.sock
 SocketUser=root
-SocketGroup=consent
+SocketGroup=system_share
 SocketMode=0660
 Accept=no
 Service=consentd.service
@@ -1419,12 +1460,15 @@ After=consentd.socket
 Type=notify
 NotifyAccess=main
 ExecStart=/usr/bin/consentd
-User=consentd
-Group=consent
+ExecStartPre=+/usr/sbin/consent-storage-prepare
+User=security_fw
+Group=security_fw
+SmackProcessLabel=System
 Sockets=consentd.socket
-StateDirectory=consentd
-StateDirectoryMode=0700
 UMask=0077
+NoNewPrivileges=yes
+AmbientCapabilities=CAP_SYS_PTRACE
+CapabilityBoundingSet=CAP_SYS_PTRACE
 Restart=on-failure
 RestartSec=1s
 TimeoutStartSec=15s
@@ -1432,13 +1476,27 @@ TimeoutStopSec=10s
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=consentd
+
+[Install]
+WantedBy=basic.target
 ```
 
 service는 foreground에서 실행하고 별도 daemonize/fork를 하지 않는다. Type=notify이므로 초기화 완료 후 main thread에서 `sd_notify(0, "READY=1")`을 보내고 실패를 검사한다. READY는 DB 복구·필수 policy·I/O worker·listener·signal source가 사용 가능한 뒤에만 보낸다. [systemd.service](https://man7.org/linux/man-pages/man5/systemd.service.5.html), [sd_notify](https://man7.org/linux/man-pages/man3/sd_notify.3.html)
 
-배포는 socket unit을 enable한다. service에 별도 WantedBy를 두고 항상 부팅 실행시키는 것은 기본안이 아니다. socket activation은 ‘시작 방식’이며 자동 idle 종료를 뜻하지 않는다. 기존 client 연결·ACTIVE/SUSPENDED 세션·PENDING 승인·정리 작업이 있는 동안 임의로 idle 종료하지 않는다.
+사용자 지시에 따라 AMD 패키징처럼 `basic.target.wants/consentd.service` 상대 심볼릭
+링크를 패키지 install 단계에서 설치하고 socket unit도 함께 활성화한다. service의
+`Requires/After/Sockets=consentd.socket`은 유지하여 systemd 소유 listener를 상속한다.
+이 링크는 부팅 시 시작 요구이며 basic target 이전 초기화 완료 보장을 뜻하지 않는다.
+기본 의존성을 유지하면서 `Before=basic.target`을 추가하지 않는다. socket activation은
+자동 idle 종료를 뜻하지 않는다. 기존 client 연결·ACTIVE/SUSPENDED 세션·PENDING 승인·
+정리 작업이 있는 동안 임의로 idle 종료하지 않는다.
 
-예시의 StateDirectory를 사용할 경우 DB 후보 경로는 `/var/lib/consentd/consent.db`다. 대상 systemd가 해당 지시어를 지원하는지 확인하고, 미지원이면 패키징 단계에서 동일 권한의 영속 디렉터리를 생성하는 방식으로 조정한다. socket 파일은 `/run`에 있고, 승인 DB를 `/run`에 배치하지 않는다. 연결해야 할 argo·CM·Context Engine·UI·Installer에 필요한 DAC 접근과 Tizen 보안 label을 각각 부여한다.
+준비 helper가 검증 전에 systemd나 RPM이 기존 상태를 자동으로 chown하지 않도록
+`StateDirectory`와 mutable 상태 디렉터리의 RPM 소유권 적용을 사용하지 않는다.
+helper가 root 소유 설치 authority와 daemon 소유 DB 상태를 분리하고, 검증된
+관리 FD의 SMACK label을 System으로 설정한다. 자세한 이전·잠금·중단 재시도 계약은
+D-12에 기록한다. socket 파일은 `/run`에 있고 승인 DB는 영속 저장소에 둔다.
+argo·CM·Context Engine·UI·Installer에는 실제 필요한 DAC 접근과 보안 label을 부여한다.
 
 현재 선택한 emulator는 `/var`가 `/opt/var`로 연결되므로 구현 상태 경로는 `/opt/var/lib/consentd/consent.db`로 정한다. 격리 시험은 `/opt/var/lib/consent-test`를 사용한다. 위 예시 경로를 그대로 따라 보호 디렉터리의 symlink 검사를 완화하지 않는다. 실제 패키징·검증 결과는 개발 가이드에 별도로 기록한다.
 
@@ -1885,3 +1943,5 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 | 0.3 | GMainLoop·고정 I/O 서브스레드·bounded GThreadPool·GMutex/GRecMutex 규칙을 추가. `/run/.consentd.sock` UDS와 systemd socket/service unit, 상속 FD·ucred 로그 C++ 예시, GLib dispatch·framing·backpressure·종료 계약 및 추가 수용 기준 반영 |
 | 0.4 | 사용자 요구로 JSON/GVariant wire 선택을 bundle parcel·Parcelable로 대체. 작은 IDL/compiler, 제한된 reader, 생성·호환성·라이선스·빌드 의존성과 검증 기준을 추가. 구현 완료와 설계 결정을 구별 |
 | 0.5 | 승인 필드 원본에 결합하는 typed template v1, 제한된 source/type/schema, UI 지원 명시와 locale/token 결합, 단일 평문 formatter 및 검증 범위를 추가 |
+| 0.6 | 공개 C 헤더 inc 배치, Tizen 공통·모듈 오류 규약, 비-root 계정 확인 및 basic.target.wants 설치·socket FD 유지 계약 추가 |
+| 0.7 | system service의 offline consent_register와 image generation 준비·첫 기동 반영 계약 및 기능별 공개 C 헤더 분리 추가 |

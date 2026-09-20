@@ -47,6 +47,13 @@ For new C++ code, follow the observed conventions:
 
 - `.cc` implementations; `.h` for public C headers; use `.hh` consistently for
   new private C++ headers, as in tizen-watcher.
+- Keep public C API headers under `src/consent/inc/`. Do not put private C++
+  declarations in this directory. Split headers by function and preserve
+  `consent.h` as the umbrella header. Separate implementation by function where
+  this clarifies ownership without duplicating common ABI checks.
+  Define public errors using the platform's
+  `tizen.h`/`tizen_error.h` constants and documented module-error rules, rather
+  than standalone numeric literals or an invented platform module allocation.
 - Two-space indentation, opening braces on the declaration/control line,
   `PascalCase` classes and methods, `snake_case` variables, and trailing `_`
   for member fields. Public C functions use the `consent_` prefix.
@@ -58,6 +65,8 @@ For new C++ code, follow the observed conventions:
 - Validate parameters at API boundaries, return consistent errors, and keep
   implementation symbols hidden. Never let C++ exceptions cross the C ABI.
 - Preserve license notices and follow the repository's Apache-2.0 license.
+  The RPM spec needs its `License:` metadata tag, but no license comment header.
+  CMake configuration files also omit license comment headers, as requested.
   Every new source file, including generated code and tests, must contain the
   full copyright and Apache-2.0 notice used by the reference appfw code.
 - Use the platform logging conventions with useful error context; do not log
@@ -78,7 +87,8 @@ CMakeLists.txt
 cmake/Modules/           # Shared CMake helpers, when needed
 src/
   CMakeLists.txt
-  consent/              # Public C headers, client implementation, consent.pc.in
+  consent/              # Client implementation and consent.pc.in
+    inc/                # Public C API headers only
   consentd/             # Daemon and private headers
   common/               # Shared protocol and narrowly reusable utilities
   tools/                # API exerciser and diagnostic programs
@@ -95,6 +105,11 @@ with the appropriate runtime/devel split. Keep test-only dependencies out of
 the production runtime. Follow the reference RPM conventions for installation,
 library cache updates, upgrades, systemd units, ownership, and SMACK labels;
 verify the target settings instead of copying service identities blindly.
+Use the verified platform security account (`security_fw` on the selected
+emulator) for the daemon service and install
+its symlink in `basic.target.wants`, following AMD packaging. Preserve socket
+activation and verify storage/configuration access and cross-UID authentication
+under the selected account; never substitute a guessed UID or weaken role checks.
 
 ## API and architecture requirements
 
@@ -109,6 +124,12 @@ verify the target settings instead of copying service identities blindly.
   Retain cleanup/audit metadata as required by the retention policy.
 - Make registration, updates, and removal retry-safe. Reinstallation with the
   same package name or app ID must not silently restore old approvals.
+- Support daemonless image installation through `consent_register()` on an
+  explicit offline registration handle used by the installing system service.
+  Persist only protected definition records, not the consent DB or approvals.
+  Generation provisioning must work against the selected image root; the daemon
+  validates installed package identity and active generation before activation.
+  Keep ordinary online authentication and error handling unchanged.
 - Provide both synchronous and asynchronous request/check APIs. Synchronous
   names have no `_sync` suffix; asynchronous names end in `_async`.
 - Async acceptance is separate from the final decision. Deliver accepted

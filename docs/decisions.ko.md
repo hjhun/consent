@@ -143,6 +143,8 @@ SQLite 3.50.2를 보고했다. 검증 기록에는 실제 명령을 남겨야 �
 초기 root daemon 및 `0660 root:system_share` socket을 대상 group·참여자 DAC·SMACK
 검증 조건으로 채택한다. root도 역할 검사를 우회하지 않는다. 역할 설정은 신원이
 검증될 때까지 비어 있는 기본 거부 상태로 시작한다.
+후속 비-root 배포 요구는 D-12에 명세한다. 이 문단은 앞선 검증 build가 사용한
+계정의 기록이다.
 
 사용자의 후속 요구에 따라 초기 GVariant 선택을 `platform/core/base/bundle`의
 실제 `parcel` library로 대체한다. 4바이트 big-endian 길이 frame 안에 생성한 C++
@@ -308,6 +310,130 @@ fallback mapping을 기존 명시적 fallback과 기본 언어보다 먼저 적�
 상한, 치환 값의 평문 처리를 검증한다. 30일 승인으로 90일 요청을 허용하지 못하며
 cache·retry·receipt·artifact가 같은 범위 결합을 유지함을 확인한다. native unit,
 GBS, 실제 C API/emulator 결과는 이 결정과 구분해 기록한다.
+
+## D-11: 공개 C 헤더와 Tizen 오류 값
+
+공개 C API는 `src/consent/inc/consent.h`에 두고 이 디렉터리에 private C++ 헤더를
+넣지 않는다. 설치된 `<consent.h>`와 pkg-config 계약은 유지한다. 플랫폼 `<tizen.h>`를
+포함하며 `capi-base-common`을 공개 pkg-config 및 build/devel 의존성으로 선언한다.
+참조는 `core/api/common` commit `0e569d4`의 `include/tizen.h`, `tizen_error.h`다.
+
+NONE, INVALID_PARAMETER, OUT_OF_MEMORY, PERMISSION_DENIED, BUSY, NOT_FOUND,
+TIMEOUT, DISCONNECTED는 대응하는 Tizen 상수를 사용한다. BUSY는 RESOURCE_BUSY,
+NOT_FOUND는 NO_SUCH_FILE, TIMEOUT은 CONNECTION_TIME_OUT, DISCONNECTED는
+ENDPOINT_NOT_CONNECTED로 기존 errno 값을 유지한다. WOULD_DEADLOCK은
+WOULD_CAUSE_DEADLOCK을 사용한다. stale 상태와 인자/frame 상한 등 실제 API가
+반환하는 추가 표준 오류에도 공개 이름을 부여한다.
+
+플랫폼에 배정된 `TIZEN_ERROR_CONSENT` base는 없다. 문서화된 모듈 오류 규칙에 따라
+PROTOCOL, OUTCOME_UNKNOWN, SESSION_INACTIVE, SESSION_CLOSED, CONFLICT, STORAGE를
+이 순서의 `TIZEN_ERROR_MIN_MODULE_ERROR + 0..5`로 정의한다. consent 지역 오류이며
+플랫폼 전체의 고유 base 배정을 주장하지 않는다. 복구 의미를 서로 구분하고 다른
+Storage API의 `TIZEN_ERROR_STORAGE`를 가져오지 않는다. daemon·시험은 공개 enum을
+공유하며 `consent_error_string()`은 지역 오류 설명을 제공한다.
+
+출시 전 v0.1 숫자 계약을 정비하는 변경이다. 소비자·library·daemon을 함께 재빌드하고
+갱신하며 기존 `-200x` 소비자와의 혼합 호환을 주장하지 않는다. 과거 검증 출력은 당시
+숫자를 보존한다. Parcelable framing은 바꾸지 않는다. C/C++ 소비자·export ABI,
+module 범위·표준값 assert, GBS와 실제 IPC 오류 반환을 검증한다.
+
+사용자 지시에 따라 RPM spec의 라이선스 주석은 없애고 패키지 metadata인
+`License: Apache-2.0`은 유지한다. CMake 설정 파일의 라이선스 주석도 제외한다.
+소스 코드의 라이선스 표기는 계속 필수다. 후속 헤더 구성 요구에 따라 공개 선언을
+`inc` 아래에서 기능별로 나누고 `consent.h`는 통합 헤더로 유지한다. private 구현
+공통 도구는 공개 디렉터리 밖에 둔다.
+
+## D-12: 비-root service와 설치 authority 분리
+
+사용자는 security 계정의 service와 AMD 방식으로 RPM install 단계에서 만드는
+`basic.target.wants/consentd.service` 상대 링크를 요구했다. 선택한 emulator에는
+문자 그대로의 `security`는 없고 플랫폼 보안 계정인 UID/GID 402의 `security_fw`가
+있다. 사용자에게 명시한 해석에 따라 이 기존 계정을 사용하고 별도 계정은 만들지 않는다.
+실제 사용하는 이름을 문서와 검증에 명시한다.
+
+`Requires/After/Sockets=consentd.socket`과 기존 기본 의존성을 유지한다.
+`WantedBy=basic.target`을 추가하며 `Before=basic.target`은 넣지 않는다.
+부팅 시 service를 시작하고 systemd listener를 상속한다. socket activation과
+공존하지만 요청 때만 기동한다는 뜻은 아니다. socket은 root:system_share 0660이며
+client는 daemon UID와 독립적으로 PID 1/root 생성자, label, 원래 bind 주소를 검증한다.
+
+daemon 쓰기 상태는 `/opt/var/lib/consentd`에 유지한다. 선택 계정 소유 디렉터리
+0700, DB와 definitions registry 0600이다. root 소유 ancestor와 daemon 소유 leaf를
+별도로 검증하며 역할·실행파일의 root 보호 검사를 유지한다. 외부 설치 authority는
+`/opt/var/lib/consent-authority`의 root:선택 primary group 0750, 파일은
+`installations.conf` root:같은 group 0640으로 분리하고 daemon에는 읽기만 허용한다.
+writer lock·임시 파일·rename·directory sync도 이 보호 디렉터리에서 수행한다.
+
+root 전용 준비 helper는 기존 상태의 경로·소유자·파일 타입·link count를 검증한 뒤
+이전하며 DB inode/incarnation과 durable 결정을 보존하고 state 디렉터리 소유권을
+마지막에 바꾼다. daemon·authority writer는 lifecycle lock SH, migration은 EX를
+보유한다. legacy daemon은 이전 전에 정지한다. 중단 후 재실행이 가능해야 하며,
+불확실한 상태·잘못된 링크는 시작을 막는다. systemd StateDirectory나 RPM의 소유권
+처리가 이 검증 전에 재귀 chown을 수행해서는 안 된다. 준비 helper의 권한과 장시간
+실행하는 daemon의 제한된 계정·권한을 구분한다.
+특권 준비 process는 다른 SMACK label로 시작할 수 있다. 검증된 관리 디렉터리·파일
+FD에만 `security.SMACK64=System`을 설정하고 동기화한다. 운영 label 실패는 시작을
+막으며, 명시적으로 컴파일한 비-SMACK fixture만 label 처리를 생략할 수 있다.
+재시도에서도 parent 디렉터리 sync를 다시 수행하고 적절한 lock을 얻기 전에
+lifecycle lock의 metadata를 바꾸지 않는다.
+
+target의 읽기 전용 probe에서 `security_fw`, SMACK System, NoNewPrivileges 조건에
+CAP_SYS_PTRACE 하나로 교차 UID 실행파일 조회가 가능했고, 없으면 `/proc/1/exe`가
+거절됐다. 추가 근거가 없다면 daemon ambient/bounding capability는 이것으로
+제한한다. AMD의 광범위한 capability나 DAC override를 복사하지 않는다.
+관측한 보조 group은 역할 신뢰 근거가 아니다. 실행파일/starttime/SMACK 검증,
+default-deny와 이전 커널의 PID 경합 한계는 유지한다.
+
+실제 선택 계정, 이전 보존·거절, authority 게시·읽기 권한, 교차 UID 실제 API,
+복구와 정상 부팅을 검증한다. 앞선 root daemon 결과로 이 배포 검증을 대신하지 않는다.
+
+## D-13: 이미지 설치 중 offline 등록
+
+이 절은 구현 계약이며 완료 여부는 검증 문서로 구분한다. 설치 담당 system service는
+이미지 생성 중 consentd와 socket이 없어도 `consent_register()`를 호출할 수 있어야
+한다. RPM 후처리만 조정하거나 정의 등록용 CLI만 제공해서는 요구를 충족하지 못한다.
+
+`consent_client_create_offline_registration(image_root, &client)`를 추가한다.
+명시적인 등록 전용 handle에서 `consent_register()`는 socket 연결 없이 동작한다.
+성공은 정의가 **STAGED** 상태로 영속 저장됐음을 뜻하며 활성 등록이나 승인이 아니다.
+update를 포함한 다른 handle API는 INVALID_OPERATION으로 거부한다. 프로세스·스레드
+소유권과 C ABI 검증을 유지한다. 일반 client 생성은 online 계약을 유지하고 권한 오류,
+잘못된 peer, timeout, 송신 후 불확실한 결과를 offline 쓰기로 자동 전환하지 않는다.
+
+초기 writer는 root 전용이다. 실제 system service 신원이 아직 없으므로 실행 파일·UID·
+SMACK 역할을 추정하지 않는다. 명시적 image root를 보호된 directory FD와 no-follow
+탐색으로 처리하고 쓰기는 해당 이미지의 canonical `opt/var` 안으로 제한한다. 환경변수
+경로 우회와 `consent.db` 접근은 금지한다. 이미지 내부 caller는 `/`를 선택할 수 있지만
+live daemon을 배제하는 lifecycle lock을 그대로 적용한다. 보호 metadata 변경 전에
+필요한 잠금을 얻는다.
+
+generation authority 도구에 `--image-root`를 추가한다. 신뢰된 이미지 설치 담당자가
+stable ID로 begin/attach하고 실제 설치의 영속 완료를 확인한 뒤 commit한다. 그
+generation을 공개 등록 API에 전달한다. 기존 authority에는 expected-generation과
+operation receipt 계약을 유지한다. authority 부재만으로 과거 generation을 복원하거나
+설치 성공을 추정하지 않는다. fresh image부터 실행 가능하게 하면서 정의 등록은 C API로
+수행한다.
+
+root 보호 record에 version, package/app, operation ID, expected generation, 전체
+검증된 정의와 canonical fingerprint를 저장한다. record당 64 KiB, 최대 128개, 전체
+4 MiB로 제한한다. 같은 ID·같은 내용 재시도는 성공하고 다른 내용은 충돌이다. 파일
+fsync·rename·디렉터리 fsync 후 성공하며 불확실한 결과는 같은 ID로 재시도한다.
+host 파일은 root:root 0700/0600으로 보호하고 target NSS나 host SMACK를 요구하지
+않는다. target 준비 단계에서 검증 후 실제 읽기 group과 System label을 설정한다.
+production label 오류를 무시하지 않는다.
+
+직렬 DB executor는 online 인증 caller와 검증된 offline source를 구별하면서 공통 등록
+검증·mutation을 재사용한다. 임의 Installer Peer로 우회하지 않는다. 실제 pkgmgr
+app/package 관계와 보호된 active generation을 최종 게시 경계까지 재검증한다.
+부재·pending·stale·미설치 generation은 비활성으로 두고 관련 없는 유효 package는
+계속 처리한다. 형식이나 보호 조건이 잘못된 원본은 오류다. deduplication은 영속
+definitions registry에 보존하여 DB 삭제나 반복 부팅으로 과거 정책이 재적용되거나
+제거된 정의가 부활하지 않게 한다. image record에 승인·실행 receipt·session·artifact·
+앱 데이터를 저장하지 않는다.
+
+daemon 없는 실제 C API, 재시도·충돌, 경로 격리, 중단된 쓰기, 첫 기동 반영, 여러
+app/package, 오래된 generation 거부 및 승인 부활 없는 DB 복구를 검증한다. 이 결과가
+외부 production Installer transaction adapter 구현 완료를 뜻하지는 않는다.
 
 ## 완료 전에 확인할 초기 검토 사항
 
