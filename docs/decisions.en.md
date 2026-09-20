@@ -210,10 +210,30 @@ Require the expected `SO_PEERSEC` value established by target observation and
 socket-unit policy. A service process label or socket-file label does not prove
 the listener's outgoing label. Verify the real credential/name/label tuple on the
 target, plus rejection of a renamed other-service socket and a direct listener.
+The implementation panel's target probe reports UID/GID 0, PID 1, credential
+length 12, peer label `System::Privileged` (19 bytes including NUL), and peer
+address length 22 including `/run/.consentd.sock` and NUL. Adopt that label for
+this target; do not substitute the daemon's `System` process label.
 Do not add an environment bypass. The test endpoint remains separately compiled.
 The assumption is a trusted system manager, kernel and privileged unit policy;
 these checks cannot prevent a writable-parent attacker from causing denial of
 service. Record measurements and executed tests separately from this decision.
+
+## D-08: Holder restart and cleanup authority
+
+Keep data-use permission bound to the holder process instance. A replacement
+process must not inherit an old acquisition receipt, active artifact, grant or
+session. Cleanup needs a separate reconciliation path: an authenticated holder
+with the same stable identity may discover and acknowledge outstanding cleanup
+for its artifacts only after subject/profile and stored ownership checks.
+Do not require the dead instance to remain present to complete cleanup.
+
+This authority permits deletion reconciliation only. It never reactivates data
+or extends expiry. Retain pending/failed status until an explicit, validated
+holder ACK; a reconnect, missing process, or DB reconstruction alone is not proof
+of physical deletion. Retry must preserve completed deletion and reject another
+holder or unauthorized context. Test failed ACK, holder/daemon restart, retry,
+TTL, and derived-data invalidation separately from the basic session-close path.
 
 ## Initial review findings to verify before completion
 

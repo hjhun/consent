@@ -192,10 +192,28 @@ listener를 consent endpoint에 결합한다. 직접 bind한 위장 서버는 li
 `SO_PEERSEC`는 대상 관측과 socket unit 정책으로 확정한 값을 요구한다. service
 프로세스 라벨이나 socket 파일 라벨로 listener의 outgoing label을 추정하지 않는다.
 실제 credential/name/label과 다른 서비스 socket rename·직접 listener 거부를
-대상에서 검증한다. 환경 변수 우회는 추가하지 않고 시험 endpoint는 별도로 빌드한다.
+대상에서 검증한다. 구현 패널의 실제 probe 결과는 UID/GID 0, PID 1, credential
+길이 12, peer label `System::Privileged`(NUL 포함 19바이트), peer address
+길이 22(`/run/.consentd.sock`과 NUL 포함)다. 이 대상에는 관측한 label을 사용하고
+daemon의 `System` 프로세스 라벨로 대체하지 않는다.
+환경 변수 우회는 추가하지 않고 시험 endpoint는 별도로 빌드한다.
 이는 system manager·커널·privileged unit 정책을 신뢰하는 조건이며 쓰기 가능한
 상위 경로를 통한 서비스 거부까지 방지하지는 못한다. 관측·실행 결과는 이 결정과
 구분해서 기록한다.
+
+## D-08: Holder 재시작과 cleanup 권한
+
+데이터 사용 권한은 holder 프로세스 instance에 결합한다. 대체 프로세스가 이전
+취득 receipt·활성 artifact·grant·session을 상속하면 안 된다. 정리를 위한 별도
+재조정 경로에서는 인증된 동일 stable holder identity가 subject/profile과 저장된
+소유 관계를 검증한 뒤 자신의 미완료 cleanup만 조회하고 ACK할 수 있게 한다.
+정리를 끝내기 위해 이미 종료한 instance가 계속 살아 있어야 하는 구조를 피한다.
+
+이 권한은 삭제 재조정에만 사용하며 데이터 재활성화나 만료 연장을 허용하지 않는다.
+명시적이고 검증된 holder ACK 전까지 pending/failed 상태를 유지한다. 재연결,
+프로세스 부재, DB 재구성만으로 물리 삭제를 증명하지 않는다. 재시도는 완료된 삭제를
+보존하고 다른 holder나 권한 없는 context를 거부한다. ACK 실패·holder/daemon
+재시작·재시도·TTL·파생 데이터 무효화를 기본 session-close 경로와 별도로 시험한다.
 
 ## 완료 전에 확인할 초기 검토 사항
 
