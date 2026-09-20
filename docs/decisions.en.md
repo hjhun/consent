@@ -303,6 +303,8 @@ source, type and applicable bounds. Sources are the requirement's `scope`,
 Scope can be a bounded UTF-8 string or a canonical decimal integer; the other
 request sources are strings, and retention is an integer. Do not accept
 independent caller-supplied display arguments or arbitrary source expressions.
+Every request-derived source must be explicitly present. A missing string is
+invalid; an explicitly supplied empty string is allowed within its schema bounds.
 
 The daemon obtains values from the stored request and registered definition.
 These sources already participate in grant scope, policy version, retry/cache
@@ -327,6 +329,8 @@ format error instead of an unexpanded typed message. Bind typed responses to the
 displayed locale and latest token, rotating the token on every redisplay.
 Registered direct locale fallback mappings precede the existing explicit locale
 fallbacks and default. Reject fallback chains/cycles and unregistered targets.
+Also reject an alias whose source already has a registered translation, so an
+exact translation cannot be shadowed by a fallback mapping.
 Changing translations or fallback mappings requires a new text revision and
 invalidates pending displays; semantic changes still require a policy revision.
 

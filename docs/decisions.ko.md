@@ -273,6 +273,8 @@ checkpoint에서는 후속 구현·검증 전까지 해당 경로를 미완료�
 `retention_ms`로 제한한다. scope는 길이가 제한된 UTF-8 string 또는 정규 십진
 integer, 다른 요청 source는 string, retention은 integer다. 독립적인 호출자
 표시 인자나 임의 source 표현식은 받지 않는다.
+요청에서 가져오는 source 필드는 반드시 명시되어야 한다. 문자열 누락은 오류이며
+명시한 빈 문자열만 schema 범위 안에서 허용한다.
 
 데몬은 저장된 요청과 등록된 정의에서 값을 구한다. 이 source는 기존 grant 범위,
 policy version, retry/cache key, receipt/artifact 검증에 이미 결합되어 있다.
@@ -292,7 +294,8 @@ title/body 변수 집합이 선언 schema와 일치해야 한다. template·값�
 명시해야 하며 구 UI에는 미확장 문구 대신 미지원 오류를 반환한다. typed 응답은 표시한
 locale과 최신 token에 결합하고 재표시마다 token을 갱신한다. 등록된 직접 locale
 fallback mapping을 기존 명시적 fallback과 기본 언어보다 먼저 적용한다. mapping
-연쇄·순환·미등록 대상은 거부한다. 번역·fallback mapping 변경은 text revision을
+연쇄·순환·미등록 대상은 거부한다. 번역이 등록된 locale을 alias 출발점으로 중복해
+정확한 번역을 가리는 mapping도 거부한다. 번역·fallback mapping 변경은 text revision을
 올리고 표시 중 요청을 무효화한다. 의미 변경은 여전히 policy revision이 필요하다.
 
 한영 값, 미지정·누락 변수, 타입·범위 오류, 미지원 version, locale/token 경쟁, 출력

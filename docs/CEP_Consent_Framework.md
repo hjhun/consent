@@ -856,6 +856,8 @@ scope·purpose·recipient·operation 또는 정의의 retention_ms로 제한하�
 정의에서 값을 추출한다. 별도 display_args는 받지 않는다. scope의 정규 십진 정수 또는
 길이 제한 UTF-8 문자열, 다른 요청 필드의 문자열, retention_ms 정수를 검증한다.
 타입에 맞지 않는 제약·미등록 변수·문법 오류·과도한 출력은 명시적 오류다.
+요청 source 필드는 반드시 명시한다. 문자열 누락을 빈 값으로 바꾸지 않으며,
+명시한 빈 문자열만 schema 범위 안에서 허용한다.
 
 11.2절 예시의 “최근 30일”은 조회 범위이므로 정수형 scope `30`에 결합한다.
 취득한 결과를 얼마나 보관하는지 나타내는 retention_ms와 혼동하지 않는다. 모든 값은
@@ -872,7 +874,8 @@ UI는 typed prompt를 받을 때 version 1 지원을 명시하고 응답 시 표
 token을 결합한다. 구 UI에는 미지원 오류를 반환하며 기존 literal 정의는 호환된다.
 언어를 바꾸어 다시 표시하면 token을 교체한다. 등록된 직접 locale fallback을 먼저
 적용하고 기존 명시적 fallback과 기본 언어를 뒤에 적용한다. 연쇄·순환·미등록 대상은
-거부한다. 번역·fallback 변경은 text_revision 증가와 표시 중 요청 무효화가 필요하다.
+거부한다. 번역이 등록된 locale을 alias 출발점으로 중복하는 mapping도 등록 오류다.
+번역·fallback 변경은 text_revision 증가와 표시 중 요청 무효화가 필요하다.
 
 ## 12. 프로세스 내부 캐시
 
