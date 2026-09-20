@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+FILE(GLOB TEST_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
+FOREACH(SOURCE ${TEST_SOURCES})
+  GET_FILENAME_COMPONENT(TEST_NAME "${SOURCE}" NAME_WE)
+  STRING(REPLACE "_" "-" TEST_NAME "${TEST_NAME}")
+  ADD_EXECUTABLE(${TEST_NAME} "${SOURCE}")
+  # Assertions in executable tests include fixture setup and must stay active.
+  TARGET_COMPILE_OPTIONS(${TEST_NAME} PRIVATE -UNDEBUG)
+  TARGET_INCLUDE_DIRECTORIES(${TEST_NAME} PRIVATE
+    "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent")
+  IF(TEST_NAME STREQUAL "client-test" AND TARGET consent-test-library)
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-test-library)
+  ELSE()
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent)
+  ENDIF()
+  TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-common
+    PkgConfig::GLIB PkgConfig::SQLITE Threads::Threads ${CMAKE_DL_LIBS})
+  IF(TARGET consent-storage)
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-storage)
+  ENDIF()
+  ADD_TEST(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+  SET_TESTS_PROPERTIES(${TEST_NAME} PROPERTIES TIMEOUT 30)
+  INSTALL(TARGETS ${TEST_NAME}
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+ENDFOREACH()
+
+ADD_TEST(NAME idl-codegen-test COMMAND "${Python3_EXECUTABLE}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/idl_codegen_test.py")
+SET_TESTS_PROPERTIES(idl-codegen-test PROPERTIES TIMEOUT 30)

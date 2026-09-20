@@ -1,0 +1,60 @@
+{
+  "license": {
+    "spdx": "Apache-2.0",
+    "copyright": "Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved",
+    "notice": "Licensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License."
+  },
+  "namespace": "consent::wire",
+  "records": [
+    {
+      "name": "Field",
+      "fields": [
+        {
+          "name": "key",
+          "type": "string",
+          "max_bytes": 128,
+          "min_bytes": 1
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "max_bytes": 8192
+        }
+      ]
+    },
+    {
+      "name": "Envelope",
+      "fields": [
+        {
+          "name": "version",
+          "type": "u32",
+          "default": 1
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "default": 1
+        },
+        {
+          "name": "correlation",
+          "type": "u64"
+        },
+        {
+          "name": "method",
+          "type": "string",
+          "max_bytes": 128
+        },
+        {
+          "name": "status",
+          "type": "i32"
+        },
+        {
+          "name": "fields",
+          "type": "array",
+          "element": "Field",
+          "max_count": 256
+        }
+      ]
+    }
+  ]
+}
