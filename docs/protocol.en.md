@@ -153,6 +153,99 @@ from previous instances. It may acknowledge actual deletion through
 subject/profile. Discovery and reconciliation never grant data-use permission,
 transfer ownership, or permit registration under an old instance.
 
+## Typed localized prompts
+
+The A-15 increment adds named plain-text templates without changing the Parcel
+envelope version. Frozen build15 passed GBS and the isolated emulator C API
+scenarios; see the paired verification record for snapshot evidence and limits. Existing literal
+definitions retain their compatibility path.
+
+The schema remains a field dictionary inside the existing Envelope:
+
+| Registration field | Value |
+|---|---|
+| `template_version` | Exactly `1` |
+| `parameter.<name>.type` | `integer` or `string` |
+| `parameter.<name>.source` | Integer: `scope` or `retention_ms`; string: `scope`, `purpose`, `recipient`, `operation` |
+| `parameter.<name>.min`, `parameter.<name>.max` | Required inclusive signed 64-bit limits for integer values |
+| `parameter.<name>.max_bytes` | Required 1–512 byte maximum for UTF-8 string values |
+| `locale_fallback.<requested>` | Direct target with registered title and body |
+
+Variable names match `[A-Za-z_][A-Za-z0-9_]{0,31}`; at most eight are allowed.
+Every typed locale has both title and body, whose combined placeholder names
+exactly equal the declared variables. A template is nonempty and bounded to
+4,096 UTF-8 bytes. Integer schema bounds and values use canonical signed
+decimal form; leading zeros, a plus sign, negative zero, fractions and
+overflow are rejected. There is no brace-escaping syntax. Invalid braces,
+unknown variables/properties and undeclared parameters fail validation.
+
+The request carries the ordinary `rN.scope`, `.purpose`, `.recipient` and
+`.operation` fields. For typed definitions, both request and check require
+the current `rN.policy_version`; missing or stale versions fail with `-ESTALE`.
+The request does not carry independent formatting arguments.
+`display_args`, `display_args.*`, `rN.display_args`, `rN.display_args.*` and
+`rN.arg*` are rejected.
+The daemon appends `rN.template_version=1`, `rN.arg_count`, and the bounded
+`rN.argM.name`, `.type`, `.value` list to each typed prompt row. Arguments are
+ordered by variable name; callers should match the explicit names. This list
+is validated data for the UI formatter, never a replacement authorization
+context. The whole prompt must still fit the existing frame and field limits;
+oversized combined prompts fail rather than dropping requirements or arguments.
+The repository limits prompt content to 240 fields and reserves envelope/token
+space within the 65,536-byte frame budget before issuing a new prompt token.
+
+Registration validates the complete templates, variable schema and explicit
+locale aliases together. A variable has a declared type, bound and source in
+validated request context or retention metadata. Arbitrary display-only values
+cannot replace that source. A query scope such as integer `30` and retention
+metadata `retention_ms` represent different concepts and units; the formatter
+does not convert between them. Absent `retention_ms` uses the policy's real
+default zero, which must satisfy the declared integer bounds. Missing string
+source fields are rejected; explicitly present empty strings are accepted by
+the string schema. Template syntax is a whole sentence with named
+`{name}` substitutions. Formatting is a single pass, so substituted braces
+are literal display data. Output is plain UTF-8 text, with canonical decimal
+integers; ICU expressions, plural/date rules and localized numeric formatting
+are outside this contract.
+
+For typed definitions, `prompt` requires explicit `template_version=1` and
+the UI's requested `locale`. Typed responses return top-level
+`template_version=1` and the original requested `locale`, while each
+`rN.locale` identifies the selected translation. An exact registered translation
+is selected first. Aliases point directly to a complete registered locale;
+chains, cycles and aliases shadowing a complete source translation are invalid.
+If neither an exact translation nor an alias is available, the supported
+`ko-KR` to `ko` and `en-US`/`en-GB` to `en` fallbacks apply, then the definition's
+default. Other script or region subtags are not automatically removed.
+
+The UI completes each returned title/body using
+`consent_prompt_format(result, requirement_index, field, &text)`, with field
+equal to `"title"` or `"body"`. A successful result transfers a malloc-allocated
+UTF-8 string to the caller, which releases it using `free()`. Failure leaves
+the output NULL. Each rendered field is bounded to 8,192 bytes. The formatter
+validates both template fields and their complete argument set before rendering
+the selected field. It is local and does not make IPC calls or grant
+authorization. The UI renders its output as plain text alongside the prompt's
+actual scope, purpose, recipient, sensitivity and allowed modes.
+
+A typed `respond` must echo the top-level requested `locale` and fresh `prompt_token`.
+Locale changes require refetching the prompt and replace the previous token.
+The token remains bound to the request, displayed definition revisions and UI
+process instance. Text revisions are monotone per definition ID, even across
+reinstallation or a policy-version increase. A changed `default_locale`,
+registered message map or locale alias map requires a strictly higher
+`text_revision`; identical maps may keep the same revision. These text changes
+invalidate pending prompts. Changing the meaning of a variable or its source
+requires a policy revision. Formatting or locale negotiation errors do not
+create a grant or authorize an operation.
+
+Missing UI capability, invalid definitions or invalid bound arguments return
+`-EINVAL`. A mismatched locale or obsolete prompt token returns `-EACCES`.
+Exceeding the combined prompt budget or rendered-text bound returns `-E2BIG`.
+The local C formatter returns `CONSENT_ERROR_INVALID_PARAMETER` for invalid
+fields, indices or schema and `CONSENT_ERROR_OUT_OF_MEMORY` for allocation
+failure, with a NULL output in either case.
+
 ## Callback and resource contract
 
 The client uses one bounded I/O thread per handle, with a maximum of 16 live

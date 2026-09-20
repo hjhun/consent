@@ -198,3 +198,42 @@ sequenceDiagram
   D->>DB: Persist ACK actor and success/failure
   DB-->>H: DELETED or CLEANUP_FAILED
 ```
+
+## Typed messages and the authorization scope
+
+Template v1 adds a bounded display schema to a registered definition. Each
+parameter reads an existing requirement field (`scope`, `purpose`, `recipient`,
+`operation`) or the definition's `retention_ms`. There is no independent caller
+argument map. For example, a 30-day lookback uses the exact integer scope `30`;
+result retention is a separate value in milliseconds. The policy version binds
+the schema and its limits to grants, retries, caches, receipts and data permits.
+
+```mermaid
+sequenceDiagram
+  participant A as Authenticated requester
+  participant D as consentd
+  participant S as Serialized repository
+  participant U as Approval UI
+  A->>D: Typed requirement and explicit policy version
+  D->>S: Validate source values before evaluation or retry
+  S-->>D: Store exact scope and pending request
+  U->>D: get_prompt(locale, template_version=1)
+  D->>S: Select text and derive typed values from stored inputs
+  S->>S: Check fields, frame and rendered output limits
+  S-->>U: Template, typed values and fresh locale-bound token
+  U->>U: consent_prompt_format, single-pass plain text
+  U->>D: Decision with displayed locale and latest token
+  D->>S: Validate binding and re-evaluate current full AND
+  S-->>A: Terminal advisory result after commit
+```
+
+The formatter never interprets substituted braces, percent signs or markup.
+Integers remain canonical decimal in v1; plural rules, date rendering and
+locale-specific numeric formatting are separate platform integration work.
+Each redisplay replaces the previous token. Invalid format negotiation or a
+budget error leaves the prior active token and grants unchanged. Schema changes
+require a higher policy version; translation/fallback changes require a higher
+text revision and invalidate pending displays. The public formatter returns a
+caller-owned `malloc` string released with `free()`, and null output on error.
+See the verification guide for build and emulator evidence; this diagram is
+an implementation contract, not a claim of real product UI integration.

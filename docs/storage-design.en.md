@@ -216,6 +216,52 @@ publishes invalidation, and disconnects or epoch changes require resynchronizing
 AUTHORIZE always accesses current authoritative state. Event delay may leave a
 short-lived stale request hint; it does not authorize a protected action.
 
+## Typed localized messages
+
+Definitions may opt into `template_version=1` and declare at most eight named
+parameters (names up to 32 bytes). Each `parameter.<name>` binds a type to an
+existing source: requirement `scope`, `operation`, `purpose` or `recipient`, or
+definition `retention_ms`. Scope accepts string or integer; other request sources
+are strings; retention is integer. Integer values use canonical signed int64
+decimal and inclusive `min`/`max`. Strings use `max_bytes` between 1 and 512.
+Each locale's title/body placeholder union must equal the declared names. Caller
+`display_args` and preconstructed argument descriptors are rejected. A displayed
+scope of `30` stays the exact query scope; it is never converted to the separate
+postacquisition `retention_ms` value.
+
+Typed requests explicitly send matching `rN.policy_version`. Validation precedes
+request/authorization retry shortcuts and also covers receipt payloads and each
+artifact's original source grant key. The same exact fields form the grant key;
+approval for scope `30` cannot authorize scope `90`, create a receipt for it or
+broaden an artifact. Original grant validation does not treat consumed ONCE or
+expired access duration as expiration of independent retained-data rights.
+Schema changes require a higher policy version. For each definition ID, text
+revision never decreases, including reinstallation. Changed default locale,
+messages or aliases require a higher text revision independently of a policy
+bump. Reinstallation with identical text may retain the existing text revision.
+Definitions and their typed schemas/aliases survive independent registry replay;
+lost approvals are still never reconstructed.
+
+UI asks for a typed prompt with `template_version=1`. The reply carries requested
+`locale`, resolved `rN.locale`, and sorted `rN.argM.name/type/value` descriptors
+alongside `rN.arg_count` and `rN.template_version`. Selection uses exact registered
+locale, an explicit direct `locale_fallback.<requested>` alias, the documented
+ko-KR/en-US/en-GB base cases, then the default. No other region/script stripping
+is inferred. The requested locale is stored privately with the latest prompt
+token and UI instance. Typed responses must return that requested locale and
+token; resolved row locales cannot substitute for it. Private locale metadata
+is omitted from public pending/final results. Existing literal prompts remain
+supported without typed capability negotiation.
+
+Before updating a token, the repository validates the entire response against
+240 fields and a 64 KiB frame budget, reserves envelope metadata, and formats
+selected title/body into temporary buffers to enforce 8192-byte rendered limits.
+An invalid capability/locale or overflow leaves the earlier token usable. Values
+containing braces, percent signs or markup are inserted literally once; the UI
+must still render the returned text as text. Definition templates remain bounded
+to 4096 bytes each. These checks do not reject an otherwise valid schema merely
+because its longest possible values could overflow a selected template.
+
 ## Executable evidence and limits
 
 `src/tests/repository_test.cc` exercises private repository instances with real
@@ -259,6 +305,12 @@ grant is proven ALLOWED beforehand; a following call on the same repository
 must find its restored definition but require fresh consent.
 `repository_ui_test.cc` covers prior-condition changes while UI waits and the
 full-AND finalization contract, including rollback on a reevaluation error.
+`repository_localization_test.cc` covers schema/value rejection, explicit policy
+versions before retries, locale/token binding, bounded expansion and total prompt
+size with preservation of the prior token, independent revision rules, literal
+compatibility, typed registry recovery and scope widening across receipt/artifact
+boundaries. Literal and typed requests with historically accepted `count=01`
+produce canonical prompt counts without changing request admission or dedup keys.
 
 `repository_crash_test.cc` pauses a child writer before journal synchronization,
 before main-DB synchronization and after successful commit before response,
@@ -297,7 +349,7 @@ Still required beyond these direct tests: abrupt emulator termination/power loss
 actual filesystem exhaustion/device-write failure (distinct from the injected
 SQLite FULL/IOERR classification tests),
 product Installer transaction integration, holder process-death reconciliation,
-remote model cleanup, typed localized parameters, and sustained load/resource
+remote model cleanup, and sustained load/resource
 measurement. Active request/session/artifact admission is bounded. Historical metadata is not automatically
 pruned by a finalized retention policy; capacity exhaustion requires explicit
 operational handling and never makes a consumed grant reusable.

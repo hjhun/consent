@@ -112,6 +112,8 @@ provisioning/test tooling here. Actual platform Installer lifecycle-hook
 deployment is a separate integration dependency. Missing or mismatched evidence
 must reject registration/activation explicitly. Second-resolution installation
 time, version, and root inode/ctime are not sufficient proof of one installation.
+The [Installer handoff](installer-integration.en.md) records inspected callback
+limitations and the external transaction/recovery contract still required.
 
 Check DB pathname identity before work and after commit before publishing.
 Store expected DB identity/incarnation in separate protected control metadata to
@@ -329,10 +331,14 @@ format error instead of an unexpanded typed message. Bind typed responses to the
 displayed locale and latest token, rotating the token on every redisplay.
 Registered direct locale fallback mappings precede the existing explicit locale
 fallbacks and default. Reject fallback chains/cycles and unregistered targets.
-Also reject an alias whose source already has a registered translation, so an
+Also reject an alias whose source already has a complete title/body pair, so an
 exact translation cannot be shadowed by a fallback mapping.
 Changing translations or fallback mappings requires a new text revision and
 invalidates pending displays; semantic changes still require a policy revision.
+For a stable definition ID, text revisions never decrease, including after
+removal or reinstallation. Compare default locale, messages and fallback mappings
+independently of policy version. Unchanged text can retain its revision; changing
+that text map requires a higher one even when policy version also increases.
 
 Verify Korean/English values, unknown/missing variables, wrong types/ranges,
 unsupported versions, locale/token races, bounded expansion, and literal-data

@@ -189,3 +189,40 @@ sequenceDiagram
   D->>DB: ACK actor와 성공/실패 저장
   DB-->>H: DELETED 또는 CLEANUP_FAILED
 ```
+
+## 타입 있는 문구와 승인 범위
+
+Template v1은 등록 정의에 상한 있는 표시 스키마를 추가한다. 변수는 기존
+요구 조건의 `scope`, `purpose`, `recipient`, `operation` 또는 정의의
+`retention_ms`에서 값을 가져온다. 호출자가 독립적인 표시 인자 map을 보내지
+않는다. 최근 30일 조회는 정확한 정수 scope `30`에 결합하며 결과 보관기간은
+별도의 밀리초 값이다. policy version이 스키마·제약을 grant, 재시도, cache,
+receipt 및 데이터 permit과 결합한다.
+
+```mermaid
+sequenceDiagram
+  participant A as 인증된 요청자
+  participant D as consentd
+  participant S as 직렬 저장소
+  participant U as 승인 UI
+  A->>D: 타입 있는 요구 조건과 명시 policy version
+  D->>S: 평가·재시도 전에 원본 값 검증
+  S-->>D: 정확한 scope와 pending 요청 저장
+  U->>D: get_prompt(locale, template_version=1)
+  D->>S: 문구 선택 및 저장된 입력에서 typed 값 추출
+  S->>S: 필드·frame·확장 출력 상한 검사
+  S-->>U: 템플릿·typed 값·새 locale 결합 token
+  U->>U: consent_prompt_format으로 평문 단일 치환
+  U->>D: 표시 locale과 최신 token을 포함한 결정
+  D->>S: 결합 검증 및 현재 전체 AND 재평가
+  S-->>A: commit 이후 확정된 참고 결과
+```
+
+Formatter는 치환값의 중괄호·퍼센트·markup을 재해석하지 않는다. v1 정수는
+정규 십진 표기이며 복수형·날짜·언어별 숫자 서식은 별도 플랫폼 연동 범위다.
+다시 표시할 때마다 이전 token을 교체한다. 지원 버전·출력 예산 오류는 기존
+활성 token과 grant를 변경하지 않는다. 스키마 변경에는 policy version 증가,
+번역/fallback 변경에는 text revision 증가와 pending 표시 무효화가 필요하다.
+공개 formatter의 반환 문자열은 호출자가 `free()`로 해제하는 `malloc` 소유
+문자열이며 오류 시 출력은 null이다. 빌드·emulator 증거는 검증 가이드를
+참조한다. 이 다이어그램은 실제 제품 UI 연동 완료 주장이 아닌 구현 계약이다.

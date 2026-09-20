@@ -135,6 +135,83 @@ pending/failed 항목을 반환합니다. 기본은 현재 process instance이�
 동일 subject/profile로 ACK합니다. 사용 권한/소유권을 이전하거나 기존 instance로
 새 artifact를 등록하는 기능이 아닙니다.
 
+## 타입 있는 지역화 prompt
+
+A-15 증분은 Parcel Envelope 버전을 유지하면서 이름 있는 평문 템플릿을
+추가한다. 고정된 build15로 GBS와 격리 emulator C API 시험을 통과했으며,
+소스 snapshot에 결합된 증거와 한계는 한영 검증 문서에서 확인한다.
+기존 literal 정의의 호환 경로도 유지한다.
+
+스키마는 기존 Envelope의 필드 dictionary로 표현한다.
+
+| 등록 필드 | 값 |
+|---|---|
+| `template_version` | 정확히 `1` |
+| `parameter.<name>.type` | `integer` 또는 `string` |
+| `parameter.<name>.source` | integer: `scope`, `retention_ms`; string: `scope`, `purpose`, `recipient`, `operation` |
+| `parameter.<name>.min`, `.max` | 정수의 필수 signed 64-bit 양끝 포함 범위 |
+| `parameter.<name>.max_bytes` | UTF-8 문자열의 필수 1–512바이트 상한 |
+| `locale_fallback.<requested>` | title/body가 등록된 직접 대상 locale |
+
+변수 이름은 `[A-Za-z_][A-Za-z0-9_]{0,31}`이며 최대 8개다. 모든 typed locale은
+제목과 본문을 모두 가지며 두 필드의 변수 합집합이 선언된 schema와 정확히
+일치해야 한다. 비어 있지 않은 각 템플릿은 UTF-8 4096바이트 이하이다.
+정수 제약과 값은 canonical signed decimal이며 선행 0, 양수 부호, 음수 0,
+소수, overflow는 거부한다. 중괄호 escape 문법은 없다. 잘못된 중괄호,
+미등록 변수/property, 선언되지 않은 인자는 오류다.
+
+요청은 기존 `rN.scope`, `.purpose`, `.recipient`, `.operation`을 보낸다.
+Typed 정의의 request/check는 현재 `rN.policy_version`을 명시해야 하며
+누락·불일치는 `-ESTALE`이다. 별도 표시 인자는 보내지 않는다.
+`display_args`, `display_args.*`, `rN.display_args`, `rN.display_args.*`,
+`rN.arg*`를 거부한다. daemon은 typed prompt 행에 `rN.template_version=1`,
+`rN.arg_count`, `rN.argM.name`, `.type`, `.value`를 추가한다. 변수명 순으로
+정렬하지만 UI는 명시된 이름을 사용해야 한다. 이 목록은 검증된 표시 데이터이며
+권한 문맥을 대신하지 않는다. 전체 prompt 내용은 240필드 이하이고 Envelope와
+새 token 공간을 예약한 뒤 65536바이트 frame 예산 안에 들어야 한다. 초과 시
+조건이나 인자를 생략하지 않고 오류를 반환한다.
+
+등록 시 전체 문구·변수 스키마·locale alias를 함께 검증한다. 모든 변수는
+검증된 요청 문맥 또는 보관 metadata의 명시 source와 타입·상한을 가진다.
+독립적인 표시값으로 이 원본을 대체할 수 없다. 정수 scope `30`의 조회기간과
+`retention_ms`는 다른 개념·단위이며 자동 변환하지 않는다. `retention_ms`
+미지정 시 실제 정책 기본값 0을 사용하고 이 값도 schema 범위를 만족해야 한다.
+문자열 source 필드 누락은 거부하며 명시된 빈 문자열은 문자열 schema가 허용한다.
+`{name}`을 포함하는 전체 문장을 단일 pass로 치환하여 값 내부 중괄호를 다시
+해석하지 않는다. 결과는 평문 UTF-8이며 정수는 정규 십진 표기다. ICU 문법,
+복수형·날짜·locale별 숫자 포맷은 이번 계약 범위가 아니다.
+
+Typed `prompt` 요청은 `template_version=1` 지원과 UI의 `locale`을 명시한다.
+반환 prompt의 최상위 `template_version=1`, `locale`은 요청한 locale을 유지하고
+각 `rN.locale`은 실제 선택한 번역이다. 정확히 등록된 번역을 우선 선택한다.
+Alias는 완전한 등록 locale로 직접 연결하며 chain/cycle, 이미 완전한 번역이
+등록된 source를 가리는 shadow alias는 거부한다. 정확한 번역과 alias가 없으면
+`ko-KR→ko`, `en-US/en-GB→en`의 명시 fallback 뒤 기본 언어를 선택한다.
+그 밖의 script/region subtag를 임의로 제거하지 않는다.
+
+UI는 `consent_prompt_format(result, requirement_index, field, &text)`를 호출한다.
+`field`는 `"title"` 또는 `"body"`다. 성공 시 `malloc`으로 할당한 UTF-8 문자열의
+소유권을 받아 `free()`로 해제한다. 오류 시 출력은 NULL이다. 각 확장 필드는
+8192바이트 이하이며 formatter는 두 템플릿 필드와 전체 변수 집합을 먼저 검증한다.
+이 함수는 로컬 처리이며 IPC나 승인을 수행하지 않는다. UI는 결과를 markup이나
+format string으로 해석하지 않고 실제 scope·목적·수신자·등급·허용 방식과 함께
+평문으로 표시한다.
+
+Typed `respond`는 최상위 요청 locale과 최신 `prompt_token`을 돌려보내야 한다.
+언어 변경 시 prompt를 다시 가져오며 이전 token을 교체한다. Token은 요청,
+표시한 정책/문구 revision, UI 프로세스 instance에도 결합된다. 같은 definition ID의
+`text_revision`은 재설치나 policy 증가와 관계없이 감소할 수 없다.
+`default_locale`, `message.*`, `locale_fallback.*` 중 실제 내용이 바뀌면 더 높은
+text revision이 필요하며 pending 표시를 무효화한다. 동일한 문구/선택 맵은 같은
+revision을 유지할 수 있다. 변수 의미/source 변경은 별도로 policy revision을
+올려야 한다. 포맷 또는 locale 협상 오류는 grant를 생성하거나
+작업을 허가하지 않는다.
+
+지원 capability 누락·잘못된 정의/원본값은 `-EINVAL`, locale 불일치·이전 token은
+`-EACCES`, prompt/확장 출력 예산 초과는 `-E2BIG`다. C formatter는 잘못된
+필드/index/schema에 `CONSENT_ERROR_INVALID_PARAMETER`, 할당 실패에
+`CONSENT_ERROR_OUT_OF_MEMORY`를 반환하며 두 경우 모두 출력은 NULL이다.
+
 ## Callback과 자원 계약
 
 handle마다 bounded I/O thread 하나를 사용합니다. process당 최대 16 handle,

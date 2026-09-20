@@ -16,7 +16,9 @@
 #include "consent.h"
 
 #include "client.hh"
+#include "common/localization.hh"
 
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <utility>
@@ -249,6 +251,26 @@ CONSENT_MANAGEMENT(consent_data_release, "data_release")
 CONSENT_MANAGEMENT(consent_cleanup_get_state, "cleanup")
 CONSENT_MANAGEMENT(consent_cleanup_get_pending, "cleanup_list")
 #undef CONSENT_MANAGEMENT
+
+int consent_prompt_format(const consent_result_t* prompt,
+    unsigned int requirement_index, const char* field, char** formatted) {
+  if (formatted)
+    *formatted = nullptr;
+  return Guard([&]() -> int {
+    if (!prompt || !field || !formatted)
+      return CONSENT_ERROR_INVALID_PARAMETER;
+    std::string value;
+    if (!consent::localization::FormatPrompt(prompt->values, requirement_index,
+            field, &value))
+      return CONSENT_ERROR_INVALID_PARAMETER;
+    auto* output = static_cast<char*>(std::malloc(value.size() + 1));
+    if (!output)
+      return CONSENT_ERROR_OUT_OF_MEMORY;
+    std::memcpy(output, value.c_str(), value.size() + 1);
+    *formatted = output;
+    return 0;
+  });
+}
 
 void consent_result_free(consent_result_t* result) { delete result; }
 

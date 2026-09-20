@@ -204,6 +204,46 @@ epoch 변경은 재동기화를 요구합니다. AUTHORIZE는 항상 현재 원�
 확인합니다. 이벤트 지연 동안 잠시 오래된 request 힌트가 남을 수 있으나
 보호 작업 실행을 허가하지는 않습니다.
 
+## 타입을 지정한 다국어 문구
+
+정의는 `template_version=1`과 최대 8개 이름 있는 인자(이름 최대 32바이트)를
+선언할 수 있습니다. `parameter.<name>`은 기존 요구 조건의 `scope`, `operation`,
+`purpose`, `recipient` 또는 정의의 `retention_ms`를 타입과 연결합니다. scope는
+문자열 또는 정수, 다른 요청 값은 문자열, retention은 정수입니다. 정수는 정규화된
+부호 있는 int64 십진 문자열과 포함 범위 `min`/`max`를 사용합니다. 문자열의
+`max_bytes`는 1~512입니다. 각 언어의 title/body placeholder 합집합은 선언한
+인자와 정확히 일치해야 합니다. 호출자가 제공하는 `display_args` 및 미리 구성한
+인자 descriptor는 거부합니다. 화면의 범위 `30`은 실제 조회 범위 그대로이며,
+취득 후 보관 기간인 별도의 `retention_ms`로 변환하지 않습니다.
+
+타입 정의 요청은 일치하는 `rN.policy_version`을 명시합니다. 요청/실행 재시도
+단축 경로보다 먼저 검증하고 영수증 payload와 artifact 원본 승인 key도 확인합니다.
+같은 정확한 필드로 grant key를 구성하므로 `30`에 대한 승인을 `90`의 실행,
+영수증 또는 artifact 범위 확장에 사용할 수 없습니다. 원본 승인 검증은 소비한 ONCE나
+접근 시간 만료를 별도의 데이터 보관 권한 만료로 처리하지 않습니다. 인자 스키마
+변경에는 policy version 증가가 필요합니다. 정의 ID별 text revision은 재설치를
+포함하여 감소할 수 없습니다. 기본 언어, 번역 문구 또는 alias 변경에는 policy
+증가와 별도로 text revision 증가가 필요합니다. 동일 문구의 재설치는 기존 text
+revision을 유지할 수 있습니다. 정의·타입 스키마·alias는 독립 registry로 복구하지만
+소실된 승인은 복구하지 않습니다.
+
+UI는 `template_version=1`을 명시하여 타입 prompt를 요청합니다. 응답은 요청한
+`locale`, 실제 선택한 `rN.locale`, 정렬된 `rN.argM.name/type/value` 및
+`rN.arg_count`, `rN.template_version`을 전달합니다. 정확한 등록 언어, 명시적인
+직접 `locale_fallback.<requested>` alias, 정해진 ko-KR/en-US/en-GB 기본 언어,
+default 순서로 선택하며 그 밖의 지역·문자 체계 접미사는 추론하여 제거하지 않습니다.
+요청 언어는 최신 prompt token 및 UI 인스턴스와 함께 내부 저장합니다. 타입 승인
+응답에는 그 요청 언어와 token이 필요하며 개별 행의 선택 언어로 대체할 수 없습니다.
+내부 언어 필드는 공개 대기/최종 결과에 포함하지 않습니다. 기존 고정 문구는 타입
+기능 협상 없이 사용할 수 있습니다.
+
+token 갱신 전에 전체 응답을 240개 필드와 64 KiB frame 예산으로 검사하며 envelope
+메타데이터 여유도 확보합니다. 선택된 title/body를 임시 버퍼에 확장하여 각각
+8192바이트 제한을 검사합니다. 잘못된 기능 버전·언어·출력 초과 요청은 이전 token을
+바꾸지 않습니다. 중괄호·퍼센트·마크업을 포함한 값은 한 번만 문자 그대로 넣으며
+UI도 결과를 일반 텍스트로 표시해야 합니다. 등록 template는 각각 최대 4096바이트입니다.
+가능한 최장 값이 초과할 수 있다는 이유만으로 정상 스키마 자체를 거부하지 않습니다.
+
 ## 실행 증거와 남은 범위
 
 `src/tests/repository_test.cc`는 실제 SQLite 파일과 전용 repository 인스턴스로
@@ -239,6 +279,11 @@ unlink 시 관찰 대상의 실제 COMMIT이 반환했고 SQLite가 autocommit �
 해당 정의가 복원되었더라도 새 동의를 요구해야 합니다.
 `repository_ui_test.cc`는 UI 대기 중 기존 조건 변경과
 전체 AND 확정, 재검증 오류 rollback을 검사합니다.
+`repository_localization_test.cc`는 스키마/값 거부, 재시도 전 명시적 policy version,
+언어/token 결합, 기존 token을 보존하는 확장·전체 prompt 크기 제한, 독립 revision
+규칙, 고정 문구 호환, 타입 registry 복구 및 영수증/artifact 경계의 범위 확대 거부를
+검사합니다. 기존에 허용하던 `count=01`은 고정/타입 요청 모두 prompt에서 정규화하며
+요청 접수와 중복 판별 key는 바꾸지 않습니다.
 
 `repository_crash_test.cc`는 자식 writer를 journal 동기화 직전, main DB 동기화
 직전 및 커밋 성공 후 응답 전에 멈추고 SIGKILL을 보냅니다. 재개 후 지속 승인
@@ -270,7 +315,7 @@ GBS 빌드와 emulator 실행 증거는 프로젝트 검증 문서에 기록합�
 모든 수용 기준을 통과했다고 주장하지 않습니다. 돌발 emulator 종료/전원 차단,
 실제 파일시스템 용량 소진/기기 쓰기 실패(SQLite FULL/IOERR 반환 코드 분류 검증과
 구분), 제품 Installer 트랜잭션 연동,
-holder 프로세스 사망 후 정합, 외부 모델 정리, typed 다국어 인자와 장시간 부하
+holder 프로세스 사망 후 정합, 외부 모델 정리와 장시간 부하
 검증은 별도로 필요합니다. 활성 요청·세션·artifact에는 접수 상한이 있지만 과거 메타데이터의 확정된
 보존 정책에 따른 자동 정리는 아직 없습니다. 상한 초과는 운영 조치가 필요하며 이미 소비한
 승인을 다시 사용 가능하게 만드는 방식으로 처리하지 않습니다.

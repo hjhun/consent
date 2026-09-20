@@ -73,6 +73,15 @@ subjects=demo.subject;
 profiles=demo.profile;
 enforcers=cache-scenario;
 packages=demo.package;
+[identity localization-scenario]
+uid=0
+executable=$tools/consent-localization-scenario-isolated
+label=System
+roles=installer;argo;checker;ui;admin;session;holder;
+subjects=demo.subject;
+profiles=demo.profile;
+enforcers=localization-scenario;
+packages=demo.package;
 [identity wire-scenario]
 uid=0
 executable=$tools/wire-scenario
@@ -138,6 +147,9 @@ case "$phase" in
     ;;
   persistent)
     "$scenario" persistent "$(cat "$state/generation")"
+    ;;
+  localization)
+    "$tools/consent-localization-scenario-isolated" "$(cat "$state/generation")"
     ;;
   cache)
     "$tools/consent-cache-scenario-isolated" "$(cat "$state/generation")"

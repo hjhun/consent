@@ -105,6 +105,8 @@ generation 결합과 준비·시험 도구는 이 저장소에 구현한다. 실
 수명 hook 배포는 별도 통합 의존성이다. 근거가 없거나 불일치하면 등록·활성화를
 명시 오류로 거부한다. 초 단위 설치 시각·version·root inode/ctime만으로 동일
 설치 인스턴스를 증명하지 않는다.
+[Installer 인계 문서](installer-integration.ko.md)에 조사한 callback의 한계와
+아직 필요한 외부 transaction/recovery 계약을 기록한다.
 
 DB 작업 전과 commit 후 결과 게시 전에 pathname 신원을 확인한다. 중지 중 정상
 형식의 과거 DB로 바꾼 경우도 감지하도록 예상 DB 신원·인스턴스를 별도의 보호된
@@ -294,9 +296,13 @@ title/body 변수 집합이 선언 schema와 일치해야 한다. template·값�
 명시해야 하며 구 UI에는 미확장 문구 대신 미지원 오류를 반환한다. typed 응답은 표시한
 locale과 최신 token에 결합하고 재표시마다 token을 갱신한다. 등록된 직접 locale
 fallback mapping을 기존 명시적 fallback과 기본 언어보다 먼저 적용한다. mapping
-연쇄·순환·미등록 대상은 거부한다. 번역이 등록된 locale을 alias 출발점으로 중복해
+연쇄·순환·미등록 대상은 거부한다. title/body 번역 쌍이 등록된 locale을 alias 출발점으로 중복해
 정확한 번역을 가리는 mapping도 거부한다. 번역·fallback mapping 변경은 text revision을
 올리고 표시 중 요청을 무효화한다. 의미 변경은 여전히 policy revision이 필요하다.
+같은 definition ID의 text revision은 제거·재설치 후에도 감소하지 않는다.
+기본 locale·번역·fallback mapping은 policy version과 독립적으로 비교한다.
+문구 map이 같으면 revision 유지가 가능하며, 변경되면 policy version 증가 여부와
+관계없이 더 큰 text revision이 필요하다.
 
 한영 값, 미지정·누락 변수, 타입·범위 오류, 미지원 version, locale/token 경쟁, 출력
 상한, 치환 값의 평문 처리를 검증한다. 30일 승인으로 90일 요청을 허용하지 못하며

@@ -155,19 +155,23 @@ Protocol identity fields and underscore-prefixed internal fields are reserved.
 
 | Operation | Required fields and interpretation |
 |---|---|
-| register/update | `operation_id`, `expected_generation`, `definition`, `enforcer`, positive `policy_version` and `text_revision`, `level` 0–3, comma-separated `modes`, `default_locale`, `message.<locale>.title` and `.body`; package/app are separate API arguments |
+| register/update | `operation_id`, `expected_generation`, `definition`, `enforcer`, positive `policy_version` and `text_revision`, `level` 0–3, comma-separated `modes`, `default_locale`, `message.<locale>.title` and `.body`; optional typed template schema and locale aliases below; package/app are separate API arguments |
 | unregister | Package name as its own argument, plus params containing retry-stable `operation_id` and current `expected_generation`; no app ID |
 | request | `subject`, `profile`, stable `client_request_id`, `operation_id`, requirements; optional `session` and its `generation`; `deadline_ms` is independent of local wait timeout |
 | check | `subject`, `profile`, requirements; mode is QUERY or AUTHORIZE; AUTHORIZE also requires `operation_id` and `step_id` |
-| requirement | `consent_params_add_requirement()` appends definition, operation, exact scope, purpose and recipient; at most 16 requirements |
+| requirement | `consent_params_add_requirement()` appends definition, operation, exact scope, purpose and recipient; at most 16 requirements; typed definitions also require matching `rN.policy_version` |
 | session open | `subject`, `profile`; lifecycle is CONNECTION_BOUND or RESUMABLE_CONVERSATION; bounded timeout values are validated by the daemon |
 | session transition | `subject`, `profile`, `session`, current `generation`; resume also requires the rotating `resume_token` |
 
 Scopes compare exactly in this version. The UI must display the registered
-message and actual scope/purpose/recipient together. Message placeholders are
-rejected until a typed formatting schema is available. Level 3 permits ONCE
-only. Increment `policy_version` for a changed policy meaning; increment
-`text_revision` for revised translations.
+message and actual scope/purpose/recipient together. Typed message parameters
+are bound to validated request fields; a displayed query interval and a
+post-acquisition retention interval are separate values. Level 3 permits ONCE
+only. Increment `policy_version` for a changed policy meaning.
+`text_revision` is monotone per definition ID, including after reinstall or a
+policy version increase. Changes to `default_locale`, the registered message
+map or the locale alias map require a strictly higher text revision; identical
+maps may retain the same revision.
 
 An approval response re-evaluates the full current AND of requirements without
 consuming ONCE grants. For example, A was already allowed while B awaited a
@@ -209,6 +213,92 @@ int query_calendar(consent_client_h client) {
   return status;
 }
 ```
+
+## Localized approval text
+
+The A-15 increment adds a bounded, typed `{name}` template contract while
+preserving existing literal messages. Frozen build15 passed GBS and the isolated
+emulator C API scenarios; the [verification record](verification.en.md) identifies
+the tested snapshot and limits. This formatter supports plain text and canonical decimal
+integers. It does not implement ICU syntax, plural rules, dates, or localized
+number formatting.
+
+Registration defines each variable's type, limits and trusted source. A
+variable is derived from its validated requirement or retention metadata, not
+from a caller-supplied display string. For example, an integer scope `30` can
+represent 30 days of past query coverage; `retention_ms` is a distinct interval
+for retaining acquired results, measured in milliseconds. Formatting performs
+no unit conversion. An omitted `retention_ms` uses the policy's actual default
+of zero, which must satisfy the declared bounds. A missing string source is
+invalid; an explicitly supplied empty string is allowed by the string schema.
+The UI displays scope, purpose, recipient, sensitivity and
+allowed modes alongside the complete registered sentence.
+
+Use the existing params builder to register the following additional fields:
+
+| Field | Contract |
+|---|---|
+| `template_version` | `1` for typed messages |
+| `parameter.<name>.type` | `integer` or `string` |
+| `parameter.<name>.source` | Integer: `scope` or `retention_ms`; string: `scope`, `purpose`, `recipient` or `operation` |
+| `parameter.<name>.min`, `.max` | Required inclusive signed 64-bit bounds for an integer |
+| `parameter.<name>.max_bytes` | Required UTF-8 byte limit from 1 to 512 for a string |
+| `locale_fallback.<requested>` | Direct target locale with both title and body registered |
+
+For example, register `parameter.days.type=integer`, `.source=scope`,
+`.min=1`, `.max=365`, and body `Read the last {days} days?`, together with
+`template_version=1` and a title. A request with `r0.scope=30` and the current
+`r0.policy_version` then supplies the value `30` from the authorization context.
+Typed requests and checks reject a missing or stale policy version. Do not send `display_args` or
+`r0.arg*` fields; the daemon rejects caller-supplied display arguments.
+Changing parameter types, bounds or sources requires a new policy version.
+
+At most eight variables are allowed, each named by a 1–32 character ASCII
+identifier. Every typed locale needs title and body; the union of their
+placeholders must exactly match the declared variable names. Each template
+is limited to 4,096 UTF-8 bytes and each rendered field to 8,192 bytes.
+Integers must use canonical decimal form: `30` is valid, `030`, `+30`,
+`30.0`, overflow and out-of-range values are rejected. Invalid registration,
+missing translations or argument errors never imply approval.
+
+The UI explicitly sets `template_version=1` and its requested `locale` when
+fetching typed prompts. The response's top-level `locale` is the requested
+locale; each `rN.locale` identifies the selected registered translation.
+Use `consent_prompt_format(result, index, "title", &text)` or the same call
+with `"body"` for a returned requirement. On success, `text` is an allocated
+UTF-8 string owned by the caller; release it with `free()`. On failure, the
+output is NULL and the UI must not proceed as if formatting succeeded. The
+formatter processes the template in one pass and never interprets substituted
+text as another template or markup. Render the result as plain text.
+Invalid prompt fields, indices or arguments return
+`CONSENT_ERROR_INVALID_PARAMETER`; allocation failure returns
+`CONSENT_ERROR_OUT_OF_MEMORY`.
+
+```c
+#include <consent.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int print_prompt_body(const consent_result_t *prompt, unsigned int index) {
+  char *text = NULL;
+  int status = consent_prompt_format(prompt, index, "body", &text);
+  if (status != 0)
+    return status;
+  puts(text);
+  free(text);
+  return 0;
+}
+```
+
+Locale selection first uses an exact registered translation, then an explicit
+alias directly to a registered locale. The supported `ko-KR` to `ko` and
+`en-US`/`en-GB` to `en` fallbacks follow, then the registered default locale.
+Aliases cannot chain or form cycles. Script and region subtags are not
+generically stripped. Registration rejects an alias whose source already has
+a complete registered translation. A typed approval response must echo the top-level
+requested `locale` and current `prompt_token`. Refetch after a locale change; an old
+token cannot authorize the newly displayed prompt. Changes to aliases require
+a new text revision and invalidate pending prompts.
 
 ## Recovery and verification
 

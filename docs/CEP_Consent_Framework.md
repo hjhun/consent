@@ -874,8 +874,11 @@ UI는 typed prompt를 받을 때 version 1 지원을 명시하고 응답 시 표
 token을 결합한다. 구 UI에는 미지원 오류를 반환하며 기존 literal 정의는 호환된다.
 언어를 바꾸어 다시 표시하면 token을 교체한다. 등록된 직접 locale fallback을 먼저
 적용하고 기존 명시적 fallback과 기본 언어를 뒤에 적용한다. 연쇄·순환·미등록 대상은
-거부한다. 번역이 등록된 locale을 alias 출발점으로 중복하는 mapping도 등록 오류다.
+거부한다. title/body 번역 쌍이 등록된 locale을 alias 출발점으로 중복하는 mapping도 등록 오류다.
 번역·fallback 변경은 text_revision 증가와 표시 중 요청 무효화가 필요하다.
+같은 definition ID의 text_revision은 제거·재설치에도 감소하지 않는다. 기본 locale·
+번역·fallback map 변경은 policy_version을 함께 올려도 더 큰 text_revision이 필요하며,
+map이 같으면 기존 text_revision을 유지할 수 있다.
 
 ## 12. 프로세스 내부 캐시
 

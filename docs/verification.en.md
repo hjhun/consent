@@ -516,3 +516,101 @@ daemon does. `cleanup.log` confirms observer unit files and both DB gate files
 are absent, the partial-input ready marker is removed, the isolated service
 again points to ordinary `consentd-test` and is stopped with MainPID0, and the
 production `consentd.socket` is active. Isolated test state remains for inspection.
+
+## Build15: typed localization and approval-scope binding
+
+The A-15 increment is validated from frozen tree
+`58e4ab99cdefca6a3cdfbdfa61d8e0b255e7fd0d`, based on `13dcfae`.
+Its 74-file source archive SHA256 is
+`a50e60137c4448c510012a099a76c8dd53a3875d58b3bf4d57f4b6b154ba543b`.
+The archive was compared byte-for-byte with that tree. Exact source, four RPMs,
+commands, full logs, `LastTest.log`, manifests and checksums are preserved in
+`/var/tmp/consent-artifacts/gbs-build-15/`.
+
+Build14 is retained separately in `gbs-build-14-failed/`: tree
+`4d727c091065f2433d3b816b95f1d291f6a5b54d`, archive SHA256
+`c27cfb640bbd0f3847b7abd371d1754c6b3ee95cad20561fc64882b242a15071`.
+Eight tests passed, but the new formatter test could not load `libconsent.so.0`
+before RPM installation because build RPATH was disabled. Build15 supplies
+`LD_LIBRARY_PATH=$<TARGET_FILE_DIR:consent>` only to CTest. The test still calls
+the actual shared C ABI; production RPATH, runtime environment and identity
+checks are unchanged. Build14 was not deployed or reported as target evidence.
+
+The exact build command remains:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+Build15 passes **9/9**: client0.59s, localization0.00s, crash0.32s, fault0.10s,
+repository-localization0.50s, provenance1.80s, repository3.45s, UI1.56s and
+IDL0.14s. `binary-integration-audit.txt` confirms all 40 exported functions are
+C `consent_*` APIs, including the additive `consent_prompt_format`, with no C++
+exports. New tests retain `-UNDEBUG`; the test RPM includes both new unit tests
+and the C scenario. Test-only SQLite interposition remains confined to the
+separate shutdown daemon.
+
+The selected `emulator-26101` is x86_64. The three runtime/daemon/test RPMs and
+scenario script installed on it came from this exact frozen snapshot.
+`/var/tmp/consent-artifacts/emulator-build-15/commands.txt` records deployment
+and execution; `deploy.log` records installation. Actual target commands include:
+
+```sh
+systemd-run --wait --pipe --unit=consent-localization-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh localization
+systemd-run --wait --pipe --unit=consent-localization-units-fifteen -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/localization-test; /usr/libexec/consent/tests/repository-localization-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-provenance-test'
+systemd-run --wait --pipe --unit=consent-ui-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh ui-reevaluate
+systemd-run --wait --pipe --unit=consent-races-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh races
+systemd-run --wait --pipe --unit=consent-holder-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh holder-restart
+systemd-run --wait --pipe --unit=consent-cache-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+```
+
+`localization.log` records a successful real C API → Parcel → daemon scenario:
+Korean/English, direct alias and default fallback; literal insertion of
+`수신{name}%<tag>` without interpretation; explicit formatter ownership/error
+behavior; capability, requested locale and latest-token binding. Malformed
+schema/templates, noncanonical/out-of-range integers, invalid UTF-8, oversized
+strings and independent display arguments are rejected. A scope30 approval
+cannot satisfy scope90 AUTHORIZE, changed retries, receipt registration,
+artifact or derived reuse. The original scope30 succeeds. A warmed typed cache
+does not satisfy scope90; schema changes require a policy bump and invalidate
+pending requests and grants. Legacy `count="01"` admission yields canonical
+prompt `count="1"`. The scenario exits0, with integrity exactly `ok`, schema2
+and expected metadata present.
+
+`localization-units.log` records five formatter groups, seven new repository
+localization groups, seven prior UI groups and eight provenance groups, all
+passing on the target. The bounds test has a valid eight-schema/eight-placeholder
+positive control in both locales before adding both the ninth schema and ninth
+placeholder. Repository cases cover missing source versus explicit empty,
+literal/typed count compatibility, and text revision monotonicity across policy
+bumps and reinstallation. Changed message/default/alias maps require an
+independent text revision increase. Tests first issue a valid token, then reject
+invalid capability/locale, over8192-byte rendering or an alternate locale's
+whole prompt exceeding64KiB, and successfully respond with the original token.
+Schema/alias registry recovery restores definitions without approvals. Consumed
+ONCE does not erase independently valid artifact retention.
+
+`api-cache.log` records all five real C UI final-AND cases, two-connection ONCE
+contention/stable receipt retry, remote cancel/respond/deadline outcomes, and a
+new holder process discovering and acknowledging prior cleanup. Live cache
+probes precede the original lease expiry, without an intervening authoritative
+reply: revoke37898us, policy42727us, suspend40397us, independent ACTIVE close
+38784us, package removal47397us and DB deletion65465us. Both actor handles remain
+alive; each phase exits0 and asserts integrity `ok`, schema2 and expected metadata.
+
+`cleanup.log` confirms isolated service/socket inactive, MainPID0, ordinary
+`consentd-test` restored, no DB gate files, and production socket active with its
+existing default-deny roles. Its initial hash command used the wrong `/usr/lib`
+path; the subsequent RPM file listing and `/usr/lib64` hash corrected that
+observation. No source fix was needed. Isolated test state is retained for
+inspection. Final verification text and the four guide/protocol completion
+paragraphs were updated after execution; these documentation-only edits do not
+change the frozen tested source.
+
+This closes the bounded template_version1 implementation and isolated A-15
+verification scope. It does not implement ICU syntax, plural/date rules or
+locale-specific numeric formatting, nor validate an actual product approval UI.
+Product role deployment, Installer lifecycle hooks and registry-loss provisioning
+remain integration gaps. Wire/shutdown evidence remains the separately identified
+build13 execution; it was not rerun for build15. Abrupt power loss and actual
+filesystem-full/device-write failure remain unverified, as previously stated.

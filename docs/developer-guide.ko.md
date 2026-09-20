@@ -156,19 +156,22 @@ holder 대조의 한계는 [저장 가이드](storage-design.ko.md)를 참조합
 
 | 작업 | 필수 필드와 의미 |
 |---|---|
-| register/update | `operation_id`, `expected_generation`, `definition`, `enforcer`, 양수 `policy_version`·`text_revision`, 0–3의 `level`, 쉼표 구분 `modes`, `default_locale`, `message.<locale>.title`·`.body`; package/app은 별도 API 인자 |
+| register/update | `operation_id`, `expected_generation`, `definition`, `enforcer`, 양수 `policy_version`·`text_revision`, 0–3의 `level`, 쉼표 구분 `modes`, `default_locale`, `message.<locale>.title`·`.body`; 아래 타입 템플릿 스키마·locale 별칭은 선택; package/app은 별도 API 인자 |
 | unregister | 패키지명은 별도 인자이며 params에 재시도 시 같은 `operation_id`와 현재 `expected_generation` 전달; app ID 불필요 |
 | request | `subject`, `profile`, 안정된 `client_request_id`, `operation_id`, requirements; 선택적으로 `session`과 해당 `generation`; `deadline_ms`는 로컬 대기 timeout과 별개 |
 | check | `subject`, `profile`, requirements; mode는 QUERY 또는 AUTHORIZE; AUTHORIZE에는 `operation_id`·`step_id`도 필요 |
-| requirement | `consent_params_add_requirement()`로 definition·operation·정확 scope·purpose·recipient 추가; 최대 16개 |
+| requirement | `consent_params_add_requirement()`로 definition·operation·정확 scope·purpose·recipient 추가; 최대 16개; 타입 있는 정의는 일치하는 `rN.policy_version`도 필수 |
 | session open | `subject`, `profile`; lifecycle은 CONNECTION_BOUND 또는 RESUMABLE_CONVERSATION; 시간 상한은 데몬이 검증 |
 | session transition | `subject`, `profile`, `session`, 현재 `generation`; resume에는 회전되는 `resume_token`도 필요 |
 
 현재 버전은 scope의 정확 일치를 비교합니다. UI는 등록 문구와 실제
-scope·purpose·recipient를 함께 표시해야 합니다. 타입 있는 포맷 스키마가
-준비될 때까지 문구 placeholder는 거부합니다. Level 3은 ONCE만 허용합니다.
-정책 의미가 변경되면 `policy_version`, 번역이 수정되면 `text_revision`을
-증가시킵니다.
+scope·purpose·recipient를 함께 표시해야 합니다. 타입 있는 문구 변수는 검증된
+요청 필드와 연결하며, 표시되는 과거 조회 기간과 취득 후 보관 기간은 별개
+값입니다. Level 3은 ONCE만 허용합니다. 정책 의미가 변경되면
+`policy_version`을 증가시킵니다. `text_revision`은 definition ID마다 단조
+증가하며 재설치나 policy version 증가 후에도 이 규칙이 유지됩니다.
+`default_locale`·등록 문구 map·locale 별칭 map 중 하나라도 변경하면 더 큰
+text revision이 필요하며, 같은 map은 기존 revision을 유지할 수 있습니다.
 
 승인 응답은 ONCE 승인을 소비하지 않고 현재 요구 조건 전체의 AND를 다시
 판정합니다. 예를 들어 A는 이미 허용된 상태에서 B에 대한 선택을 기다렸는데,
@@ -209,6 +212,87 @@ int query_calendar(consent_client_h client) {
   return status;
 }
 ```
+
+## 다국어 승인 문구
+
+A-15 증분은 기존 변수 없는 문구와 호환되는, 크기와 타입이 제한된 `{name}`
+템플릿 계약을 추가합니다. 고정된 build15로 GBS와 격리 emulator C API 시험을
+통과했으며, 스냅샷과 검증 한계는 [검증 기록](verification.ko.md)에서 확인합니다. 포맷터는
+일반 텍스트와 정규 십진 정수를 지원합니다. ICU 문법, 복수형 규칙, 날짜,
+언어별 숫자 포맷은 구현하지 않습니다.
+
+등록 시 각 변수의 타입·상한·신뢰할 원본을 정의합니다. 변수 값은 호출자가
+만든 표시 문자열이 아니라 검증된 요구 조건이나 보관 메타데이터에서 가져옵니다.
+예를 들어 정수 scope `30`은 과거 30일의 조회 범위를 나타낼 수 있으며,
+`retention_ms`는 취득한 결과의 보관 기간을 밀리초로 나타내는 별개 값입니다.
+포맷 과정에서 단위를 변환하지 않습니다. `retention_ms`를 생략하면 정책의 실제
+기본값 0을 사용하며 이 값도 선언한 범위를 만족해야 합니다. 문자열 원본의 누락은
+거부하지만 명시적으로 전달한 빈 문자열은 문자열 스키마에서 허용합니다.
+UI는 등록된 전체 문장과 함께
+scope·purpose·recipient·민감도·허용 모드를 표시합니다.
+
+기존 params builder로 다음 필드를 추가하여 등록합니다.
+
+| 필드 | 계약 |
+|---|---|
+| `template_version` | 타입 있는 문구는 `1` |
+| `parameter.<name>.type` | `integer` 또는 `string` |
+| `parameter.<name>.source` | 정수: `scope` 또는 `retention_ms`; 문자열: `scope`, `purpose`, `recipient`, `operation` |
+| `parameter.<name>.min`, `.max` | 정수의 필수 signed 64-bit 최솟값·최댓값, 양 끝 포함 |
+| `parameter.<name>.max_bytes` | 문자열의 필수 UTF-8 byte 상한, 1–512 |
+| `locale_fallback.<requested>` | title·body가 모두 등록된 직접 대상 locale |
+
+예를 들어 `template_version=1`, 제목과 함께 `parameter.days.type=integer`,
+`.source=scope`, `.min=1`, `.max=365`, 본문 `최근 {days}일의 기록을 읽습니까?`를
+등록합니다. 요청의 `r0.scope=30`과 현재 `r0.policy_version`이 승인 문맥에서
+값 `30`을 제공합니다. 타입 있는 request·check는 policy version 누락이나 불일치를
+거부합니다.
+`display_args`나 `r0.arg*` 필드는 보내지 않습니다. 데몬은 호출자가 만든 표시
+인자를 거부합니다. 변수 타입·범위·원본 변경에는 새 policy version이 필요합니다.
+
+변수는 최대 8개이며 각 이름은 1–32자 ASCII 식별자입니다. 타입 있는 모든
+locale에는 제목과 본문이 필요하고, 두 문구의 placeholder 합집합이 선언한
+변수명과 정확히 일치해야 합니다. 템플릿은 각각 UTF-8 4,096 byte, 완성 문구는
+각각 8,192 byte까지 허용합니다. 정수는 정규 십진 표기여야 합니다.
+`30`은 허용하지만 `030`, `+30`, `30.0`, overflow·범위 초과 값은 거부합니다.
+잘못된 등록, 번역 누락이나 인자 오류를 승인으로 처리하지 않습니다.
+
+타입 있는 prompt를 조회할 때 UI는 `template_version=1`과 요청 `locale`을
+명시합니다. 응답 최상위 `locale`은 요청한 언어이고 각 `rN.locale`은 실제
+선택한 등록 번역입니다.
+`consent_prompt_format(result, index, "title", &text)` 또는 `"body"` 호출로
+반환된 요구 조건의 문구를 완성합니다. 성공 시 `text`는 호출자 소유의 UTF-8
+문자열이며 `free()`로 해제합니다. 실패 시 출력은 NULL이고, UI는 문구 완성에
+성공한 것으로 처리해서는 안 됩니다. 포맷터는 템플릿을 한 번 순회하며 치환하고,
+치환된 문자열을 템플릿이나 마크업으로 다시 해석하지 않습니다. 결과는 일반
+텍스트로 표시합니다.
+잘못된 prompt 필드·인덱스·인자는 `CONSENT_ERROR_INVALID_PARAMETER`,
+메모리 할당 실패는 `CONSENT_ERROR_OUT_OF_MEMORY`를 반환합니다.
+
+```c
+#include <consent.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int print_prompt_body(const consent_result_t *prompt, unsigned int index) {
+  char *text = NULL;
+  int status = consent_prompt_format(prompt, index, "body", &text);
+  if (status != 0)
+    return status;
+  puts(text);
+  free(text);
+  return 0;
+}
+```
+
+언어는 정확히 등록된 번역, 등록 언어를 직접 가리키는 명시적 별칭 순서로
+선택합니다. 이어서 지원하는 `ko-KR`→`ko`, `en-US`/`en-GB`→`en` fallback을
+적용하고, 마지막으로 등록 기본 언어를 사용합니다. 별칭 연결과 순환은 허용하지
+않습니다. script·region subtag를 일반적으로 제거하지 않습니다. 별칭 원본에
+완전한 번역이 이미 등록되어 있으면 해당 별칭 등록을 거부합니다. 타입 있는
+승인 응답에는 최상위 요청 `locale`과 현재 `prompt_token`을 그대로 전달합니다.
+언어를 바꾸면 prompt를 다시 조회하며, 이전 token으로 새 화면을 승인할 수
+없습니다. 별칭 변경에는 새 text revision이 필요하며 대기 prompt를 무효화합니다.
 
 ## 복구와 검증
 

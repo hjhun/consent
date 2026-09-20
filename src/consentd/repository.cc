@@ -15,6 +15,8 @@
  */
 #include "repository.hh"
 
+#include "common/localization.hh"
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -378,6 +380,7 @@ class Repository::Impl final {
   void ValidateArtifactProvenance(const Peer& peer, const Message& request,
       const std::string& artifact);
   void ValidateDefinition(const Message& definition);
+  void ValidateBoundArguments(const Message& definition, const Message& request, int index);
   void ResetRuntime();
 
   std::string path_;
@@ -857,11 +860,6 @@ void Repository::Impl::ValidateDefinition(const Message& definition) {
     Require(field.second.size() <= 4096 && !field.second.empty() &&
         g_utf8_validate(field.second.data(), field.second.size(), nullptr),
         -EINVAL, "invalid localized message");
-    // This first format deliberately has no template evaluator. Parameters
-    // remain separately displayed exact-scope fields, never untyped expansion.
-    Require(field.second.find('{') == std::string::npos &&
-        field.second.find('}') == std::string::npos, -EINVAL,
-        "message placeholders require a future typed schema");
     ++messages;
   }
   std::string prefix = "message." + Get(definition, "default_locale");
@@ -869,6 +867,20 @@ void Repository::Impl::ValidateDefinition(const Message& definition) {
       !Get(definition, prefix + ".title").empty() &&
       !Get(definition, prefix + ".body").empty(), -EINVAL,
       "default locale title and body required");
+  std::string error;
+  if (!consent::localization::ValidateDefinition(definition, &error))
+    throw Failure(-EINVAL, error);
+}
+
+void Repository::Impl::ValidateBoundArguments(const Message& definition, const Message& request,
+    int index) {
+  std::string prefix = "r" + std::to_string(index) + ".";
+  if (Get(definition, "template_version") == "1")
+    Require(Get(request, prefix + "policy_version") == Get(definition, "policy_version"),
+        -ESTALE, "typed definition requires an explicit matching policy version");
+  std::string error;
+  if (!consent::localization::ValidateArguments(definition, request, index, &error))
+    throw Failure(-EINVAL, error);
 }
 
 Message Repository::Impl::Register(const Peer& peer, const Message& request,
@@ -920,7 +932,8 @@ Message Repository::Impl::Register(const Peer& peer, const Message& request,
           item.first == "enforcer" || item.first == "policy_version" ||
           item.first == "text_revision" || item.first == "level" || item.first == "modes" ||
           item.first == "default_locale" || item.first == "retention_ms" ||
-          item.first == "_install_identity" || item.first.compare(0, 8, "message.") == 0)
+          item.first == "_install_identity" || item.first.compare(0, 8, "message.") == 0 ||
+          consent::localization::IsDefinitionField(item.first))
         definition.insert(item);
     }
     definition["active"] = "1";
@@ -936,14 +949,36 @@ Message Repository::Impl::Register(const Peer& peer, const Message& request,
       auto old_policy = Integer(Get(found->second, "policy_version"), 1, INT32_MAX);
       auto new_policy = Integer(Get(definition, "policy_version"), 1, INT32_MAX);
       Require(new_policy >= old_policy, kConflict, "policy rollback rejected");
+      Message old_schema;
+      Message new_schema;
+      auto old_text = Integer(Get(found->second, "text_revision"), 1, INT32_MAX);
+      auto new_text = Integer(Get(definition, "text_revision"), 1, INT32_MAX);
+      Require(new_text >= old_text, kConflict, "text revision rollback rejected");
+      Message old_messages;
+      Message new_messages;
+      for (const auto& field : found->second) {
+        if (consent::localization::IsPolicyField(field.first))
+          old_schema.insert(field);
+        if (field.first == "default_locale" || field.first.compare(0, 8, "message.") == 0 ||
+            field.first.compare(0, 16, "locale_fallback.") == 0)
+          old_messages.insert(field);
+      }
+      for (const auto& field : definition) {
+        if (consent::localization::IsPolicyField(field.first))
+          new_schema.insert(field);
+        if (field.first == "default_locale" || field.first.compare(0, 8, "message.") == 0 ||
+            field.first.compare(0, 16, "locale_fallback.") == 0)
+          new_messages.insert(field);
+      }
+      Require(old_schema == new_schema || new_policy > old_policy, kConflict,
+          "template parameter schema changed without policy version increase");
+      Require(old_messages == new_messages || new_text > old_text, kConflict,
+          "localized messages or fallback changed without text revision increase");
       if (new_policy == old_policy && Get(found->second, "active") == "1" &&
           Get(found->second, "_install_identity") == Get(definition, "_install_identity")) {
         for (const char* field : {"enforcer", "level", "modes", "retention_ms"})
           Require(Get(found->second, field) == Get(definition, field), kConflict,
               "policy meaning changed without version increase");
-        auto old_text = Integer(Get(found->second, "text_revision"), 1, INT32_MAX);
-        auto new_text = Integer(Get(definition, "text_revision"), 1, INT32_MAX);
-        Require(new_text >= old_text, kConflict, "text revision rollback rejected");
         if (new_text == old_text)
           Require(found->second == definition, kConflict, "same revision differs");
       }
@@ -1185,6 +1220,7 @@ Message Repository::Impl::CheckConditions(const Peer& peer, const Message& reque
     }
     Require(validator_ && validator_(Get(definition, "package"), Get(definition, "app"),
         Get(definition, "_install_identity")), -ESTALE, "installation generation changed");
+    ValidateBoundArguments(definition, request, i);
     if (!Get(request, prefix + "policy_version").empty())
       Require(Get(request, prefix + "policy_version") == Get(definition, "policy_version"),
           -ESTALE, "policy version mismatch");
@@ -1243,6 +1279,7 @@ bool Repository::Impl::ReceiptValid(const std::string& receipt) {
     if (!Get(payload, prefix + "policy_version").empty() &&
         Get(payload, prefix + "policy_version") != Get(definition, "policy_version"))
       return false;
+    ValidateBoundArguments(definition, payload, i);
     if (!validator_ || !validator_(Get(definition, "package"), Get(definition, "app"),
         Get(definition, "_install_identity")))
       return false;
@@ -1260,6 +1297,20 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& request,
   std::string mode = Get(request, "mode", "QUERY");
   Require(mode == "QUERY" || mode == "AUTHORIZE", -EINVAL, "invalid check mode");
   bool authorize = !create && mode == "AUTHORIZE";
+  // Retry shortcuts must not bypass the current typed schema. Bound values are
+  // the same exact fields later included in the grant key and receipt payload.
+  for (int i = 0; i < Number(request, "count", 0, 1, 16); ++i) {
+    try {
+      auto definition = Definition(Get(request, "r" + std::to_string(i) + ".definition"));
+      ValidateBoundArguments(definition, request, i);
+    } catch (const Failure& failure) {
+      if (failure.Status() != -ENOENT)
+        throw;
+      std::string error;
+      if (!consent::localization::ValidateArguments({}, request, i, &error))
+        throw Failure(-EINVAL, error);
+    }
+  }
   Message payload;
   for (const char* key : {"subject", "profile", "session", "generation", "operation_id",
       "step_id", "client_request_id", "deadline_ms", "count"}) {
@@ -1384,6 +1435,7 @@ Message Repository::Impl::Result(const Peer& peer, const Message& request,
   result.erase("prompt_token");
   result.erase("ui_owner");
   result.erase("ui_instance");
+  result.erase("_prompt_locale");
   return result;
 }
 
@@ -1398,6 +1450,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
   SessionState(peer, pending, true);
   auto count = Number(pending, "count", 0, 1, 16);
   std::vector<Message> definitions;
+  bool typed = false;
   for (int i = 0; i < count; ++i) {
     std::string prefix = "r" + std::to_string(i) + ".";
     Message definition = Definition(Get(pending, prefix + "definition"));
@@ -1406,30 +1459,33 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     Require(Get(definition, "policy_version") == Get(pending, prefix + "policy_version") &&
         Get(definition, "text_revision") == Get(pending, prefix + "text_revision"),
         -ESTALE, "displayed policy or text changed");
+    ValidateBoundArguments(definition, pending, i);
+    typed = typed || Get(definition, "template_version") == "1";
     definitions.push_back(std::move(definition));
   }
   Message result;
   if (!respond) {
     std::string locale = Get(request, "locale");
     Require(Identifier(locale), -EINVAL, "locale required");
+    Require(!typed || Get(request, "template_version") == "1", -EINVAL,
+        "typed prompt requires template version 1 capability");
+    if (typed) {
+      result["template_version"] = "1";
+      result["locale"] = locale;
+    }
     for (const char* key : {"request_id", "subject", "profile", "session", "generation", "count"})
       result[key] = Get(pending, key);
+    result["count"] = std::to_string(count);
     for (int i = 0; i < count; ++i) {
       std::string row = "r" + std::to_string(i) + ".";
       for (const char* key : {"definition", "scope", "operation", "purpose", "recipient",
           "holder", "policy_version", "text_revision"})
         result[row + key] = Get(pending, row + key);
       auto& definition = definitions[i];
-      std::string selected = locale;
-      // Only the explicitly supported language-region fallbacks are reduced.
-      // Unknown scripts/regions use the registered default as a whole.
-      if (Get(definition, "message." + selected + ".title").empty()) {
-        if (locale == "ko-KR") selected = "ko";
-        else if (locale == "en-US" || locale == "en-GB") selected = "en";
-      }
-      if (Get(definition, "message." + selected + ".title").empty() ||
-          Get(definition, "message." + selected + ".body").empty())
-        selected = Get(definition, "default_locale");
+      std::string selected;
+      std::string error;
+      if (!consent::localization::SelectLocale(definition, locale, &selected, &error))
+        throw Failure(-EINVAL, error);
       std::string prefix = "r" + std::to_string(i) + ".";
       result[prefix + "locale"] = selected;
       result[prefix + "title"] = Get(definition, "message." + selected + ".title");
@@ -1437,16 +1493,32 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
       result[prefix + "modes"] = Get(definition, "modes");
       result[prefix + "level"] = Get(definition, "level");
       result[prefix + "retention_ms"] = Get(definition, "retention_ms", "0");
+      if (!consent::localization::AppendArguments(definition, pending, i, &result, &error))
+        throw Failure(-EINVAL, error);
     }
-    size_t response_bytes = 256;
+    // Leave conservative space for envelope, snapshot and the new token.
+    size_t response_bytes = 1024;
     for (const auto& field : result)
       response_bytes += 10 + field.first.size() + field.second.size();
     Require(result.size() <= 240 && response_bytes <= consent::kMaxFrameSize,
         -E2BIG, "combined localized prompt exceeds frame budget");
+    for (int i = 0; i < count; ++i) {
+      for (const char* field : {"title", "body"}) {
+        std::string formatted;
+        std::string error;
+        if (!consent::localization::FormatPrompt(result, i, field, &formatted, &error))
+          throw Failure(-E2BIG, error);
+      }
+    }
     std::string token = Id();
-    Statement update(db_, "UPDATE requests SET token=?,ui_owner=?,ui_instance=? WHERE id=?");
+    Message displayed = pending;
+    for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
+      displayed.erase(field);
+    if (typed)
+      displayed["_prompt_locale"] = locale;
+    Statement update(db_, "UPDATE requests SET token=?,ui_owner=?,ui_instance=?,payload=? WHERE id=?");
     update.Bind(1, Hash(token)).Bind(2, peer.identity).Bind(3, peer.instance)
-        .Bind(4, Get(pending, "request_id")).Run();
+        .Bind(4, Pack(displayed)).Bind(5, Get(pending, "request_id")).Run();
     result["prompt_token"] = token;
     result.erase("ui_owner");
     result.erase("ui_instance");
@@ -1455,6 +1527,9 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
         Hash(Get(request, "prompt_token")) == Get(pending, "prompt_token") &&
         Get(pending, "ui_owner") == peer.identity && Get(pending, "ui_instance") == peer.instance,
         -EACCES, "prompt token or UI instance mismatch");
+    Require(!typed || (!Get(pending, "_prompt_locale").empty() &&
+        Get(request, "locale") == Get(pending, "_prompt_locale")), -EACCES,
+        "prompt response locale mismatch");
     std::string decision = Get(request, "decision");
     Require(decision == "ALLOWED" || decision == "DENIED", -EINVAL,
         "invalid UI decision");
@@ -1498,7 +1573,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
       }
     }
     Message final_payload = pending;
-    for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
+    for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance", "_prompt_locale"})
       final_payload.erase(field);
     for (int i = 0; i < count; ++i) {
       std::string key = "r" + std::to_string(i) + ".decision";
@@ -1553,7 +1628,7 @@ void Repository::Impl::ValidateArtifactProvenance(const Peer& peer, const Messag
       "artifact blocked or expired");
   // Derived registration materializes the union of all parents' source grants;
   // this is the transitive policy provenance, independent of parent residency.
-  Statement sources(db_, "SELECT grants.revoked,grants.version,definitions.active,definitions.config "
+  Statement sources(db_, "SELECT grants.revoked,grants.version,definitions.active,definitions.config,grants.key "
       "FROM artifact_grants "
       "JOIN grants ON grants.id=artifact_grants.grant_id "
       "JOIN definitions ON definitions.id=grants.definition "
@@ -1566,6 +1641,14 @@ void Repository::Impl::ValidateArtifactProvenance(const Peer& peer, const Messag
     Require(sources.Int(0) == 0 && sources.Int(2) == 1 &&
         sources.Text(1) == Get(definition, "policy_version"), -ESTALE,
         "artifact provenance revoked or policy changed");
+    Message key = Unpack(sources.Text(4));
+    Require(Get(key, "definition") == Get(definition, "definition") &&
+        Get(key, "version") == sources.Text(1), -ESTALE,
+        "artifact source binding changed");
+    Message bound{{"r0.policy_version", Get(key, "version")}};
+    for (const char* field : {"scope", "operation", "purpose", "recipient", "holder"})
+      bound[std::string("r0.") + field] = Get(key, field);
+    ValidateBoundArguments(definition, bound, 0);
     Require(validator_ && validator_(Get(definition, "package"), Get(definition, "app"),
         Get(definition, "_install_identity")), -ESTALE,
         "artifact installation identity changed");
@@ -1577,6 +1660,9 @@ void Repository::Impl::ValidateArtifactProvenance(const Peer& peer, const Messag
 
 Message Repository::Impl::Data(const Peer& peer, const Message& request) {
   Require(Role(peer, "holder"), -EACCES, "holder role required");
+  std::string argument_error;
+  if (!consent::localization::ValidateArguments({}, request, 0, &argument_error))
+    throw Failure(-EINVAL, argument_error);
   std::string method = Get(request, "method");
   Transaction transaction(db_);
   if (method == "cleanup_list") {

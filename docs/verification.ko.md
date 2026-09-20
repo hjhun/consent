@@ -480,3 +480,96 @@ binary만 SQLite step/exec interposer를 정의하며 두 일반 daemon에는 �
 부분 입력 ready marker 제거, 격리 service의 일반 `consentd-test` 복원과
 정지(MainPID0), production `consentd.socket` 활성 상태를 확인했다.
 검토할 수 있도록 격리 시험 상태는 보존했다.
+
+## Build15: 타입 있는 지역화와 승인 범위 결합
+
+A-15 증분은 `13dcfae` 기반의 고정 tree
+`58e4ab99cdefca6a3cdfbdfa61d8e0b255e7fd0d`로 검증했습니다.
+74개 파일을 담은 소스 archive의 SHA256은
+`a50e60137c4448c510012a099a76c8dd53a3875d58b3bf4d57f4b6b154ba543b`이며,
+각 파일을 tree와 byte 단위로 대조했습니다. 정확한 소스, RPM 4개, 명령,
+전체 로그, `LastTest.log`, manifest와 checksum은
+`/var/tmp/consent-artifacts/gbs-build-15/`에 보존했습니다.
+
+Build14 실패는 `gbs-build-14-failed/`에 별도로 보존했습니다. Tree는
+`4d727c091065f2433d3b816b95f1d291f6a5b54d`, archive SHA256은
+`c27cfb640bbd0f3847b7abd371d1754c6b3ee95cad20561fc64882b242a15071`입니다.
+8개 시험은 통과했지만, build RPATH가 꺼진 환경에서 새 formatter 시험이
+RPM 설치 전 `libconsent.so.0`을 찾지 못했습니다. Build15는 CTest에만
+`LD_LIBRARY_PATH=$<TARGET_FILE_DIR:consent>`를 지정합니다. 실제 shared C ABI
+호출 시험은 유지하며 production RPATH·실행 환경·신원 검증은 바꾸지 않았습니다.
+Build14는 target에 설치하거나 target 성공 근거로 사용하지 않았습니다.
+
+실제 빌드 명령은 다음과 같습니다.
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+Build15는 **9/9**를 통과했습니다. client0.59s, localization0.00s, crash0.32s,
+fault0.10s, repository-localization0.50s, provenance1.80s, repository3.45s,
+UI1.56s, IDL0.14s입니다. `binary-integration-audit.txt`는 추가된
+`consent_prompt_format`을 포함한 공개 함수 40개가 모두 C `consent_*` API이고
+C++ 심볼 노출은 없음을 확인합니다. 신규 시험에는 `-UNDEBUG`가 적용되며,
+test RPM은 두 신규 unit 시험과 C scenario를 포함합니다. 테스트용 SQLite
+interposition은 별도 shutdown daemon에만 존재합니다.
+
+선택한 `emulator-26101`은 x86_64이며, runtime/daemon/test RPM 3개와 scenario
+script 모두 이 고정 snapshot에서 설치했습니다.
+`/var/tmp/consent-artifacts/emulator-build-15/commands.txt`에 설치·실행 명령,
+`deploy.log`에 설치 결과를 기록했습니다. 실제 target 명령은 다음과 같습니다.
+
+```sh
+systemd-run --wait --pipe --unit=consent-localization-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh localization
+systemd-run --wait --pipe --unit=consent-localization-units-fifteen -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/localization-test; /usr/libexec/consent/tests/repository-localization-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-provenance-test'
+systemd-run --wait --pipe --unit=consent-ui-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh ui-reevaluate
+systemd-run --wait --pipe --unit=consent-races-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh races
+systemd-run --wait --pipe --unit=consent-holder-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh holder-restart
+systemd-run --wait --pipe --unit=consent-cache-fifteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+```
+
+`localization.log`는 실제 C API → Parcel → daemon 경로의 성공을 기록합니다.
+한영·직접 alias·default fallback, `수신{name}%<tag>` 값의 재해석 없는 삽입,
+formatter 소유권·오류 동작, capability·요청 locale·최신 token 결합을 확인했습니다.
+잘못된 schema/template, 비정규·범위 밖 정수, 잘못된 UTF-8, 크기 초과 문자열과
+독립 display 인자를 거절합니다. scope30 승인은 scope90 AUTHORIZE·변경된 retry·
+receipt 등록·artifact/derived 재사용을 만족시키지 못하며 원래 scope30은 성공합니다.
+채워진 typed cache도 scope90을 허용하지 않습니다. Schema 변경에는 policy 증가가
+필요하고 pending 요청과 grant를 무효화합니다. 기존 `count="01"` 입력은 허용하되
+prompt에는 `count="1"`을 반환합니다. Scenario는 exit0이며 integrity가 정확히
+`ok`, schema2, 예상 metadata 존재를 확인합니다.
+
+`localization-units.log`에서는 formatter 5개 그룹, 새 repository localization
+7개 그룹, 기존 UI 7개 그룹과 provenance 8개 그룹이 target에서 모두 통과했습니다.
+상한 시험은 두 locale에서 정확히 8개 schema와 placeholder를 가진 양성 대조 후,
+9번째 schema와 placeholder를 함께 추가하여 거절을 확인합니다. Repository 시험은
+원본 필드 누락과 명시적 empty, literal/typed count 호환, policy 증가·재설치와
+독립적인 text revision 단조를 확인합니다. message/default/alias 맵 변경에는
+별도의 text revision 증가가 필요합니다. 유효 token을 먼저 발급한 후 잘못된
+capability/locale, 8192바이트 초과 렌더링 또는 다른 locale의 전체 prompt64KiB
+초과를 거절하고, 이전 token으로 정상 응답하는 것을 확인합니다. Registry 복구는
+schema/alias 정의만 복원하며 승인은 복원하지 않습니다. 소비한 ONCE도 독립적으로
+유효한 artifact 보관 권리를 없애지 않습니다.
+
+`api-cache.log`는 실제 C UI 전체 AND 5개 사례, 독립 연결 간 ONCE 경쟁·동일 receipt
+재시도, 원격 cancel/respond/deadline, 새 holder 프로세스의 이전 cleanup 조회·ACK를
+기록합니다. 살아있는 cache의 첫 요청은 중간 authoritative 응답 없이 기존 lease
+만료 전에 실행했습니다. revoke37898us, policy42727us, suspend40397us,
+독립 ACTIVE close38784us, package 제거47397us, DB 삭제65465us입니다.
+두 actor handle은 계속 살아 있었고 각 phase는 exit0과 integrity `ok`, schema2,
+예상 metadata 존재를 확인했습니다.
+
+`cleanup.log`는 격리 service/socket inactive, MainPID0, 일반 `consentd-test` 복원,
+DB gate 파일 부재, 기존 default-deny 역할 설정의 production socket active를
+확인합니다. 첫 hash 명령의 `/usr/lib` 경로는 잘못됐으며, 뒤이어 RPM 파일 목록과
+실제 `/usr/lib64` 경로의 hash로 정정했습니다. 소스 수정은 필요하지 않았습니다.
+격리 시험 상태는 조사할 수 있도록 남겼습니다. 최종 검증 문서와 guide/protocol
+4개의 완료 설명은 실행 후 갱신한 문서 전용 변경으로, 고정된 시험 소스를 바꾸지
+않습니다.
+
+이번 결과는 제한된 template_version1 구현과 격리 A-15 검증 범위를 완료합니다.
+ICU 문법·복수형·날짜·locale별 숫자 표시는 구현하지 않았으며 실제 제품 승인 UI
+검증도 아닙니다. 제품 역할 배포, Installer lifecycle hook, registry 소실 후
+provisioning은 연동 과제로 남습니다. Wire/shutdown 근거는 별도로 표시한 build13
+실행이며 build15에서 재실행하지 않았습니다. 강제 전원 차단과 실제 filesystem-full·
+device-write 실패는 앞서 명시한 대로 미검증입니다.
