@@ -1406,6 +1406,8 @@ service는 foreground에서 실행하고 별도 daemonize/fork를 하지 않는�
 
 예시의 StateDirectory를 사용할 경우 DB 후보 경로는 `/var/lib/consentd/consent.db`다. 대상 systemd가 해당 지시어를 지원하는지 확인하고, 미지원이면 패키징 단계에서 동일 권한의 영속 디렉터리를 생성하는 방식으로 조정한다. socket 파일은 `/run`에 있고, 승인 DB를 `/run`에 배치하지 않는다. 연결해야 할 argo·CM·Context Engine·UI·Installer에 필요한 DAC 접근과 Tizen 보안 label을 각각 부여한다.
 
+현재 선택한 emulator는 `/var`가 `/opt/var`로 연결되므로 구현 상태 경로는 `/opt/var/lib/consentd/consent.db`로 정한다. 격리 시험은 `/opt/var/lib/consent-test`를 사용한다. 위 예시 경로를 그대로 따라 보호 디렉터리의 symlink 검사를 완화하지 않는다. 실제 패키징·검증 결과는 개발 가이드에 별도로 기록한다.
+
 ### 14.6 상속 FD 초기화와 소유권
 
 시작 순서는 다음과 같다.
@@ -1572,6 +1574,8 @@ pid·uid·gid는 신원 검증의 출발점이다. 같은 UID로 실행되는 �
 PID는 연결 인스턴스 로그용 식별자로 사용하고 영구 권한 키로 저장하지 않는다. PID 재사용이 가능하므로 `/proc/PID`의 현재 이름만 확인해 오래된 연결을 새 프로세스로 오인하지 않는다. 후속 앱 identity 확인 경로는 프로세스 수명 결합과 실패 시 차단 정책이 필요하다. 로그를 먼저 추가하는 초기 구현 단계에서도 미확인 역할에 privileged API를 허용하지 않는다.
 
 client가 server identity를 확인하는 경우, systemd가 생성한 listener를 상속한 socket에서는 peer credential이 항상 consentd 실행 사용자·PID와 같을 것이라고 가정하지 않는다. `/run` pathname의 신뢰 가능한 소유권, systemd activation 경로, 플랫폼 서비스 identity 검증을 함께 설계한다. 초기 handshake의 self-declared server name만으로 신뢰하지 않는다.
+
+대상 `/run`의 `root:system_share 0775`는 해당 경로에 한한 예외로 처리한다. root-owned socket의 연결 전후 device/inode 확인에 더해, 연결된 `SO_PEERCRED` UID 0/PID 1과 `getpeername()`의 정확한 `/run/.consentd.sock` 주소, 관측으로 확정한 `SO_PEERSEC`를 모두 확인한 뒤 통신한다. 원래 bind 주소 확인 없이 PID 1과 공통 라벨만 사용하면 다른 systemd socket을 rename한 경우를 구분하지 못한다. `getpeername()`은 family·반환 길이·NUL까지 검증한다. 이는 신뢰하는 system manager와 unit 정책에 의존하며, 쓰기 가능한 부모 경로의 서비스 거부를 막는다는 주장은 아니다. 상세 결정과 시험 조건은 `decisions.ko.md` D-07을 따른다.
 
 ### 15.3 로그 요구
 

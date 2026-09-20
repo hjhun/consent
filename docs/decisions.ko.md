@@ -170,6 +170,33 @@ native struct·native endian·float/double을 피한다. 부분 송신이 끝날
 검증한다. 독립적인 DB/registry canonical 형식과 wire versioning은 명시적으로
 구별한다. CEP v0.4는 이 요구를 기록하며 구현 완료를 주장하지 않는다.
 
+## D-07: 대상 경로와 client의 activation endpoint 검증
+
+선택한 emulator의 `/var`는 `/opt/var`로 연결된다. 상태 디렉터리는 정규 경로인
+`/opt/var/lib/consentd`와 `/opt/var/lib/consent-test`를 사용한다. 보호 상태 경로의
+symlink 거부를 완화하지 않는다. 필수 endpoint `/run/.consentd.sock`은 유지한다.
+
+대상의 `/run`은 `root:system_share`, mode 0775다. 정확히 이 디렉터리와 확인된
+소유자·그룹에 한해 group-write를 허용한다. world-write, symlink, 다른 쓰기 가능한
+상위 경로는 계속 거부한다. 연결 전후 socket의 root 소유 및 device/inode 동일성도
+확인한다. 이 pathname 검사만으로 일시 교체 후 복원 공격을 방어한다고 주장하지 않는다.
+
+protocol 송신 전에 연결된 커널 `SO_PEERCRED`의 UID 0/PID 1을 확인하고,
+`getpeername()`의 AF_UNIX family·길이·NUL 종료를 검증해 주소가 정확히
+`/run/.consentd.sock`인지 확인한다. peer name은 원래 bind 주소여서 다른 systemd
+socket을 rename해도 바뀌지 않는다. PID 1만 신뢰하지 않고 system manager가 만든
+listener를 consent endpoint에 결합한다. 직접 bind한 위장 서버는 listener credential
+검사에서 거부한다. 근거는 [Linux 4.4 AF_UNIX 구현](https://github.com/torvalds/linux/blob/v4.4/net/unix/af_unix.c)과
+[Linux peer credential 문서](https://man7.org/linux/man-pages/man7/unix.7.html)다.
+
+`SO_PEERSEC`는 대상 관측과 socket unit 정책으로 확정한 값을 요구한다. service
+프로세스 라벨이나 socket 파일 라벨로 listener의 outgoing label을 추정하지 않는다.
+실제 credential/name/label과 다른 서비스 socket rename·직접 listener 거부를
+대상에서 검증한다. 환경 변수 우회는 추가하지 않고 시험 endpoint는 별도로 빌드한다.
+이는 system manager·커널·privileged unit 정책을 신뢰하는 조건이며 쓰기 가능한
+상위 경로를 통한 서비스 거부까지 방지하지는 못한다. 관측·실행 결과는 이 결정과
+구분해서 기록한다.
+
 ## 완료 전에 확인할 초기 검토 사항
 
 - 이전 handle을 닫은 뒤 관련 DB와 journal 파일들을 함께 격리·정리해야 한다.

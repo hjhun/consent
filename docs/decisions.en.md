@@ -184,6 +184,37 @@ vectors, truncated/oversized/malformed Parcel data, and actual emulator exchange
 The independent DB/registry canonical format must remain explicitly separate
 from wire versioning. CEP v0.4 records this requirement without claiming completion.
 
+## D-07: Target paths and client verification of the activation endpoint
+
+The selected emulator resolves `/var` through `/opt/var`; use canonical
+`/opt/var/lib/consentd` and `/opt/var/lib/consent-test` state directories. Keep
+strict no-symlink traversal for protected state rather than weakening it to
+accept an alias. The mandatory endpoint remains `/run/.consentd.sock`.
+
+The target `/run` is `root:system_share` mode 0775. Permit its group-write bit
+only for that exact directory and verified owner/group. Retain rejection of
+world-writable parents and socket nodes, symlinks, and other writable parents.
+Check root socket ownership and unchanged device/inode before and after connect.
+These pathname checks alone do not prevent temporary replacement and restoration.
+
+Before sending protocol data, also require connected kernel `SO_PEERCRED`
+UID 0/PID 1, and `getpeername()` reporting exactly `/run/.consentd.sock` with a
+validated AF_UNIX family, length and NUL termination. The peer name is the stored
+bind address: renaming another systemd socket does not change it. This binds the
+system manager's listener provenance to the consent endpoint, rather than trusting
+PID 1 alone. A directly bound impostor fails the listener-credential check.
+See [Linux 4.4 AF_UNIX implementation](https://github.com/torvalds/linux/blob/v4.4/net/unix/af_unix.c)
+and [Linux peer credentials](https://man7.org/linux/man-pages/man7/unix.7.html).
+
+Require the expected `SO_PEERSEC` value established by target observation and
+socket-unit policy. A service process label or socket-file label does not prove
+the listener's outgoing label. Verify the real credential/name/label tuple on the
+target, plus rejection of a renamed other-service socket and a direct listener.
+Do not add an environment bypass. The test endpoint remains separately compiled.
+The assumption is a trusted system manager, kernel and privileged unit policy;
+these checks cannot prevent a writable-parent attacker from causing denial of
+service. Record measurements and executed tests separately from this decision.
+
 ## Initial review findings to verify before completion
 
 - Recovery must retire/quarantine the applicable DB and journal artifact set
