@@ -21,6 +21,32 @@ runtime=/tmp/consent-test
 tools=/usr/libexec/consent/tests
 scenario=$tools/consent-scenario-isolated
 authority=$tools/consent-installation-authority-isolated
+daemon_binary=$tools/consentd-test
+observer=
+drain_open=0
+if [ "$phase" = db-shutdown ]; then
+  daemon_binary=$tools/consentd-shutdown-test
+fi
+cleanup_fixture() {
+  if [ "$drain_open" = 1 ]; then
+    printf X >&3 || true
+    exec 3>&-
+    drain_open=0
+  fi
+  if [ -n "$observer" ]; then
+    systemctl stop "$observer" || true
+    rm -f "/run/systemd/system/$observer"
+  fi
+  if [ "$phase" = db-shutdown ]; then
+    systemctl stop consentd-isolated.socket consentd-isolated.service || true
+    sed -i 's@/consentd-shutdown-test@/consentd-test@' /run/systemd/system/consentd-isolated.service
+    rm -f "$runtime/shutdown-db-ready" "$runtime/shutdown-db-release"
+  fi
+  systemctl daemon-reload
+}
+if [ "$phase" = shutdown ] || [ "$phase" = db-shutdown ]; then
+  trap cleanup_fixture EXIT
+fi
 [ "$(id -u)" = 0 ]
 [ ! -L "$runtime" ] && [ ! -L "$state" ]
 mkdir -p "$runtime" "$state"
@@ -84,12 +110,16 @@ Requires=consentd-isolated.socket
 After=consentd-isolated.socket
 [Service]
 Type=notify
-ExecStart=$tools/consentd-test
+ExecStart=$daemon_binary
 SmackProcessLabel=System
 UMask=0077
 TimeoutStartSec=15
 TimeoutStopSec=10
 SERVICE
+if [ "$phase" = db-shutdown ]; then
+  # Loading another ExecStart does not replace an already running daemon.
+  systemctl stop consentd-isolated.socket consentd-isolated.service
+fi
 systemctl daemon-reload
 systemctl reset-failed consentd-isolated.service || true
 systemctl start consentd-isolated.socket
@@ -150,6 +180,17 @@ case "$phase" in
     [ -e "$runtime/shutdown-ready" ]
     waiter_pid=$(systemctl show "$wait_unit" -p MainPID --value)
     [ "$waiter_pid" -gt 0 ]
+    # Retain both unit objects after stop so systemd cannot replace exit
+    # evidence with the defaults of a newly loaded, garbage-collected unit.
+    observer=consent-observer-$$.target
+    cat > "/run/systemd/system/$observer" <<OBSERVER
+[Unit]
+Description=Consent test exit status observer
+DefaultDependencies=no
+Wants=consentd-isolated.service $wait_unit.service
+OBSERVER
+    systemctl daemon-reload
+    systemctl start "$observer"
     systemctl stop consentd-isolated.socket consentd-isolated.service
     [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = 0 ]
     [ "$(systemctl show consentd-isolated.service -p Result --value)" = success ]
@@ -168,7 +209,81 @@ case "$phase" in
     dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | \
       grep "pid=$waiter_pid .*reason=daemon-shutdown pending_input_bytes=2"
     journalctl -u "$wait_unit" --no-pager -o cat -n 8
+    systemctl stop "$observer"
+    rm -f "/run/systemd/system/$observer"
+    observer=
+    systemctl daemon-reload
     echo "PASS partial-I/O shutdown daemon PID=$daemon_pid normal exit and database-drained"
+    ;;
+  db-shutdown)
+    rm -f "$runtime/shutdown-db-ready" "$runtime/shutdown-db-release"
+    mkfifo -m 600 "$runtime/shutdown-db-release"
+    exec 3<> "$runtime/shutdown-db-release"
+    drain_open=1
+    scope=shutdown-scope-$$
+    generation=$(cat "$state/generation")
+    "$scenario" shutdown-seed "$generation" "$scope"
+    daemon_pid=$(systemctl show consentd-isolated.service -p MainPID --value)
+    [ "$daemon_pid" -gt 0 ]
+    revoke_unit=consent-revoke-$$
+    systemd-run --unit="$revoke_unit" -p SmackProcessLabel=System \
+      -p StandardOutput=journal -p StandardError=journal \
+      "$scenario" shutdown-revoke "$generation" "$scope"
+    attempt=0
+    while [ ! -e "$runtime/shutdown-db-ready" ] && [ "$attempt" -lt 40 ]; do
+      sleep 0.05
+      attempt=$((attempt + 1))
+    done
+    [ "$(cat "$runtime/shutdown-db-ready")" = "pid=$daemon_pid state=before-commit" ]
+    observer=consent-db-observer-$$.target
+    cat > "/run/systemd/system/$observer" <<OBSERVER
+[Unit]
+Description=Consent pending DB shutdown observer
+DefaultDependencies=no
+Wants=consentd-isolated.service $revoke_unit.service
+OBSERVER
+    systemctl daemon-reload
+    systemctl start "$observer"
+    systemctl kill --kill-who=main --signal=SIGTERM consentd-isolated.service
+    attempt=0
+    while [ "$attempt" -lt 40 ]; do
+      dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" > "$runtime/db-drain.log" || true
+      if grep -q 'stage=stop-admission' "$runtime/db-drain.log"; then break; fi
+      sleep 0.05
+      attempt=$((attempt + 1))
+    done
+    grep 'stage=stop-admission' "$runtime/db-drain.log"
+    if grep -q 'stage=database-drained' "$runtime/db-drain.log"; then
+      echo 'FAIL drained before release' >&2
+      exit 1
+    fi
+    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = "$daemon_pid" ]
+    kill -0 "$daemon_pid"
+    printf 'PASS accepted revoke is gated before COMMIT; same PID=%s stopped admission before release\n' "$daemon_pid"
+    printf C >&3
+    exec 3>&-
+    drain_open=0
+    attempt=0
+    while [ "$(systemctl show consentd-isolated.service -p MainPID --value)" != 0 ] && [ "$attempt" -lt 60 ]; do
+      sleep 0.05
+      attempt=$((attempt + 1))
+    done
+    for unit in consentd-isolated.service "$revoke_unit"; do
+      [ "$(systemctl show "$unit" -p MainPID --value)" = 0 ]
+      [ "$(systemctl show "$unit" -p Result --value)" = success ]
+      [ "$(systemctl show "$unit" -p ExecMainCode --value)" = 1 ]
+      [ "$(systemctl show "$unit" -p ExecMainStatus --value)" = 0 ]
+    done
+    dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" | grep 'stage=database-drained'
+    journalctl -u "$revoke_unit" --no-pager -o cat -n 8
+    systemctl stop consentd-isolated.socket consentd-isolated.service "$observer"
+    rm -f "/run/systemd/system/$observer"
+    observer=
+    sed -i 's@/consentd-shutdown-test@/consentd-test@' /run/systemd/system/consentd-isolated.service
+    systemctl daemon-reload
+    systemctl start consentd-isolated.socket
+    "$scenario" shutdown-result "$generation" "$scope"
+    echo "PASS accepted DB revoke drained on SIGTERM; ordinary daemon restart confirms durable revocation"
     ;;
   holder-restart)
     "$scenario" holder-seed "$(cat "$state/generation")"

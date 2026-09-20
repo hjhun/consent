@@ -40,6 +40,8 @@ const char* arm_statement = nullptr;
 bool target_transaction = false;
 std::string* generation_to_rotate = nullptr;
 int rotation_count = 0;
+int target_commits = 0;
+sqlite3* committed_target_database = nullptr;
 
 void Check(bool condition, const char* reason) {
   if (!condition)
@@ -250,6 +252,64 @@ void CommitBoundary(const char* method) {
             << " response and blocks persisted artifacts\n";
 }
 
+void PublicationDatabaseLoss(const char* method) {
+  Fixture fixture;
+  auto registration = fixture.Acquisition("a");
+  auto request = registration;
+  if (std::strcmp(method, "data_check") == 0) {
+    auto artifact = fixture.Call(registration);
+    request = fixture.Data("data_check");
+    request["artifact"] = consent::Get(artifact, "artifact");
+  }
+  fixture.Acquisition("c", "PERSISTENT");
+  auto persistent_query = fixture.Data("check");
+  persistent_query.erase("session");
+  persistent_query.erase("generation");
+  persistent_query.insert({{"count", "1"}, {"r0.definition", "c"}, {"r0.scope", "scope"},
+      {"r0.purpose", "purpose"}, {"r0.operation", "read"}, {"r0.holder", "actor"}});
+  Check(consent::Get(fixture.Call(persistent_query), "decision") == "ALLOWED",
+      "separate durable persistent grant exists before late DB loss");
+  auto original_epoch = consent::Get(fixture.repository->Snapshot(), "epoch");
+  int previous_commits = target_commits;
+  arm_statement = std::strcmp(method, "data_register") == 0 ? "INSERT INTO artifacts VALUES" :
+      "SELECT session,holder,instance,purpose,recipient,scope,expires,state FROM artifacts";
+  target_transaction = false;
+  int validations = 0;
+  bool deleted = false;
+  fixture.repository->SetInstallationValidator([&](const std::string& package,
+      const std::string& app, const std::string& generation) {
+    auto it = fixture.generations.find(package);
+    bool valid = it != fixture.generations.end() && app == package + ".app" &&
+        it->second == generation;
+    // First callback is inside Data's transaction. For registration, #2 is
+    // the generic postcommit check and #3 the artifact guard; data_check's #2
+    // is its artifact guard. The real target COMMIT must already have returned.
+    if (valid && ++validations == 2) {
+      Check(target_commits == previous_commits + 1 && committed_target_database &&
+          sqlite3_get_autocommit(committed_target_database) != 0,
+          "actual unlink happens only after target COMMIT returned in autocommit mode");
+      Check(unlink((fixture.directory + "/consent.db").c_str()) == 0,
+          "delete real DB at postcommit publication validation");
+      deleted = true;
+    }
+    return valid;
+  });
+  auto response = fixture.Call(request, -ESTALE);
+  Check(deleted && consent::Get(response, "decision") != "ALLOWED" &&
+      consent::Get(response, "epoch") != original_epoch && response.count("receipt") == 0 &&
+      response.count("permit") == 0 && response.count("artifact") == 0,
+      "final Snapshot cannot attach a new epoch to an old ALLOWED result");
+  auto snapshot = fixture.repository->Snapshot();
+  Check(consent::Get(snapshot, "cleanup_reconciliation_required") == "1",
+      "late DB loss exposes unknown cleanup state");
+  auto recovered = fixture.Call(persistent_query);
+  Check(consent::Get(recovered, "decision") == "CONSENT_REQUIRED" &&
+      consent::Get(recovered, "r0.policy_version") == "1",
+      "late recovery restores definition but does not revive the proven persistent grant");
+  std::cout << "PASS real postcommit DB unlink refuses old " << method
+            << " success fields under recovered snapshot epoch\n";
+}
+
 }  // namespace
 
 extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt* statement) {
@@ -270,12 +330,16 @@ extern "C" __attribute__((visibility("default"))) int sqlite3_exec(sqlite3* data
   if (!real_exec)
     _exit(99);
   int result = real_exec(database, sql, callback, data, error);
-  if (result == SQLITE_OK && target_transaction && generation_to_rotate && std::strcmp(sql, "COMMIT") == 0) {
-    *generation_to_rotate = "generation-rotated-after-commit";
-    generation_to_rotate = nullptr;
+  if (result == SQLITE_OK && target_transaction && std::strcmp(sql, "COMMIT") == 0) {
+    committed_target_database = database;
+    ++target_commits;
+    if (generation_to_rotate) {
+      *generation_to_rotate = "generation-rotated-after-commit";
+      generation_to_rotate = nullptr;
+      ++rotation_count;
+    }
     arm_statement = nullptr;
     target_transaction = false;
-    ++rotation_count;
   }
   return result;
 }
@@ -286,6 +350,8 @@ int main() {
     TimedRetention();
     for (const char* method : {"data_register", "data_register_derived", "data_check", "check"})
       CommitBoundary(method);
+    PublicationDatabaseLoss("data_register");
+    PublicationDatabaseLoss("data_check");
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';

@@ -261,6 +261,15 @@ not an original acquisition receipt. Revalidation must never extend retention or
 silently grant a new holder instance data-use rights. Failed publication checks
 must leave any committed artifact unusable under the same provenance checks.
 
+Keep the operation's DB epoch fixed from the initial successful storage check
+through result publication. A final metadata snapshot can itself detect loss and
+recover the DB; compare its epoch with the operation epoch before attaching it
+to a successful result. An epoch mismatch returns an explicit error without the
+old decision, receipt or permit. Never relabel an old success with a recovered
+epoch, which would defeat the server's subsequent epoch comparison. Test actual
+DB unlink during final validation, recovery to a new epoch, and fresh approval
+requirements on the next operation using the same repository.
+
 Within the UI response transaction, evaluate all current request conditions
 again after recording the newly approved grants. Use non-consuming QUERY
 semantics and derive the overall and per-condition final results together.

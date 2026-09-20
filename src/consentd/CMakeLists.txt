@@ -35,19 +35,27 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/main.cc")
   SET_PROPERTY(TARGET consentd APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie")
   INSTALL(TARGETS consentd RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   IF(CONSENT_BUILD_TEST_DAEMON)
-    ADD_EXECUTABLE(consentd-test ${CONSENTD_SOURCES})
-    TARGET_INCLUDE_DIRECTORIES(consentd-test PRIVATE
-      "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent")
-    TARGET_LINK_LIBRARIES(consentd-test PRIVATE consent-common consent-storage
-      PkgConfig::GLIB PkgConfig::SQLITE PkgConfig::SYSTEMD Threads::Threads)
-    TARGET_COMPILE_DEFINITIONS(consentd-test PRIVATE CONSENT_TEST_BUILD
-      CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
-      CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
-      CONSENT_ROLE_CONFIG="${CONSENT_TEST_ROOT}/roles.conf"
-      CONSENT_INSTALLATIONS="${CONSENT_TEST_STATE_DIR}/installations.conf")
-    SET_PROPERTY(TARGET consentd-test APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie")
-    INSTALL(TARGETS consentd-test
-      RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+    FOREACH(TEST_DAEMON consentd-test consentd-shutdown-test)
+      ADD_EXECUTABLE(${TEST_DAEMON} ${CONSENTD_SOURCES})
+      TARGET_INCLUDE_DIRECTORIES(${TEST_DAEMON} PRIVATE
+        "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent")
+      TARGET_LINK_LIBRARIES(${TEST_DAEMON} PRIVATE consent-common consent-storage
+        PkgConfig::GLIB PkgConfig::SQLITE PkgConfig::SYSTEMD Threads::Threads)
+      TARGET_COMPILE_DEFINITIONS(${TEST_DAEMON} PRIVATE CONSENT_TEST_BUILD
+        CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
+        CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
+        CONSENT_ROLE_CONFIG="${CONSENT_TEST_ROOT}/roles.conf"
+        CONSENT_INSTALLATIONS="${CONSENT_TEST_STATE_DIR}/installations.conf")
+      IF(TEST_DAEMON STREQUAL "consentd-shutdown-test")
+        TARGET_SOURCES(${TEST_DAEMON} PRIVATE
+          "${PROJECT_SOURCE_DIR}/src/tests/repository_shutdown_interposer.cc")
+        TARGET_LINK_LIBRARIES(${TEST_DAEMON} PRIVATE ${CMAKE_DL_LIBS})
+      ENDIF()
+      SET_PROPERTY(TARGET ${TEST_DAEMON} APPEND_STRING PROPERTY LINK_FLAGS
+        " -Wl,--as-needed,--gc-sections -pie")
+      INSTALL(TARGETS ${TEST_DAEMON}
+        RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+    ENDFOREACH()
   ENDIF()
 ELSE()
   MESSAGE(STATUS "consentd: implementation sources are not present yet")

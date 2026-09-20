@@ -261,6 +261,21 @@ That alone does not prove a pending DB job was completed. A request awaiting UI
 holds neither a DB transaction nor a worker, so its disconnect/restart behavior
 is a separate scenario. See the recorded results for the exact tested boundary.
 
+The separate `consentd-shutdown-test` executable supports a controlled pending-DB
+scenario. It uses the normal isolated daemon configuration and adds only the
+`repository_shutdown_interposer.cc` test helper; production `consentd` and the
+ordinary `consentd-test` do not contain that helper. The test controller prepares
+root-owned mode-0700 `/tmp/consent-test` and a mode-0600 FIFO named
+`shutdown-db-release`, keeping it open for reading and writing. A revoke that
+actually changes a grant pauses before COMMIT and creates mode-0600
+`shutdown-db-ready` containing `pid=N state=before-commit`. Match that PID to the
+test daemon, initiate service shutdown, then send the single byte `C` through
+the FIFO within five seconds. Require the supervisor's normal-exit and
+`database-drained` checks and inspect the committed revocation only after the
+daemon stops. A gate error or timeout fails the transaction; reaching the ready
+marker alone is not a successful drain test. This describes the test protocol;
+executed PASS claims belong to the snapshot-specific verification record.
+
 Keep process kills, orderly reboots and abrupt emulator power interruption as
 separate test scenarios. Forced DB deletion must target only an isolated test
 state or the selected development emulator's consent state. Do not remove any

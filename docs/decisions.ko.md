@@ -239,6 +239,13 @@ artifact 보관 기한, 철회, definition version, 신뢰 설치 generation을 
 늘리거나 새 holder instance에 사용 권한을 이전하지 않는다. 게시 전 검증 실패로
 이미 commit된 artifact가 남더라도 동일한 출처 검증에 의해 사용할 수 없어야 한다.
 
+처음 저장소 상태 확인에 성공한 시점부터 결과 게시까지 연산의 DB epoch를 고정한다.
+마지막 metadata snapshot 자체가 DB 소실을 발견해 복구할 수 있으므로, 성공 결과에
+붙이기 전에 snapshot epoch와 연산 epoch를 비교한다. 불일치는 이전 decision,
+receipt, permit을 포함하지 않는 명시적 오류로 반환한다. 과거 성공에 복구된 epoch를
+붙여 서버의 후속 epoch 비교를 무력화하면 안 된다. 최종 검증 중 실제 DB unlink,
+새 epoch 복구, 같은 repository의 다음 연산에서 새 승인 필요 상태를 시험한다.
+
 UI 응답 transaction에서 새로 승인한 grant를 기록한 뒤 현재 요청의 모든 조건을
 재평가한다. 소비하지 않는 QUERY 의미를 사용하고 전체·조건별 최종 결과를 함께
 산출한다. prompt 대기 중 기존 허용 조건이 철회·만료·소비될 수 있으므로 현재

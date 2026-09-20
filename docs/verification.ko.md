@@ -392,3 +392,91 @@ DB 삭제 계약을 완료하지 않았다. 다음 snapshot에서 초기 Ensure 
 이 epoch 수정, 독립 ACTIVE→close cache 무효화, 엄격한 부분 I/O shutdown
 재검증, 접수된 DB 변경 중 shutdown drain이다. 제품 역할/실제 UI/Installer
 hook, 타입 있는 지역화, 급작스러운 전원 차단은 별도 통합·수용 격차로 남는다.
+
+## 빌드13: epoch 게시·ACTIVE close·shutdown 수용 검증
+
+합의한 후속 범위를 commit `20043c1` 기반 tree
+`3299de2b1680d41e8655e4ad5e92ed8b92f53bd3`에서 검증했다. 소스 archive SHA256:
+`6f477fe3d2a62260d9f6f8b36ee2a84f1bfbd1ff03b4804aa8100f06ef509a0b`.
+`/var/tmp/consent-artifacts/gbs-build-13/`에 archive, RPM 4개, checksum,
+tree/파일 목록, 정확한 명령, 전체 빌드 로그와 `LastTest.log`가 있다.
+빌드12와 같은 GBS 명령으로 7/7 통과했다: client0.59초, crash0.33초,
+fault0.10초, provenance1.79초, repository3.42초, UI1.58초, IDL0.13초.
+설치한 runtime/library/test RPM 및 emulator script 모두 이 고정 snapshot이다.
+앞선 observer trial은 빌드12 binary+working tree script였으며 이번 전체
+빌드13 실행을 대신하는 증거로 사용하지 않았다.
+
+실제 emulator 명령:
+
+```sh
+systemd-run --wait --pipe --unit=consent-partial-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh shutdown
+systemd-run --wait --pipe --unit=consent-db-drain-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh db-shutdown
+systemd-run --wait --pipe --unit=consent-cache-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+systemd-run --wait --pipe --unit=consent-storage-thirteen -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/repository-provenance-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-fault-test; /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test'
+```
+
+`/var/tmp/consent-artifacts/emulator-build-13/storage.log`에서 provenance 8개,
+UI 7개, fault 4개, 영속 root crash 5개가 통과했다. 새 게시 회귀 2개는
+데이터 등록과 data check의 commit 후 검증 중 실제 DB를 unlink한다.
+해당 대상 COMMIT 완료와 SQLite autocommit 상태를 unlink 전에 검사한다.
+결과 오류는 새 epoch이며 이전 ALLOWED/receipt/permit/artifact 필드가 없다.
+동일 Repository의 다음 호출에서 정의가 복구되고 삭제 전 ALLOWED였던
+별도 PERSISTENT 승인이 CONSENT_REQUIRED가 된다. 빌드12의 Snapshot epoch
+바꿔 붙이기 결함을 해결한 증거이며 외부 설치 authority와 DB를 하나의 원자적
+저장소로 만들었다는 뜻은 아니다.
+
+`api-cache.log`에는 실제 C UI/races/holder/cache 실행이 있다. UI는 재팝업/
+재응답의 정확한 `-ESTALE`, 저장된 조건별 결과·사유 일치, DENIED 뒤 B 승인
+미생성까지 검사했다. 기존 경쟁·정리 시험도 통과한다. 두 cache handle을
+살린 채 **새 ACTIVE SESSION**을 승인하고 DAEMON, sync CACHE, async CACHE를
+확인한 다음 controller가 close한다. actor의 첫 요청은 그 사이 authoritative
+응답 없이 원래 lease 만료 전36322µs에 SESSION_CLOSED를 반환했다.
+나머지 무효화도 철회38613µs, 정책45617µs, suspend42333µs,
+패키지 제거42157µs, DB 삭제67106µs에 통과했다. 완료된 각 phase는 integrity가
+정확히 `ok`, schema2, 기대 metadata임을 검사한다.
+
+`shutdown.log`는 두 엄격한 종료 시험을 기록한다.
+
+- 부분 입력: observer target 의존성으로 unit 객체를 유지하여 systemd GC가
+  exit status를 초기화하지 못하게 했다. daemon PID20401이 fixture PID20412를
+  `reason=daemon-shutdown pending_input_bytes=2`로 닫고 database-drained를
+  출력한다. 두 unit 모두 MainPID0, ExecMainCode1, ExecMainStatus0,
+  Result=success다. fixture는182236µs에 종료를 관찰했다. 빌드12에서 실패한
+  엄격한 조건을 직접 재실행해 완료했다.
+- 접수된 DB 작업: 전용 `consentd-shutdown-test`에만 SQLite interposer를
+  링크한다. 실제 행을 변경한 revoke UPDATE 뒤 COMMIT 전·autocommit off
+  상태의 fresh marker가 daemon PID20540과 일치한다. supervisor가 SIGTERM을
+  보내 stop-admission을 관찰하고, 같은 PID 생존 및 database-drained 부재를
+  확인한 뒤 미리 연 O_RDWR FIFO로 C를 쓴다. 해제 후 daemon과 C revoke
+  프로세스는 같은 엄격한 status 검사로 정상 종료한다. 결과 전에 소켓이
+  닫혀 client는 OUTCOME_UNKNOWN을 보고하고 daemon은 database-drained를
+  출력한다. 일반 daemon으로 재시작하면 이전 ALLOWED PERSISTENT 승인이
+  CONSENT_REQUIRED이며 정의가 유지되고 integrity도 `ok`다.
+
+Gate는 전용 시험 binary에 한정되며 일반 `consentd-test`와 production
+`consentd`에는 gate나 런타임 우회가 없다. 링크 명령을
+`daemon-link-commands.txt`에 보존했다. 보호된 FIFO를 대기 전에 열고 5초
+timeout 및 실패 정리로 무한 정지를 방지한다. 이 결과는 해당 접수 변경의
+정상 종료 처리를 입증하며 임의의 원격 holder 물리 정리 완료를 뜻하지 않는다.
+
+추가 `wire.log` 재실행은 daemon PID21200 유지, 연결 정확히 24개 허용·4개
+거부와 출력 압력에 의한 종료 사유를 확인한다. 완전한 frame 2104개(79952바이트)를
+보내는 동안 별도 client도 응답한다. `cleanup.log`에는 observer/gate marker 제거와
+일반 격리 daemon 실행 파일 복원을 기록했다. 격리 unit은 정지했으며 production
+socket은 기본 거부 역할 설정으로 활성 상태를 유지한다.
+
+합의한 후속 필수 항목 4개는 위 고정 빌드와 target 실행에서 검증됐다.
+남은 제품·수용 격차는 실제 역할 배포, 실제 승인 UI/Installer lifecycle hook,
+타입 있는 지역화, 실제 파일시스템 용량 소진/기기 쓰기 실패, 장시간 자원 시험,
+급작스러운 emulator 전원 차단 등이다. 이전 정상 reboot, 프로세스 강제 종료,
+SQLite 오류 주입 결과는 앞서 명시한 범위를 유지한다.
+
+마지막 `wire` phase도 통과했다(`consent-wire-thirteen`, `wire.log`): 동일
+PID21200, 정확히 허용24/거부4, pressure 완전 frame2104개(79952바이트),
+실제 output pressure 종료와 별도 client 응답을 확인했다.
+`daemon-symbol-isolation.txt`는 `nm -D --defined-only`로 전용 shutdown
+binary만 SQLite step/exec interposer를 정의하며 두 일반 daemon에는 없음을
+확인한다. `cleanup.log`에서 observer unit 파일과 DB gate 파일 2개 부재,
+부분 입력 ready marker 제거, 격리 service의 일반 `consentd-test` 복원과
+정지(MainPID0), production `consentd.socket` 활성 상태를 확인했다.
+검토할 수 있도록 격리 시험 상태는 보존했다.

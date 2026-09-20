@@ -260,6 +260,20 @@ UI를 기다리는 요청은 DB transaction이나 worker를 점유하지 않으�
 연결 단절·재시작 동작은 별도 시나리오입니다. 실제로 확인한 경계는 검증 기록을
 참조합니다.
 
+별도 실행 파일 `consentd-shutdown-test`는 DB 작업이 진행 중인 상태를 통제하는
+테스트에 사용합니다. 일반 격리 데몬 설정을 사용하며
+`repository_shutdown_interposer.cc` 테스트 helper만 추가합니다. 운영
+`consentd`와 일반 `consentd-test`에는 이 helper가 없습니다. 제어 프로그램은
+root 소유 mode-0700 `/tmp/consent-test`에 mode-0600 FIFO
+`shutdown-db-release`를 만들고 읽기·쓰기 양쪽으로 열어 둡니다. 실제 grant를
+변경하는 revoke가 COMMIT 전에 멈추면 mode-0600 `shutdown-db-ready`에
+`pid=N state=before-commit`을 기록합니다. PID가 테스트 데몬과 일치하는지
+확인한 후 서비스 종료를 시작하고, 5초 안에 FIFO로 한 바이트 `C`를 보냅니다.
+supervisor의 정상 종료·`database-drained` 검사를 요구하고 데몬이 멈춘 뒤에만
+철회가 커밋되었는지 확인합니다. gate 오류나 timeout은 transaction을 실패시키며
+ready 파일의 생성만으로 drain 성공을 판단하지 않습니다. 이는 테스트 절차 설명이며
+실제로 통과했다는 주장은 snapshot별 검증 기록에서 확인합니다.
+
 프로세스 강제 종료, 정상 재부팅, emulator 전원 강제 중단을 별도 시나리오로
 기록합니다. 강제 DB 삭제는 격리된 테스트 상태 또는 선택한 개발 emulator의
 consent 상태만 대상으로 합니다. 다른 플랫폼 DB를 삭제하지 않습니다.

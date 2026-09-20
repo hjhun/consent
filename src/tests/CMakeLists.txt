@@ -14,6 +14,9 @@
 
 FILE(GLOB TEST_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
+# This helper has no main and belongs only to the dedicated shutdown daemon.
+LIST(REMOVE_ITEM TEST_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/repository_shutdown_interposer.cc")
 FOREACH(SOURCE ${TEST_SOURCES})
   GET_FILENAME_COMPONENT(TEST_NAME "${SOURCE}" NAME_WE)
   STRING(REPLACE "_" "-" TEST_NAME "${TEST_NAME}")

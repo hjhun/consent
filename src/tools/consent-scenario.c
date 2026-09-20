@@ -16,6 +16,7 @@
 #include <consent.h>
 #include <glib.h>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -306,25 +307,33 @@ static void ui_reevaluate(const char* install_generation) {
     if (test == 4) set(lookup, "decision", "DENIED");
     consent_decision_e expected = test == 3 ? CONSENT_DECISION_ALLOWED :
         test == 4 ? CONSENT_DECISION_DENIED : CONSENT_DECISION_INVALIDATED;
+    const char* expected_a = test == 3 ? "ALLOWED" : "CONSENT_REQUIRED";
+    const char* expected_b = test == 4 ? "DENIED" : "ALLOWED";
+    char* expected_reason = NULL;
     CALL(consent_respond(ui, lookup, &result));
     CHECK(consent_result_get_decision(result) == expected);
-    CHECK(!strcmp(consent_result_get(result, "r0.decision"),
-        test == 3 ? "ALLOWED" : "CONSENT_REQUIRED"));
-    CHECK(!strcmp(consent_result_get(result, "r1.decision"),
-        test == 4 ? "DENIED" : "ALLOWED"));
+    CHECK(!strcmp(consent_result_get(result, "r0.decision"), expected_a));
+    CHECK(!strcmp(consent_result_get(result, "r1.decision"), expected_b));
     if (expected == CONSENT_DECISION_INVALIDATED) {
-      CHECK(consent_result_get(result, "reason") != NULL);
-      CHECK(*consent_result_get(result, "reason") != '\0');
+      expected_reason = field(result, "reason");
+      CHECK(*expected_reason != '\0');
     }
     consent_result_free(result);
     await_decision(expected);
     CALL(consent_get_request_result(ui, lookup, &result));
     CHECK(consent_result_get_decision(result) == expected);
+    CHECK(!strcmp(consent_result_get(result, "r0.decision"), expected_a));
+    CHECK(!strcmp(consent_result_get(result, "r1.decision"), expected_b));
+    if (expected_reason)
+      CHECK(!strcmp(consent_result_get(result, "reason"), expected_reason));
+    g_free(expected_reason);
     consent_result_free(result);
-    CHECK(consent_get_prompt(ui, lookup, &result) < 0);
-    CHECK(consent_respond(ui, lookup, &result) < 0);
+    CHECK(consent_get_prompt(ui, lookup, &result) == -ESTALE);
+    CHECK(consent_respond(ui, lookup, &result) == -ESTALE);
     if (test != 4) {
       authorize_definition("demo.other", scope, CONSENT_DECISION_ALLOWED);
+      authorize_definition("demo.other", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+    } else {
       authorize_definition("demo.other", scope, CONSENT_DECISION_CONSENT_REQUIRED);
     }
     if (test == 3) {
@@ -498,13 +507,38 @@ static void holder_reconcile(void) {
 }
 
 int main(int argc, char** argv) {
-  if (argc != 3) {
-    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled|ui-reevaluate GENERATION\n", argv[0]);
+  if (argc != 3 && argc != 4) {
+    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled|ui-reevaluate|shutdown-seed|shutdown-revoke|shutdown-result GENERATION [SCOPE]\n", argv[0]);
     return 2;
   }
   snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1], g_get_monotonic_time());
   CHECK(consent_client_create(&client) == 0);
   CHECK(consent_client_create(&ui) == 0);
+  if (!strcmp(argv[1], "shutdown-seed") || !strcmp(argv[1], "shutdown-revoke") ||
+      !strcmp(argv[1], "shutdown-result")) {
+    CHECK(argc == 4);
+    if (!strcmp(argv[1], "shutdown-seed")) {
+      define("demo.app", "demo.read", phase, argv[2]);
+      approve(argv[3], "PERSISTENT", NULL, NULL);
+      check(argv[3], CONSENT_DECISION_ALLOWED);
+      puts("PASS shutdown seed: durable PERSISTENT approval is ALLOWED");
+    } else if (!strcmp(argv[1], "shutdown-revoke")) {
+      consent_params_t* p = params();
+      set(p, "definition", "demo.read");
+      consent_result_t* result = NULL;
+      CHECK(consent_revoke(client, p, &result) == CONSENT_ERROR_OUTCOME_UNKNOWN);
+      CHECK(result == NULL);
+      consent_params_free(p);
+      puts("PASS shutdown revoke: disconnected before outcome; restart query required");
+    } else {
+      check(argv[3], CONSENT_DECISION_CONSENT_REQUIRED);
+      puts("PASS shutdown restart: definition retained, persistent approval revoked");
+    }
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
+    return 0;
+  }
+  CHECK(argc == 3);
   if (!strcmp(argv[1], "reinstalled")) {
     char operation[96];
     snprintf(operation, sizeof(operation), "%s-app1", phase);

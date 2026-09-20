@@ -421,3 +421,98 @@ work is the epoch fix, independent ACTIVE→close cache invalidation, strict
 partial-I/O shutdown retry and an accepted DB mutation drained during shutdown.
 Product roles/real UI/Installer hooks, typed localization and abrupt power loss
 remain separate integration or acceptance gaps.
+
+## Build13: epoch publication, ACTIVE close and shutdown acceptance
+
+The agreed follow-up is validated from tree
+`3299de2b1680d41e8655e4ad5e92ed8b92f53bd3`, based on commit `20043c1`.
+The source archive SHA256 is
+`6f477fe3d2a62260d9f6f8b36ee2a84f1bfbd1ff03b4804aa8100f06ef509a0b`.
+`/var/tmp/consent-artifacts/gbs-build-13/` contains the archive, four RPMs,
+checksums, tree/file manifests, exact command, full build log and `LastTest.log`.
+The same GBS command as build12 passes 7/7: client0.59s, crash0.33s,
+fault0.10s, provenance1.79s, repository3.42s, UI1.58s, IDL0.13s.
+The installed runtime/library/test RPMs and emulator script are from this
+frozen snapshot. The earlier observer trial used build12 binaries plus a
+working tree script and is not substituted for this full build13 execution.
+
+Actual emulator commands:
+
+```sh
+systemd-run --wait --pipe --unit=consent-partial-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh shutdown
+systemd-run --wait --pipe --unit=consent-db-drain-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh db-shutdown
+systemd-run --wait --pipe --unit=consent-cache-thirteen -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+systemd-run --wait --pipe --unit=consent-storage-thirteen -p SmackProcessLabel=System /bin/sh -c 'set -e; /usr/libexec/consent/tests/repository-provenance-test; /usr/libexec/consent/tests/repository-ui-test; /usr/libexec/consent/tests/repository-fault-test; /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test'
+```
+
+`/var/tmp/consent-artifacts/emulator-build-13/storage.log` passes all eight
+provenance cases, seven UI cases, four fault cases and five persistent-root
+crash cases. The two added publication regressions unlink the actual DB during
+post-commit validation of data registration and data check. Each asserts a
+completed target COMMIT and SQLite autocommit before unlink. The resulting
+error has a new epoch and no old ALLOWED/receipt/permit/artifact fields. On the
+same Repository, definitions are restored and a separate PERSISTENT approval
+that was ALLOWED before deletion becomes CONSENT_REQUIRED. This closes the
+specific build12 Snapshot epoch relabeling gap; it does not make the external
+installation authority and DB one atomic store.
+
+`api-cache.log` records real C UI/races/holder/cache execution. UI now also
+asserts exact `-ESTALE` for re-prompt/re-response, equality of stored condition
+results/reason, and no B grant after DENIED. Earlier contention/cleanup cases
+continue to pass. Both cache handles stay alive. A **new ACTIVE SESSION** is
+approved and warmed from DAEMON, sync CACHE and async CACHE, then closed from
+the controller. The actor's first request, with no intervening authoritative
+reply, returns SESSION_CLOSED at36322us, before the original lease expires.
+Other event probes pass at revoke38613us, policy45617us, suspend42333us,
+package removal42157us and DB deletion67106us. Every completed phase asserts
+integrity exactly `ok`, schema2 and expected metadata.
+
+`shutdown.log` records both strict shutdown cases:
+
+- Partial input: observer target dependencies retain unit objects so exit
+  status cannot reset through systemd GC. Daemon PID20401 closes fixture
+  PID20412 with `reason=daemon-shutdown pending_input_bytes=2`, then emits
+  database-drained. Both units have MainPID0, ExecMainCode1 and ExecMainStatus0,
+  with Result=success. The fixture observes closure in182236us. This directly
+  reruns and completes the strict assertion that failed in build12.
+- Accepted DB job: a dedicated `consentd-shutdown-test` links the test-only
+  SQLite interposer. A fresh marker matches daemon PID20540 after a nonempty
+  revoke UPDATE and before its COMMIT, while autocommit is off. The supervisor
+  sends SIGTERM, observes stop-admission, confirms that exact PID is alive and
+  database-drained is absent, then writes C through an already-open O_RDWR FIFO.
+  After release both daemon and C revoke process exit normally with the same
+  strict status checks. The client reports OUTCOME_UNKNOWN because its socket
+  closes before the result; the daemon reports database-drained. Restarting the
+  ordinary daemon proves the previously ALLOWED PERSISTENT approval is now
+  CONSENT_REQUIRED, with the definition intact and DB integrity `ok`.
+
+The gate is confined to the dedicated test binary; ordinary `consentd-test` and
+production `consentd` have no gate or runtime bypass. Build link commands are
+preserved in `daemon-link-commands.txt`. The FIFO is protected and opened before
+waiting; a five-second timeout and failure cleanup prevent an indefinitely
+blocked test. These results establish graceful shutdown of this accepted
+mutation, not completion of arbitrary remote holder cleanup.
+
+The additional `wire.log` rerun retains daemon PID21200, admits exactly 24
+connections and rejects four, and confirms the output-pressure closure reason.
+It sends 2104 complete frames (79952 bytes) while a separate client responds.
+`cleanup.log` records removal of observer/gate markers and restoration of the
+ordinary isolated daemon executable. Isolated units are stopped; the production
+socket remains active with its default-deny role configuration.
+
+The four agreed follow-up items are covered by the frozen build and target
+execution above. Remaining product/acceptance gaps include deployed real
+roles, real approval UI and Installer lifecycle hooks, typed localization,
+actual filesystem exhaustion/device write failure, sustained resource tests,
+and abrupt emulator power loss. Earlier normal reboot, process kill and
+injected SQLite error results retain their explicitly stated scope.
+
+The final `wire` phase also passed (`consent-wire-thirteen`, `wire.log`):
+same PID21200, exactly24 admitted/4 rejected, 2104 complete pressure frames
+(79952 bytes), confirmed output-pressure close and a responsive separate client.
+`daemon-symbol-isolation.txt` confirms with `nm -D --defined-only` that only the
+dedicated shutdown binary defines SQLite step/exec interposers; neither ordinary
+daemon does. `cleanup.log` confirms observer unit files and both DB gate files
+are absent, the partial-input ready marker is removed, the isolated service
+again points to ordinary `consentd-test` and is stopped with MainPID0, and the
+production `consentd.socket` is active. Isolated test state remains for inspection.

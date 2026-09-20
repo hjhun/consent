@@ -1755,6 +1755,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
 Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
   try {
     Ensure();
+    const std::string operation_epoch = epoch_;
     Expire();
     Require(!peer.identity.empty() && !peer.instance.empty(), -EACCES,
         "authenticated caller identity required");
@@ -1785,9 +1786,8 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
       throw Failure(-ENOSYS, "unsupported method");
     // No successful reply can be published against a deleted/replaced handle.
     // Recovery changes epoch; this operation's old result becomes uncertain.
-    std::string before = epoch_;
     Ensure();
-    Require(before == epoch_, -ESTALE, "database generation changed before reply");
+    Require(operation_epoch == epoch_, -ESTALE, "database generation changed before reply");
     // The external installation-generation authority is checked again after
     // committing and before publishing any approval-sensitive success.
     Message validated = request;
@@ -1825,6 +1825,8 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
           data_check ? Get(request, "artifact") : Get(result, "artifact"));
     }
     auto metadata = Snapshot();
+    Require(Get(metadata, "epoch") == operation_epoch, -ESTALE,
+        "database generation changed during final publication snapshot");
     result.insert(metadata.begin(), metadata.end());
     result["status"] = "0";
     return result;

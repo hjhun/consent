@@ -87,6 +87,10 @@ open/close the live DB behind SQLite's POSIX locks. Timer work also checks
 integrity and reconciles installation state. The main handle is retired before
 quarantining a missing/replaced/corrupt DB's rollback journal, WAL or SHM files.
 A surviving hot journal is never applied to a newly created empty main DB.
+Each operation captures its epoch immediately after initial recovery checks.
+The final response snapshot must still have that epoch: if the snapshot itself
+recovers a late deletion, the daemon returns a fresh error without carrying any
+old ALLOWED decision, receipt, permit or artifact under the new epoch.
 
 ```mermaid
 stateDiagram-v2
@@ -247,6 +251,12 @@ test-only SQLite interposers rotate the installation authority immediately after
 the real COMMIT returns for original/derived registration and both data-check
 routes. It requires an error instead of success and verifies that committed
 unpublished artifacts remain unusable and discoverable for cleanup.
+Two additional cases physically unlink the DB during postcommit validation of
+data registration/checking, force recovery in the final snapshot, and require
+an error with no old success fields. The unlink asserts that the watched real
+COMMIT has returned and SQLite is in autocommit mode. A separate PERSISTENT
+grant is proven ALLOWED beforehand; a following call on the same repository
+must find its restored definition but require fresh consent.
 `repository_ui_test.cc` covers prior-condition changes while UI waits and the
 full-AND finalization contract, including rollback on a reevaluation error.
 
@@ -271,10 +281,21 @@ that isolated protected test root. Each scenario creates and removes only its
 own `mkdtemp` child. Selecting a persistent path still does not simulate power
 loss or force the device's physical cache behavior.
 
+The dedicated `consentd-shutdown-test` adds only
+`repository_shutdown_interposer.cc` to the real test daemon. A successful,
+nonempty revoke update pauses before COMMIT while the transaction is still
+active. The isolated harness observes stop-admission after SIGTERM, releases
+the bounded five-second gate, checks normal exit/drain and then verifies the
+revocation through the C API after restart. Ready/release files remain under
+the protected `/tmp/consent-test` root. Neither ordinary daemon contains this
+gate. Disconnect before reply is an uncertain client outcome; the test's
+restart check establishes the accepted mutation's durable result.
+
 GBS builds and emulator execution are recorded in the project validation guide;
 this document is not evidence that each acceptance criterion has passed.
 Still required beyond these direct tests: abrupt emulator termination/power loss,
-storage-full/I/O injection,
+actual filesystem exhaustion/device-write failure (distinct from the injected
+SQLite FULL/IOERR classification tests),
 product Installer transaction integration, holder process-death reconciliation,
 remote model cleanup, typed localized parameters, and sustained load/resource
 measurement. Active request/session/artifact admission is bounded. Historical metadata is not automatically

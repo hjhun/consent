@@ -322,6 +322,28 @@ int main(int argc, char** argv) {
   g_free(suspended_generation);
   puts("PASS live SESSION cache invalidated by suspend; suspended session closed");
 
+  /* An independent ACTIVE session is warmed immediately before close. The
+   * earlier suspend must not supply the invalidation being tested here. */
+  p = params();
+  set(p, "lifecycle", "RESUMABLE_CONVERSATION");
+  CALL(consent_session_open(controller, p, &result));
+  session = field(result, "session");
+  generation = field(result, "generation");
+  consent_result_free(result);
+  set(p, "session", session);
+  set(p, "generation", generation);
+  approve("session-close", "SESSION", session, generation);
+  g_free(warm("session-close", session, generation));
+  CALL(consent_session_close(controller, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "state"), "CLOSED"));
+  consent_result_free(result);
+  invalidated_request("session-close", session, generation,
+      CONSENT_ERROR_SESSION_CLOSED, CONSENT_DECISION_UNKNOWN);
+  consent_params_free(p);
+  g_free(session);
+  g_free(generation);
+  puts("PASS live SESSION cache independently invalidated by ACTIVE session close");
+
   g_free(warm("persistent", NULL, NULL));
   p = params();
   char operation[96];

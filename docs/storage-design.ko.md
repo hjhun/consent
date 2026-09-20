@@ -84,6 +84,9 @@ POSIX 잠금에 영향을 주는 별도 live DB open/close는 하지 않습니�
 무결성과 설치 상태를 확인합니다. 기존 handle을 폐기한 후 DB의 rollback
 journal·WAL·SHM을 함께 격리합니다. main DB만 없어진 경우 남아 있는 hot
 journal을 새 빈 DB에 재생하지 않습니다.
+각 작업은 최초 복구 확인 직후 epoch를 저장하며 최종 응답 snapshot도 같은 epoch여야
+합니다. 마지막 snapshot 자체가 뒤늦은 DB 삭제를 복구했다면 이전 ALLOWED 결정이나
+receipt·permit·artifact를 새 epoch에 붙이지 않고 해당 필드가 없는 새 오류를 반환합니다.
 
 ```mermaid
 stateDiagram-v2
@@ -229,7 +232,12 @@ heartbeat/idle 분리, 복수 부모 TTL 상속, receipt 재시도 기한 및 �
 분리 및 기한 상속을 검사합니다. 테스트 전용 SQLite interposer는 원본/파생 등록과
 두 데이터 확인 경로에서 실제 COMMIT 반환 직후 설치 authority를 회전시킵니다.
 성공 대신 오류가 나야 하고 이미 커밋된 미발행 artifact도 사용할 수 없으며 정리
-목록에 나타나야 합니다. `repository_ui_test.cc`는 UI 대기 중 기존 조건 변경과
+목록에 나타나야 합니다. 추가 두 경우는 데이터 등록/확인의 커밋 후 검증 중 실제 DB를
+unlink하여 최종 snapshot에서 복구를 유발하고 이전 성공 필드가 없는 오류를 요구합니다.
+unlink 시 관찰 대상의 실제 COMMIT이 반환했고 SQLite가 autocommit 상태임을 확인합니다.
+별도 PERSISTENT 승인을 사전에 ALLOWED로 입증하며 같은 repository의 후속 호출은
+해당 정의가 복원되었더라도 새 동의를 요구해야 합니다.
+`repository_ui_test.cc`는 UI 대기 중 기존 조건 변경과
 전체 AND 확정, 재검증 오류 rollback을 검사합니다.
 
 `repository_crash_test.cc`는 자식 writer를 journal 동기화 직전, main DB 동기화
@@ -250,9 +258,18 @@ snapshot은 검증 문서에서 구분합니다.
 검증할 수 있습니다. 각 경우는 자신이 만든 `mkdtemp` 하위 디렉터리만 정리합니다.
 영속 경로 선택 자체가 전원 차단이나 기기의 물리 캐시 동작을 재현하지는 않습니다.
 
+별도 `consentd-shutdown-test`는 실제 테스트 daemon에
+`repository_shutdown_interposer.cc`만 추가합니다. 실제 행을 변경한 revoke를
+트랜잭션이 활성인 COMMIT 직전에 멈춥니다. 전용 harness는 SIGTERM 뒤 접수 중단을
+관찰하고 최대 5초 gate를 해제한 뒤 정상 drain/종료와 재시작 후 C API의 철회 결과를
+확인합니다. ready/release 파일은 보호된 `/tmp/consent-test` 아래에만 두며 일반
+daemon에는 gate가 없습니다. 응답 전 연결 종료는 클라이언트 입장에서 결과 불명이며
+접수된 변경의 영속 결과는 재시작 확인으로 입증합니다.
+
 GBS 빌드와 emulator 실행 증거는 프로젝트 검증 문서에 기록합니다. 이 문서만으로
 모든 수용 기준을 통과했다고 주장하지 않습니다. 돌발 emulator 종료/전원 차단,
-용량 부족/I/O 주입, 제품 Installer 트랜잭션 연동,
+실제 파일시스템 용량 소진/기기 쓰기 실패(SQLite FULL/IOERR 반환 코드 분류 검증과
+구분), 제품 Installer 트랜잭션 연동,
 holder 프로세스 사망 후 정합, 외부 모델 정리, typed 다국어 인자와 장시간 부하
 검증은 별도로 필요합니다. 활성 요청·세션·artifact에는 접수 상한이 있지만 과거 메타데이터의 확정된
 보존 정책에 따른 자동 정리는 아직 없습니다. 상한 초과는 운영 조치가 필요하며 이미 소비한
