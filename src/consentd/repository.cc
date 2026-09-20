@@ -48,6 +48,8 @@ constexpr int kClosed = CONSENT_ERROR_SESSION_CLOSED;
 constexpr size_t kRegistryLimit = 4 * 1024 * 1024;
 constexpr size_t kMaxDefinitions = 2048;
 constexpr int64_t kDayMs = 24 * 60 * 60 * 1000;
+constexpr size_t kMaintenanceLimit = 128;
+constexpr int64_t kMaintenanceIntervalMs = 60000;
 
 class Failure final : public std::runtime_error {
  public:
@@ -313,6 +315,7 @@ CREATE TABLE IF NOT EXISTS authorizations(id TEXT PRIMARY KEY,enforcer TEXT NOT 
 CREATE TABLE IF NOT EXISTS authorization_grants(receipt TEXT NOT NULL
  REFERENCES authorizations(id),grant_id TEXT NOT NULL REFERENCES grants(id),
  PRIMARY KEY(receipt,grant_id));
+CREATE INDEX IF NOT EXISTS authorization_grant_source ON authorization_grants(grant_id);
 CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,receipt TEXT NOT NULL,
  session TEXT NOT NULL REFERENCES sessions(id),holder TEXT NOT NULL,
  instance TEXT NOT NULL,purpose TEXT NOT NULL,recipient TEXT NOT NULL,
@@ -321,6 +324,7 @@ CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,receipt TEXT NOT NULL,
  UNIQUE(receipt,holder,instance));
 CREATE TABLE IF NOT EXISTS artifact_grants(artifact TEXT NOT NULL REFERENCES artifacts(id),
  grant_id TEXT NOT NULL REFERENCES grants(id),PRIMARY KEY(artifact,grant_id));
+CREATE INDEX IF NOT EXISTS artifact_grant_source ON artifact_grants(grant_id);
 CREATE TABLE IF NOT EXISTS artifact_parents(child TEXT NOT NULL REFERENCES artifacts(id),
  parent TEXT NOT NULL REFERENCES artifacts(id),PRIMARY KEY(child,parent));
 CREATE TABLE IF NOT EXISTS cleanup_acknowledgements(artifact TEXT PRIMARY KEY
@@ -345,6 +349,7 @@ class Repository::Impl final {
   Message Execute(const Peer& peer, const Message& request);
   Message ImportOfflineRegistration(const Message& validated_record);
   Message Snapshot();
+  Message Maintain();
   void Tick();
   void Shutdown();
   bool SetOfflineReconciliation(bool enabled) noexcept {
@@ -392,6 +397,7 @@ class Repository::Impl final {
   void ValidateDefinition(const Message& definition);
   void ValidateBoundArguments(const Message& definition, const Message& request, int index);
   void ResetRuntime();
+  size_t CompactMetadata();
 
   std::string path_;
   std::string recovery_dir_;
@@ -406,6 +412,8 @@ class Repository::Impl final {
   bool cleanup_unknown_ = false;
   bool offline_import_ = false;
   bool corrupt_ = false;
+  int64_t maintenance_due_ = 0;
+  unsigned maintenance_class_ = 0;
   int64_t expected_device_ = 0;
   int64_t expected_inode_ = 0;
   std::string expected_incarnation_;
@@ -656,6 +664,7 @@ void Repository::Impl::OpenDatabase(bool recovering) {
   }
   Replay();
   ResetRuntime();
+  maintenance_due_ = Now() + kMaintenanceIntervalMs;
 }
 
 bool Repository::Impl::Open(std::string* error) {
@@ -2082,6 +2091,96 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
   }
 }
 
+size_t Repository::Impl::CompactMetadata() {
+  Transaction transaction(db_);
+  size_t compacted = 0;
+  // Rotate the first class so a continuous stream in one class cannot starve
+  // the others. The shared budget counts records, including their bounded
+  // authorization edges, rather than allowing 128 records per class.
+  for (unsigned offset = 0; offset < 4 && compacted < kMaintenanceLimit; ++offset) {
+    unsigned type = (maintenance_class_ + offset) % 4;
+    const char* query = nullptr;
+    if (type == 0) {
+      query = "SELECT id,'' FROM authorizations WHERE valid=0 AND (payload<>'' OR "
+          "EXISTS(SELECT 1 FROM authorization_grants WHERE receipt=authorizations.id)) LIMIT ?";
+    } else if (type == 1) {
+      query = "SELECT id,payload FROM requests WHERE "
+          "state IN ('ALLOWED','DENIED','CANCELLED','EXPIRED','INVALIDATED') AND "
+          "(token<>'' OR ui_owner<>'' OR ui_instance<>'') LIMIT ?";
+    } else if (type == 2) {
+      query = "SELECT id,'' FROM sessions WHERE state='CLOSED' AND resume_hash<>'' LIMIT ?";
+    } else {
+      query = "SELECT id,'' FROM grants WHERE revoked<>0 AND "
+          "NOT EXISTS(SELECT 1 FROM authorization_grants WHERE grant_id=grants.id) AND "
+          "NOT EXISTS(SELECT 1 FROM artifact_grants WHERE grant_id=grants.id) LIMIT ?";
+    }
+    std::vector<std::pair<std::string, std::string>> records;
+    {
+      Statement candidates(db_, query);
+      candidates.Bind(1, static_cast<int64_t>(kMaintenanceLimit - compacted));
+      while (candidates.Row())
+        records.emplace_back(candidates.Text(0), candidates.Text(1));
+    }
+    for (const auto& record : records) {
+      if (type == 0) {
+        // ReceiptValid rejects valid=0 before reading this payload. Preserve
+        // the unique execution key and fingerprint: identical retries remain
+        // STALE, changed retries remain CONFLICT, and ONCE is never consumed
+        // again. Retained artifacts have their own materialized source edges.
+        Statement payload(db_, "UPDATE authorizations SET payload='' WHERE id=? AND valid=0");
+        payload.Bind(1, record.first).Run();
+        Statement edges(db_, "DELETE FROM authorization_grants WHERE receipt=?");
+        edges.Bind(1, record.first).Run();
+      } else if (type == 1) {
+        // Prompt stores _prompt_locale and nonempty UI ownership in the same
+        // UPDATE. Every terminal transition retains that ownership until this
+        // transaction removes both it and the private payload fields.
+        auto payload = Unpack(record.second);
+        for (const char* field : {"prompt_token", "ui_owner", "ui_instance", "_prompt_locale"})
+          payload.erase(field);
+        Statement clear(db_, "UPDATE requests SET token='',ui_owner='',ui_instance='',payload=? WHERE id=?");
+        clear.Bind(1, Pack(payload)).Bind(2, record.first).Run();
+      } else if (type == 2) {
+        Statement clear(db_, "UPDATE sessions SET resume_hash='' WHERE id=?");
+        clear.Bind(1, record.first).Run();
+      } else {
+        Statement remove(db_, "DELETE FROM grants WHERE id=?");
+        remove.Bind(1, record.first).Run();
+      }
+      ++compacted;
+    }
+  }
+  // No externally visible policy/result changes: do not advertise a policy
+  // revision merely for reclaiming unusable metadata. Artifact rows, their
+  // provenance, cleanup ACKs and all operation/request tombstones stay intact.
+  transaction.Commit();
+  maintenance_class_ = (maintenance_class_ + 1) % 4;
+  return compacted;
+}
+
+Message Repository::Impl::Maintain() {
+  try {
+    Ensure();
+    const std::string operation_epoch = epoch_;
+    size_t compacted = CompactMetadata();
+    auto result = Snapshot();
+    Require(Get(result, "epoch") == operation_epoch, -ESTALE,
+        "database generation changed during metadata maintenance");
+    result["compacted_records"] = std::to_string(compacted);
+    return result;
+  } catch (const Failure& failure) {
+    if ((failure.SqliteCode() & 0xff) == SQLITE_CORRUPT ||
+        (failure.SqliteCode() & 0xff) == SQLITE_NOTADB)
+      corrupt_ = true;
+    if (failure.Status() == kStorage)
+      fenced_ = true;
+    return {{"status", std::to_string(failure.Status())}, {"reason", failure.what()}};
+  } catch (const std::exception&) {
+    fenced_ = true;
+    return {{"status", std::to_string(kStorage)}, {"reason", "metadata maintenance failure"}};
+  }
+}
+
 void Repository::Impl::Tick() {
   try {
     Ensure();
@@ -2096,6 +2195,12 @@ void Repository::Impl::Tick() {
     // Reconciliation invalidates affected grants before advertising a revision.
     Replay();
     Expire();
+    if (Now() >= maintenance_due_) {
+      // Schedule before the attempt so an I/O error does not cause every
+      // timer tick to retry a maintenance write. Normal error fencing applies.
+      maintenance_due_ = Now() + kMaintenanceIntervalMs;
+      CompactMetadata();
+    }
   } catch (const Failure& failure) {
     if ((failure.SqliteCode() & 0xff) == SQLITE_CORRUPT ||
         (failure.SqliteCode() & 0xff) == SQLITE_NOTADB)
@@ -2139,6 +2244,7 @@ Message Repository::ImportOfflineRegistration(const Message& validated_record) {
   return impl_->ImportOfflineRegistration(validated_record);
 }
 Message Repository::Snapshot() { return impl_->Snapshot(); }
+Message Repository::Maintain() { return impl_->Maintain(); }
 void Repository::Tick() { impl_->Tick(); }
 void Repository::Shutdown() { impl_->Shutdown(); }
 

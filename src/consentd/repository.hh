@@ -70,6 +70,10 @@ class Repository final {
   // peer. The repository independently revalidates current installation state.
   consent::Message ImportOfflineRegistration(const consent::Message& validated_record);
   consent::Message Snapshot();
+  // Internal DB-executor maintenance, never an IPC method. One transaction
+  // compacts at most 128 records while retaining retry and cleanup evidence.
+  // Tick also runs one batch no more often than once per minute.
+  consent::Message Maintain();
   void Tick();
   void Shutdown();
 
