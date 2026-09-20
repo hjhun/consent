@@ -31,9 +31,9 @@ namespace {
 
 // Linked ONLY into consentd-shutdown-test. No production flag, environment
 // variable or authentication exception enables this gate in either daemon.
-constexpr char kRoot[] = "/tmp/consent-test";
-constexpr char kReady[] = "/tmp/consent-test/shutdown-db-ready";
-constexpr char kRelease[] = "/tmp/consent-test/shutdown-db-release";
+constexpr char kRoot[] = "/tmp/consent-shutdown-gate";
+constexpr char kReady[] = "/tmp/consent-shutdown-gate/shutdown-db-ready";
+constexpr char kRelease[] = "/tmp/consent-shutdown-gate/shutdown-db-release";
 bool revoke_started = false;
 bool gate_used = false;
 

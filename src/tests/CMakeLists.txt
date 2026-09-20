@@ -39,7 +39,7 @@ FOREACH(SOURCE ${TEST_SOURCES})
   # Assertions in executable tests include fixture setup and must stay active.
   TARGET_COMPILE_OPTIONS(${TEST_NAME} PRIVATE -UNDEBUG)
   TARGET_INCLUDE_DIRECTORIES(${TEST_NAME} PRIVATE
-    "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent")
+    "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent/inc")
   IF(TEST_NAME STREQUAL "client-test" AND TARGET consent-test-library)
     TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-test-library)
   ELSE()
@@ -55,6 +55,10 @@ FOREACH(SOURCE ${TEST_SOURCES})
   # its shared ABI before the runtime package is installed in the build root.
   SET_TESTS_PROPERTIES(${TEST_NAME} PROPERTIES TIMEOUT 30
     ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:consent>")
+  IF(TEST_NAME STREQUAL "storage-prepare-test")
+    # Migration validates real root and account transitions; GBS runs as abuild.
+    SET_TESTS_PROPERTIES(${TEST_NAME} PROPERTIES SKIP_RETURN_CODE 77)
+  ENDIF()
   INSTALL(TARGETS ${TEST_NAME}
     RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
 ENDFOREACH()

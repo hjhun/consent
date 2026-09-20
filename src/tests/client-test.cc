@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "consent/consent.h"
+#include "consent.h"
 #include "consent/endpoint.hh"
 #include "common/message.hh"
 
@@ -144,6 +144,10 @@ void Serve(int listener) {
       reply["request_id"] = "pending-1";
     } else if (scenario == "deny") {
       reply["decision"] = "DENIED";
+    }
+    if (scenario == "module-error") {
+      reply["status"] = consent::Get(input, "test-status");
+      reply.erase("decision");
     }
     if (!Send(fd, std::move(reply)))
       break;
@@ -318,6 +322,23 @@ int main(int argc, char** argv) {
     CHECK(!callback.status);
     CHECK(callback.decision == (!strcmp(scenario, "deny") ?
         CONSENT_DECISION_DENIED : CONSENT_DECISION_ALLOWED));
+  }
+  // Exercise the native Parcel envelope and signed-int client boundary,
+  // including the module range's INT_MIN value, in SYNC and ASYNC replies.
+  for (int error : {CONSENT_ERROR_PROTOCOL, CONSENT_ERROR_OUTCOME_UNKNOWN,
+      CONSENT_ERROR_SESSION_INACTIVE, CONSENT_ERROR_SESSION_CLOSED,
+      CONSENT_ERROR_CONFLICT, CONSENT_ERROR_STORAGE}) {
+    CHECK(!consent_params_set(params, "scenario", "module-error"));
+    CHECK(!consent_params_set_int64(params, "test-status", error));
+    result = nullptr;
+    CHECK(consent_check(client, params, 2000, &result) == error && !result);
+    Callback callback;
+    consent_async_id_t operation = 0;
+    CHECK(!consent_check_async(client, params, Result, &callback, &operation));
+    callback.returned = true;
+    DispatchUntil(&callback);
+    CHECK(callback.count == 1 && callback.status == error &&
+        callback.decision == CONSENT_DECISION_UNKNOWN);
   }
   // Repeated persistent request is local until a revision invalidates it.
   CHECK(!consent_params_set(params, "scenario", "cache"));

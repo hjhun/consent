@@ -1,17 +1,3 @@
-# Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
@@ -30,6 +16,7 @@ BuildRequires: pkgconfig(sqlite3)
 BuildRequires: pkgconfig(libsystemd)
 BuildRequires: pkgconfig(pkgmgr-info)
 BuildRequires: pkgconfig(parcel)
+BuildRequires: pkgconfig(capi-base-common)
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 
@@ -40,6 +27,7 @@ Public C API library for the Tizen consent service.
 Summary:    Tizen user consent daemon
 Group:      Application Framework/Daemons
 Requires:   systemd
+Requires(pre): /usr/bin/systemctl
 Requires(post): /usr/bin/systemctl
 Requires(preun): /usr/bin/systemctl
 Requires(postun): /usr/bin/systemctl
@@ -84,9 +72,10 @@ cp %{SOURCE1001} .
 
 %install
 %make_install
-install -d -m 0700 %{buildroot}/opt/var/lib/consentd
 install -d -m 0755 %{buildroot}%{_unitdir}/sockets.target.wants
 ln -s ../consentd.socket %{buildroot}%{_unitdir}/sockets.target.wants/consentd.socket
+install -d -m 0755 %{buildroot}%{_unitdir}/basic.target.wants
+ln -s ../consentd.service %{buildroot}%{_unitdir}/basic.target.wants/consentd.service
 
 %check
 ctest --output-on-failure
@@ -97,13 +86,15 @@ ctest --output-on-failure
 %postun
 /sbin/ldconfig
 
+%pre -n consentd
+if [ "$1" -gt 1 ] && [ -d /run/systemd/system ]; then
+  systemctl stop consentd.socket consentd.service || exit 1
+fi
+
 %post -n consentd
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload
-  systemctl start consentd.socket
-  if [ "$1" -gt 1 ]; then
-    systemctl try-restart consentd.service
-  fi
+  systemctl start consentd.socket consentd.service || exit 1
 fi
 
 %preun -n consentd
@@ -128,12 +119,13 @@ fi
 %license LICENSE
 %{_bindir}/consentd
 %{_sbindir}/consent-installation-authority
+%{_sbindir}/consent-storage-prepare
 %{_unitdir}/consentd.service
 %{_unitdir}/consentd.socket
 %{_unitdir}/sockets.target.wants/consentd.socket
+%{_unitdir}/basic.target.wants/consentd.service
 %dir %{_sysconfdir}/consent
 %config(noreplace) %{_sysconfdir}/consent/roles.conf
-%attr(0700,root,root) %dir /opt/var/lib/consentd
 
 %files devel
 %defattr(-,root,root,-)

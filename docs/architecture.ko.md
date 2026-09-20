@@ -226,3 +226,46 @@ Formatter는 치환값의 중괄호·퍼센트·markup을 재해석하지 않는
 공개 formatter의 반환 문자열은 호출자가 `free()`로 해제하는 `malloc` 소유
 문자열이며 오류 시 출력은 null이다. 빌드·emulator 증거는 검증 가이드를
 참조한다. 이 다이어그램은 실제 제품 UI 연동 완료 주장이 아닌 구현 계약이다.
+
+## 서비스 계정과 소유권 이행
+
+서비스는 기존 `security_fw` 계정, SmackProcessLabel=System, NoNewPrivileges와
+CAP_SYS_PTRACE 하나를 사용합니다. 이 capability는 다른 UID의 프로세스 신원
+조회에 사용하며 호출자 역할을 부여하지 않습니다. 플랫폼이 추가하는 보조 그룹도
+consent 역할의 근거가 아닙니다. 공개 C API 헤더는 `src/consent/inc/consent.h`이며
+private C++ 헤더는 `inc` 밖에 둡니다.
+
+```mermaid
+flowchart TD
+  Boot[basic.target 서비스 링크] --> Unit[consentd.service]
+  Socket[systemd socket root:system_share] --> Unit
+  Unit --> Prepare[Root ExecStartPre: consent-storage-prepare]
+  Prepare --> Lock[Authority lifecycle 독점 잠금]
+  Lock --> Authority[Root authority 디렉터리0750 / inventory0640]
+  Authority --> State[DB inode와 내용 보존; 상태 소유권은 마지막 변경]
+  State --> Daemon[security_fw 데몬 / lifecycle 공유 잠금]
+  Daemon --> Registry[Private DB와 정의 registry: 0600]
+  Daemon -. 읽기 .-> Authority
+```
+
+준비 도구는 고정된 systemctl 명령을 제한 시간 안에 실행하여 MainPID0을 확인하고,
+root 소유 상위 경로와 파일 유형·link·소유권을 검증한 뒤 lifecycle/Installer 독점
+잠금을 잡습니다. 기존 authority를 먼저 옮기고 양쪽 디렉터리를 sync합니다.
+DB·sidecar·registry는 그 자리에 두며 소유권 변경으로 기대 device/inode나 registry
+내용을 바꾸지 않습니다. 상태 디렉터리 소유권은 마지막에 변경합니다. 이전 mkdir가
+성공했어도 재시도마다 상위 디렉터리 fsync를 반복합니다. symlink·hardlink·다른
+소유자·예상 밖 파일·authority 충돌·사용 중인 잠금은 자료를 지우지 않고 거부합니다.
+
+검증한 관리 대상 FD에만 System SMACK label을 설정하고, 설정이나 metadata sync가
+실패하면 시작하지 않습니다. systemd StateDirectory와 RPM의 mutable 디렉터리
+소유권 지정은 사용하지 않습니다. 패키지 업그레이드는 파일 설치 전에 socket과
+service를 동기적으로 중지합니다. root 접두사가 있는 pre-start 도구는 제한된
+데몬과 별도 프로세스입니다. 기존 버전 이행은 systemd가 관리하는 종료를 전제로
+하며 수동 실행한 데몬이나 동시에 실행 중인 옛 Installer 도구는 지원하지 않습니다.
+
+`/opt/var/lib/consent-authority`는 계속 root 소유이고 데몬 primary group에는 읽기만
+허용합니다. `/opt/var/lib/consentd`는 서비스 UID 소유0700입니다. 역할 설정과
+실행파일 신뢰 검사는 root 보호를 유지합니다. 공유 플랫폼 UID만으로 앱별 독점
+격리를 보장하지 않으므로 제품은 같은 UID를 쓰는 다른 프로세스와 SMACK 정책을
+함께 고려해야 합니다. 제품 역할 등록은 여전히 default-deny입니다. 이 이행의
+빌드·target 결과는 명시된 검증 snapshot의 근거로 구분합니다.

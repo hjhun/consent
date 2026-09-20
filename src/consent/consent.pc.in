@@ -20,5 +20,6 @@ includedir=@CONSENT_PC_INCLUDEDIR@
 Name: consent
 Description: Tizen user consent client C API
 Version: @PROJECT_VERSION@
+Requires: capi-base-common
 Libs: -L${libdir} -lconsent
 Cflags: -I${includedir}/consent

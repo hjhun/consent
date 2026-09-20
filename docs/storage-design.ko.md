@@ -73,7 +73,7 @@ registry는 정규화된 내용의 checksum을 포함하며 4MiB, 정의 2,048�
 설치 작업 기억 8,192개로 제한합니다. checksum은 신뢰하는 파일 소유자의
 변조를 방어하는 서명이 아닙니다. 파일은 symlink가 아닌 단일 hard link의
 일반 파일이어야 하며 daemon 유효 UID가 소유하고 타 사용자에게 노출하지
-않아야 합니다. 상위 경로와 보호 디렉터리도 검사합니다. 운영 패키징은 root
+않아야 합니다. 상위 경로와 보호 디렉터리도 검사합니다. 운영 패키징은 서비스 계정
 소유 보호 경로를 사용하고 직접 테스트는 sticky `/tmp` 아래 전용 경로를
 사용합니다.
 
@@ -307,7 +307,7 @@ snapshot은 검증 문서에서 구분합니다.
 `repository_shutdown_interposer.cc`만 추가합니다. 실제 행을 변경한 revoke를
 트랜잭션이 활성인 COMMIT 직전에 멈춥니다. 전용 harness는 SIGTERM 뒤 접수 중단을
 관찰하고 최대 5초 gate를 해제한 뒤 정상 drain/종료와 재시작 후 C API의 철회 결과를
-확인합니다. ready/release 파일은 보호된 `/tmp/consent-test` 아래에만 두며 일반
+확인합니다. ready/release 파일은 데몬 계정이 소유한 `/tmp/consent-shutdown-gate` 아래에만 두며 일반
 daemon에는 gate가 없습니다. 응답 전 연결 종료는 클라이언트 입장에서 결과 불명이며
 접수된 변경의 영속 결과는 재시작 확인으로 입증합니다.
 

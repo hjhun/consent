@@ -18,6 +18,7 @@
 
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pwd.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -359,8 +360,12 @@ int main(int argc, char** argv) {
   approve("persistent", "PERSISTENT", NULL, NULL);
   char* previous_epoch = warm("persistent", NULL, NULL);
   struct stat database;
+  struct passwd* service = getpwnam("security_fw");
+  CHECK(service && service->pw_uid != 0);
   CHECK(lstat(CONSENT_TEST_DB_PATH, &database) == 0);
-  CHECK(S_ISREG(database.st_mode) && database.st_uid == 0);
+  CHECK(S_ISREG(database.st_mode) && database.st_nlink == 1 &&
+      database.st_uid == service->pw_uid && database.st_gid == service->pw_gid &&
+      (database.st_mode & 0777) == 0600);
   CHECK(unlink(CONSENT_TEST_DB_PATH) == 0);
   p = query("persistent", NULL, NULL);
   int status = CONSENT_ERROR_STORAGE;

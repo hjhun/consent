@@ -237,3 +237,48 @@ text revision and invalidate pending displays. The public formatter returns a
 caller-owned `malloc` string released with `free()`, and null output on error.
 See the verification guide for build and emulator evidence; this diagram is
 an implementation contract, not a claim of real product UI integration.
+
+## Service account and ownership transition
+
+The service uses the existing `security_fw` account, SmackProcessLabel=System,
+NoNewPrivileges and only CAP_SYS_PTRACE. This capability permits the cross-UID
+process identity checks; it does not grant caller roles. The platform may add
+supplementary groups, which also confer no consent role. The public C API header
+is `src/consent/inc/consent.h`; private C++ headers remain outside `inc`.
+
+```mermaid
+flowchart TD
+  Boot[basic.target service link] --> Unit[consentd.service]
+  Socket[systemd socket root:system_share] --> Unit
+  Unit --> Prepare[Root ExecStartPre: consent-storage-prepare]
+  Prepare --> Lock[Exclusive authority lifecycle lock]
+  Lock --> Authority[Root authority directory: 0750 / inventory 0640]
+  Authority --> State[Preserve DB inode and content; service ownership last]
+  State --> Daemon[security_fw daemon / shared lifecycle lock]
+  Daemon --> Registry[Private DB and definitions registry: 0600]
+  Daemon -. reads .-> Authority
+```
+
+The helper checks MainPID0 through a bounded, fixed systemctl invocation, validates
+root-owned ancestors and file type/link/ownership, and acquires exclusive
+lifecycle/Installer locks. It moves the legacy authority first and syncs both
+directories. DB, sidecar and registry files remain in place; ownership changes
+preserve the expected device/inode and registry content. Directory ownership is
+changed last. Repeated preparation repeats parent-directory fsync even after an
+earlier mkdir succeeded. Symlinks, hardlinks, foreign owners, unexpected files,
+conflicting authorities and busy locks fail closed without wiping data.
+
+Only verified managed FDs receive the System SMACK label; setting it or syncing
+metadata must succeed. Systemd StateDirectory and RPM mutable-directory ownership
+are intentionally absent. Package upgrades synchronously stop socket and service
+before installing files. The root-prefixed pre-start helper is separate from the
+restricted daemon. Legacy upgrades are supported through systemd-controlled
+shutdown, not unmanaged daemons or concurrent old Installer tools.
+
+`/opt/var/lib/consent-authority` remains root-owned, with the daemon's primary group
+allowed to read. `/opt/var/lib/consentd` belongs to the service UID, mode0700.
+Role configuration and executable trust checks remain root protected. A shared
+platform UID does not itself establish exclusive application isolation: products
+must account for other processes sharing that UID and deploy suitable SMACK
+policy. Product role enrollment is still default-deny. Build/target results for
+this transition belong to their explicitly identified verification snapshot.

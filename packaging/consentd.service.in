@@ -21,12 +21,13 @@ After=consentd.socket
 Type=notify
 NotifyAccess=main
 ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/consentd
-User=root
-Group=root
+ExecStartPre=+@CMAKE_INSTALL_FULL_SBINDIR@/consent-storage-prepare
+User=@CONSENT_SERVICE_USER@
+Group=@CONSENT_SERVICE_USER@
+AmbientCapabilities=CAP_SYS_PTRACE
+CapabilityBoundingSet=CAP_SYS_PTRACE
 SmackProcessLabel=System
 Sockets=consentd.socket
-StateDirectory=consentd
-StateDirectoryMode=0700
 UMask=0077
 Restart=on-failure
 RestartSec=1s
@@ -36,3 +37,6 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=consentd
 NoNewPrivileges=yes
+
+[Install]
+WantedBy=basic.target

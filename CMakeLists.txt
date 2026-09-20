@@ -40,9 +40,13 @@ SET(CONSENT_SOCKET_PATH "/run/.consentd.sock" CACHE STRING
   "Systemd-owned consent socket endpoint")
 SET(CONSENT_STATE_DIR "/opt/var/lib/consentd" CACHE PATH
   "Consent daemon persistent state directory")
+SET(CONSENT_AUTHORITY_DIR "/opt/var/lib/consent-authority" CACHE PATH
+  "Root-owned consent installation authority directory")
+SET(CONSENT_SERVICE_USER "security_fw" CACHE STRING
+  "Dedicated consent daemon account used by storage preparation")
 SET(CONSENT_ROLE_CONFIG "/etc/consent/roles.conf" CACHE FILEPATH
   "Root-owned consent identity and role policy")
-SET(CONSENT_INSTALLATIONS "/opt/var/lib/consentd/installations.conf" CACHE FILEPATH
+SET(CONSENT_INSTALLATIONS "${CONSENT_AUTHORITY_DIR}/installations.conf" CACHE FILEPATH
   "Root-owned installation generation registry")
 OPTION(CONSENT_BUILD_TOOLS "Build C API exerciser programs" ON)
 OPTION(CONSENT_BUILD_TEST_DAEMON "Build isolated integration daemon" OFF)
@@ -51,12 +55,15 @@ SET(CONSENT_TEST_ROOT "/tmp/consent-test" CACHE PATH
   "Root-protected isolated integration test directory")
 SET(CONSENT_TEST_STATE_DIR "/opt/var/lib/consent-test" CACHE PATH
   "Persistent isolated integration test state directory")
+SET(CONSENT_TEST_AUTHORITY_DIR "/opt/var/lib/consent-test-authority" CACHE PATH
+  "Root-owned isolated integration installation authority directory")
 
 PKG_CHECK_MODULES(GLIB REQUIRED IMPORTED_TARGET glib-2.0 gio-2.0 gio-unix-2.0)
 PKG_CHECK_MODULES(SQLITE REQUIRED IMPORTED_TARGET sqlite3)
 PKG_CHECK_MODULES(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 PKG_CHECK_MODULES(PKGMGR REQUIRED IMPORTED_TARGET pkgmgr-info)
 PKG_CHECK_MODULES(PARCEL REQUIRED IMPORTED_TARGET parcel)
+PKG_CHECK_MODULES(CAPI_BASE_COMMON REQUIRED IMPORTED_TARGET capi-base-common)
 
 ADD_COMPILE_OPTIONS(-Wall -Wextra -Wformat=2 -ffunction-sections -fdata-sections)
 IF(CONSENT_WARNINGS_AS_ERRORS)

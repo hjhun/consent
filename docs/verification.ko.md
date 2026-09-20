@@ -573,3 +573,103 @@ ICU 문법·복수형·날짜·locale별 숫자 표시는 구현하지 않았으
 provisioning은 연동 과제로 남습니다. Wire/shutdown 근거는 별도로 표시한 build13
 실행이며 build15에서 재실행하지 않았습니다. 강제 전원 차단과 실제 filesystem-full·
 device-write 실패는 앞서 명시한 대로 미검증입니다.
+
+## Build16–19: 공개 오류와 nonroot 서비스
+
+Build19는 공개 헤더 이동, Tizen 오류 매핑, `security_fw` 서비스 이행을 완료한
+최소 단위입니다. 소스 tree는 `0a2c5ae77841d4f503413dcff04a3984bb38f3db`,
+77개 파일 source archive SHA256은
+`c30cce5ea6f30056c124dfe06c853ed0cb59cea744f16d8dedb53c2ec03019c8`입니다.
+고정 소스·RPM·CTest·`delta-from-17.patch`는
+`/var/tmp/consent-artifacts/gbs-build-19/`에 있습니다. Build17과의 차이는 격리
+cache fixture 한 파일뿐입니다. DB 삭제 전에 NSS의 `security_fw` UID/GID,
+regular file·단일 link·mode0600을 확인하도록 바꿨습니다. 후속 offline 등록과
+기능별 헤더 분리는 이 snapshot에 포함하지 않습니다.
+
+진행 중인 작업을 보존하고 별도 소스 사본에서 다음 명령을 실행했습니다.
+
+```sh
+cd /var/tmp/consent-build-18-minimal
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+GBS CTest는 11개 중 10 PASS/1 SKIP입니다. Root가 필요한 소유권 fixture는
+nonroot 빌드 사용자에서 77을 반환하며, 이후 emulator에서 실제 root로 실행하여
+통과했습니다. Client 시험은 INT_MIN을 포함한 module 오류를 실제 Parcel/socket
+응답으로 왕복합니다. 공유 라이브러리 C 시험은 기존 40개 심볼, Tizen 별칭,
+error string, 출력 소유권을 확인합니다. 아직 미출시인 v0.1의 오류값 정정이므로
+기존 -200x consumer도 라이브러리·데몬과 함께 재빌드해야 합니다.
+
+중간 결과도 최종 검증과 구분하여 보존했습니다.
+
+| Snapshot | 관측 결과 |
+| --- | --- |
+| 16 / `12ea20c09045711da5090de4b917219e107792c3` | GBS10 PASS/1 SKIP. 운영 nonroot 기동·수동 이행 성공. 격리 script가 label 설정 helper를 root/System에서 직접 실행하여 실패. |
+| 17 / `c97287641bbb50527f2e90c0f64f6a31b377d189` | 실제 privileged ExecStartPre+ 준비 및 명시적 privileged authority writer 적용. API/races/holder/shutdown 통과 후 cache 삭제 fixture의 UID0 단정에서 중단. |
+| 18 / `c4da55e730ded3b636281e661ccda27e82ada000` | GBS가 positional 소스 인자 대신 현재 작업 디렉터리를 사용하여 진행 중인 헤더 분리까지 export. GBS10 PASS/1 SKIP이지만 배포하지 않았고 이번 단위 근거로 사용하지 않음. |
+| 19 | 별도 cwd에서 build17과 fixture 한 파일 차이만 감사하고 아래 실제 nonroot target 검증 완료. |
+
+`emulator-build-16/migration-before.log`에서 build15로 PERSISTENT 승인을 먼저
+저장했습니다. 실제 privileged 이행은 test DB inode128283, registry128667,
+설치 authority128011과 registry/authority 내용을 보존했습니다. DB·registry는
+UID/GID402 mode0600, 외부 authority는 root:402 mode0640/System이 되었습니다.
+`migration-manual.log`와 `emulator-build-17/migration.log`는 같은 승인이 실제
+C API에서 ALLOWED임을 보여줍니다. 운영 DB128673·registry128674도 inode를
+보존했습니다. 이후 authority 쓰기는 의도적으로 새 inode에 게시하며 이행 시
+inode 보존 관측과 구분합니다.
+
+최종 target 로그는 `/var/tmp/consent-artifacts/emulator-build-19/`에 있습니다.
+`commands.txt`에 명시적 `sdb -s emulator-26101` 명령을 기록했습니다. 고정된
+runtime·daemon·tests RPM만 정상 의존성 transaction으로 설치했습니다. Target의
+`capi-base-common-0.4.82-1`은 변경하지 않았습니다. 일치하는 devel은 확보되지
+않았고 cache의 0.4.83 devel은 같은 버전 runtime을 요구합니다. `--nodeps`나
+허위 Provides를 사용하지 않았습니다. Installed-tree C/pkg-config/40심볼 검증은
+GBS SDK와 고정 devel RPM을 사용하며, target 근거는 설치된 shared ABI 실행이지
+새 target 개발 헤더 설치·검증은 아닙니다.
+
+`api.log`는 공개 C API 시험과 7개 script phase의 exit0을 기록합니다: 미등록
+실행파일 거부, ONCE·원격 취소 경쟁, holder 재시작, live cache, typed localization,
+partial-I/O 종료, pending DB 작업 종료. 각 phase는 중지한 DB의 integrity가
+정확히 `ok`, schema2, 예상 metadata 존재임을 확인합니다. Live cache 첫 조회는
+기존 lease 안에서 실행했습니다: revoke34946us, policy42909us, suspend33973us,
+독립 ACTIVE close34606us, 제거36163us, DB 삭제49045us. 두 client handle은
+계속 살아 있습니다. 종료 시험은 실제 2바이트 partial header,
+`reason=daemon-shutdown`, 정상 exit와 DB drain을 확인했습니다. Revoke gate는
+해제 전에 같은 PID가 살아 있고 stop-admission에 도달했음을 확인하고, 종료 후
+재시작에서 내구성 있는 CONSENT_REQUIRED 결과를 검증했습니다.
+
+`root-fixture.log`는 실제 소유권·inode·승인 보존, 중단된 이행 재시도,
+parent-fsync 실패 후 재시도 barrier, 충돌 authority·symlink·hardlink·외부 소유자·
+예상 밖 파일·사용 중 lifecycle lock 거부를 통과했습니다. 이 fixture의 compile-time
+SMACK/systemctl 생략은 명시하며, 실제 운영 helper 기동이 해당 경계를 별도로
+검증합니다. Authority provisioning은 명시적으로
+`systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged`에서
+실행합니다. Root UID 자체가 MAC이나 역할 인증을 우회하지 않습니다.
+
+`boot-before.log`, `boot-after.log`, `boot-api.log`는 정상 `reboot`를 기록합니다.
+Boot ID가 `b3e3c620-cedf-41be-8e98-6430431dc4aa`에서
+`1842a2f1-9a74-4a2e-985a-e7ab95dff79b`로 바뀌었습니다. Client 호출 전에 운영
+service/socket이 active였고 MainPID2440, UID/GID402, label System, 관측한
+모든 capability set은 정확히 `0x80000`(CAP_SYS_PTRACE)이었습니다.
+NoNewPrivileges=yes는 systemd 설정값입니다. AMD 방식 basic.target.wants 상대
+symlink와 상속 socket FD가 함께 동작하며 DB·registry inode는 유지됐습니다.
+재부팅 전 PERSISTENT 승인도 재시작 후 ALLOWED였습니다. 부팅으로 SDB가 owner로
+돌아가고 `/tmp`가 비워져 개발용 root transport와 고정 시험 script를 복원했습니다.
+초기 권한·script 부재 진단도 로그에 남겼습니다.
+
+`endpoint.log`에서 PID1/UID0/GID0, credential 길이12, peer label
+System::Privileged 길이19, AF_UNIX 주소 길이22 `/run/.consentd.sock`를 관측했습니다.
+운영 default-deny 호출은 서버 journal의 `role=rejected` 및
+`no matching live trusted identity`와 대조했으며 client endpoint 거부라고
+주장하지 않습니다. 최초 진단은 잘못된 dlog stream을 조회했고, 수정한 journal
+assertion은 통과했습니다. `cleanup.log`는 격리 service/socket 중지·MainPID0,
+일반 test daemon 복원, observer/gate 부재, 운영 service/socket active를 확인합니다.
+설치 library·daemon·test daemon hash는 고정19 RPM과 일치합니다.
+
+검증 계정은 기존 `security_fw`이며 새 `security` 계정을 만든 것이 아닙니다.
+제품 역할, 실제 승인 UI, Installer transaction hook은 연동 과제로 남습니다.
+Offline 이미지 등록은 다음 별도 구현 단위입니다. 강제 전원 차단과 실제
+filesystem-full/device-write 실패는 미검증이며 정상 reboot나 주입한 storage 오류로
+대체하지 않습니다. 전체 malformed/quota wire 근거는 과거 명시한 snapshot 범위이고,
+이번에는 endpoint와 종료 검사를 재실행했습니다.

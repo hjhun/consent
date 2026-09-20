@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "consentd/repository.hh"
+#include "consent.h"
 
 #include <dirent.h>
 #include <dlfcn.h>
@@ -211,9 +212,9 @@ int main() {
     Check(consent::Get(repository->Execute(Peer(), Definition(1)), "status") == "0", "initial registration");
 
     failed_directory_syncs = 2;
-    Check(consent::Get(repository->Execute(Peer(), Definition(2)), "status") == "-2006",
+    Check(consent::Get(repository->Execute(Peer(), Definition(2)), "status") == std::to_string(CONSENT_ERROR_STORAGE),
         "rename followed by failed fsync must not report success");
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == "-2006",
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
         "readable registry must remain fenced until successful durability barrier");
     auto replayed = repository->Execute(Peer(), Query());
     Check(consent::Get(replayed, "status") == "0" &&
@@ -221,7 +222,7 @@ int main() {
         "successful barrier permits newest desired-state projection");
 
     failed_directory_syncs = 1;
-    Check(consent::Get(repository->Execute(Peer(), Definition(3)), "status") == "-2006",
+    Check(consent::Get(repository->Execute(Peer(), Definition(3)), "status") == std::to_string(CONSENT_ERROR_STORAGE),
         "second uncertain registry commit");
     repository.reset();
     repository = Create(directory);
@@ -244,7 +245,7 @@ int main() {
       failed_definition_reads = 2;
       for (int attempt = 0; attempt < 2; ++attempt) {
         auto failure = repository->Execute(Peer(), Query());
-        Check(consent::Get(failure, "status") == "-2006" &&
+        Check(consent::Get(failure, "status") == std::to_string(CONSENT_ERROR_STORAGE) &&
             consent::Get(failure, "epoch") == original_epoch,
             "generic SQL failure remains explicit and does not retire epoch");
         struct stat current = {};
@@ -264,7 +265,7 @@ int main() {
 
     auto epoch = consent::Get(repository->Snapshot(), "epoch");
     corrupt_next_definition_read = true;
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == "-2006",
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
         "original SQLITE_CORRUPT becomes storage error");
     auto recovered = repository->Execute(Peer(), Query());
     Check(consent::Get(recovered, "status") == "0" &&
@@ -274,7 +275,7 @@ int main() {
     std::cout << "PASS captured SQLite corruption code survives rollback\n";
     epoch = consent::Get(repository->Snapshot(), "epoch");
     corrupt_next_incarnation_read = true;
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == "-2006",
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
         "incarnation metadata corruption becomes explicit storage failure");
     recovered = repository->Execute(Peer(), Query());
     Check(consent::Get(recovered, "status") == "0" &&

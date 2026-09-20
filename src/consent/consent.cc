@@ -332,7 +332,7 @@ const char* consent_error_string(int status) {
     case CONSENT_ERROR_PERMISSION_DENIED: return "permission denied";
     case CONSENT_ERROR_BUSY: return "resource limit reached";
     case CONSENT_ERROR_NOT_FOUND: return "not found";
-    case CONSENT_ERROR_TIMEOUT: return "local wait timeout";
+    case CONSENT_ERROR_TIMEOUT: return "operation timed out";
     case CONSENT_ERROR_DISCONNECTED: return "disconnected";
     case CONSENT_ERROR_PROTOCOL: return "invalid protocol";
     case CONSENT_ERROR_OUTCOME_UNKNOWN: return "remote outcome unknown";
@@ -341,6 +341,11 @@ const char* consent_error_string(int status) {
     case CONSENT_ERROR_CONFLICT: return "operation conflict";
     case CONSENT_ERROR_STORAGE: return "storage unavailable";
     case CONSENT_ERROR_WOULD_DEADLOCK: return "synchronous wait on callback context";
+    case CONSENT_ERROR_STALE: return "stale request or state";
+    case CONSENT_ERROR_TOO_LARGE: return "message or result too large";
+    case CONSENT_ERROR_NO_SPACE: return "capacity exhausted";
+    case CONSENT_ERROR_INVALID_OPERATION: return "invalid operation";
+    case CONSENT_ERROR_IO: return "I/O error";
     default: return "daemon or transport error";
   }
 }

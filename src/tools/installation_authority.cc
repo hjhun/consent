@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 #include <glib.h>
@@ -25,8 +26,8 @@
 #include <cstring>
 #include <string>
 
-#ifndef CONSENT_STATE_DIR
-#define CONSENT_STATE_DIR "/opt/var/lib/consentd"
+#ifndef CONSENT_AUTHORITY_DIR
+#define CONSENT_AUTHORITY_DIR "/opt/var/lib/consent-authority"
 #endif
 
 namespace {
@@ -53,7 +54,7 @@ void Set(GKeyFile* file, const std::string& group, const char* key,
 }
 
 int OpenDirectory() {
-  std::string path = CONSENT_STATE_DIR;
+  std::string path = CONSENT_AUTHORITY_DIR;
   int fd = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   size_t offset = 1;
   while (fd >= 0 && offset < path.size()) {
@@ -93,7 +94,10 @@ bool Persist(int directory, GKeyFile* file) {
   g_free(uuid);
   int fd = openat(directory, temporary.c_str(), O_CREAT | O_EXCL | O_WRONLY |
       O_NOFOLLOW | O_CLOEXEC, 0600);
-  bool ok = fd >= 0;
+  struct stat directory_info = {};
+  bool ok = fd >= 0 && fstat(directory, &directory_info) == 0 &&
+      fchown(fd, 0, directory_info.st_gid) == 0 && fchmod(fd, 0640) == 0 &&
+      fsetxattr(fd, "security.SMACK64", "System", 6, 0) == 0;
   size_t written = 0;
   while (ok && written < size) {
     ssize_t count = write(fd, data + written, size - written);
@@ -218,6 +222,22 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Protected state directory unavailable\n");
     return 1;
   }
+  // Normal writers and the daemon share this lock. Ownership migration takes
+  // it exclusively, including while moving a legacy authority snapshot.
+  int lifecycle = openat(directory, "lifecycle.lock", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  struct stat lifecycle_info = {};
+  struct stat directory_info = {};
+  if (lifecycle < 0 || flock(lifecycle, LOCK_SH | LOCK_NB) < 0 ||
+      fstat(directory, &directory_info) < 0 ||
+      fstat(lifecycle, &lifecycle_info) < 0 || lifecycle_info.st_uid != 0 ||
+      !S_ISREG(lifecycle_info.st_mode) || lifecycle_info.st_nlink != 1 ||
+      lifecycle_info.st_gid != directory_info.st_gid ||
+      (lifecycle_info.st_mode & 0777) != 0640) {
+    if (lifecycle >= 0)
+      close(lifecycle);
+    close(directory);
+    return 1;
+  }
   int lock = openat(directory, "installations.lock", O_CREAT | O_RDWR |
       O_CLOEXEC | O_NOFOLLOW, 0600);
   struct stat st = {};
@@ -232,7 +252,7 @@ int main(int argc, char** argv) {
   int fd = openat(directory, "installations.conf", O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
   bool ok = true;
   if (fd >= 0) {
-    ok = fstat(fd, &st) == 0 && st.st_uid == 0 && !(st.st_mode & 0077) &&
+    ok = fstat(fd, &st) == 0 && st.st_uid == 0 && !(st.st_mode & 0027) &&
         st.st_nlink == 1 && S_ISREG(st.st_mode) && st.st_size <= 1048576;
     std::string content;
     char bytes[4096];
@@ -258,6 +278,7 @@ int main(int argc, char** argv) {
   ok = ok && Persist(directory, file);
   g_key_file_unref(file);
   close(lock);
+  close(lifecycle);
   close(directory);
   if (!ok) {
     fprintf(stderr, "Authority update failed or outcome uncertain; keep package fenced and retry the SAME operation\n");

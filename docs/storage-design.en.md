@@ -76,7 +76,7 @@ The registry contains a checksum over its canonical contents and is bounded to
 a cryptographic defense against its trusted owner. Files must be regular,
 non-symlink, singly linked, owned by the effective daemon UID and inaccessible
 to other users. Parent paths and protected directories are checked. Production
-packaging uses root-owned protected state; direct tests use an isolated private
+packaging uses service-account-owned protected state; direct tests use an isolated private
 directory below sticky `/tmp`.
 
 The expected DB device/inode/incarnation is persisted independently in the registry. Startup
@@ -339,7 +339,7 @@ nonempty revoke update pauses before COMMIT while the transaction is still
 active. The isolated harness observes stop-admission after SIGTERM, releases
 the bounded five-second gate, checks normal exit/drain and then verifies the
 revocation through the C API after restart. Ready/release files remain under
-the protected `/tmp/consent-test` root. Neither ordinary daemon contains this
+the daemon-account-owned `/tmp/consent-shutdown-gate` directory. Neither ordinary daemon contains this
 gate. Disconnect before reply is an uncertain client outcome; the test's
 restart check establishes the accepted mutation's durable result.
 

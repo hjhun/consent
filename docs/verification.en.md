@@ -614,3 +614,107 @@ Product role deployment, Installer lifecycle hooks and registry-loss provisionin
 remain integration gaps. Wire/shutdown evidence remains the separately identified
 build13 execution; it was not rerun for build15. Abrupt power loss and actual
 filesystem-full/device-write failure remain unverified, as previously stated.
+
+## Builds16–19: public errors and the nonroot service
+
+Build19 is the completed minimal unit for public-header relocation, Tizen error
+mapping and `security_fw` service migration. Its source tree is
+`0a2c5ae77841d4f503413dcff04a3984bb38f3db`; the77-file source archive SHA256 is
+`c30cce5ea6f30056c124dfe06c853ed0cb59cea744f16d8dedb53c2ec03019c8`.
+Frozen source, RPMs, CTest output and `delta-from-17.patch` are under
+`/var/tmp/consent-artifacts/gbs-build-19/`. Only the isolated cache fixture's
+expected database owner differs from build17: it resolves `security_fw` through
+NSS and checks UID, GID, regular-file type, single link and mode0600 before unlink.
+Offline registration and the subsequent feature-header split are excluded.
+
+The exact build ran from the separate source copy, preserving ongoing work:
+
+```sh
+cd /var/tmp/consent-build-18-minimal
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+GBS reports10 passed and1 skipped out of11 CTest cases. The root-only ownership
+fixture returns77 under the nonroot build user; it was subsequently executed as
+real root on the emulator and passed. Signed module errors, including INT_MIN,
+round-trip through actual Parcel/socket replies in the client test. The public
+shared-library C test checks all40 original symbols, Tizen aliases, error strings
+and output ownership. The numeric correction is for unreleased v0.1; old -200x
+consumers require rebuilding alongside the library and daemon.
+
+The intermediate results are retained without treating them as final evidence:
+
+| Snapshot | Observed outcome |
+| --- | --- |
+| 16 / `12ea20c09045711da5090de4b917219e107792c3` | GBS10 PASS/1 SKIP; production nonroot startup and manual migration succeeded; isolated script incorrectly ran the label-setting helper as root/System and failed. |
+| 17 / `c97287641bbb50527f2e90c0f64f6a31b377d189` | Uses the real privileged ExecStartPre+ preparation path and an explicit privileged authority writer. API/races/holder/shutdown passed; the cache deletion fixture still asserted UID0 and stopped. |
+| 18 / `c4da55e730ded3b636281e661ccda27e82ada000` | Export-scope mistake: GBS used the original working directory despite a positional source argument and captured an in-progress header split. GBS10 PASS/1 SKIP, but not deployed or used as this unit's source. |
+| 19 | Separate working directory, audited build17 plus exactly one fixture patch; actual nonroot target validation below. |
+
+`emulator-build-16/migration-before.log` seeded a PERSISTENT grant with build15.
+The actual privileged migration preserved test DB inode128283, registry128667,
+installation authority128011 and registry/authority contents; the DB and registry
+became UID/GID402 mode0600, while authority moved to root:402 mode0640/System.
+`migration-manual.log` and `emulator-build-17/migration.log` show the same approval
+still ALLOWED through the real C API. Production DB128673 and registry128674 also
+retained their inodes. Subsequent authority writes intentionally publish a new
+inode; this is distinct from the in-place migration observation.
+
+The final target logs are under `/var/tmp/consent-artifacts/emulator-build-19/`.
+`commands.txt` records explicit `sdb -s emulator-26101` invocations. Only the frozen
+runtime, daemon and tests RPMs were installed in a normal dependency transaction.
+The emulator's `capi-base-common-0.4.82-1` remains unchanged: matching devel was not
+available, and cached0.4.83 devel requires its exact newer runtime. No `--nodeps`
+or false Provides was used. Installed-tree C/pkg-config/40-symbol validation uses
+the GBS SDK and frozen devel RPM; target evidence executes the installed shared
+ABI, not newly installed target development headers.
+
+`api.log` records exit0 for the public C API test and seven script phases:
+unauthorized executable, ONCE/remote cancellation races, holder restart, live
+cache, typed localization, partial-I/O shutdown and pending-DB shutdown. Each
+phase checks stopped-DB integrity exactly `ok`, schema2 and expected metadata.
+Live cache probes occur before their original lease expires: revoke34946us,
+policy42909us, suspend33973us, independent ACTIVE close34606us, removal36163us,
+DB deletion49045us. Both client handles remain alive. Shutdown confirms a real
+two-byte pending header, `reason=daemon-shutdown`, normal exits and DB drain;
+the revoke gate confirms stop-admission while the same PID remains alive before
+release, then durable CONSENT_REQUIRED after restart.
+
+`root-fixture.log` passes real ownership/inode/approval preservation, interrupted
+transfer retry, repeated parent-fsync barrier after failure, and refusal of
+conflicting authority, symlinks, hardlinks, foreign owners, unexpected entries
+and a held lifecycle lock. Its compile-time SMACK/systemctl omissions remain
+explicit; actual production helper startup separately validates those boundaries.
+Authority provisioning runs explicitly with
+`systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged`.
+Root UID alone does not bypass MAC or role authentication.
+
+`boot-before.log`, `boot-after.log` and `boot-api.log` record an orderly `reboot`:
+boot ID changed from `b3e3c620-cedf-41be-8e98-6430431dc4aa` to
+`1842a2f1-9a74-4a2e-985a-e7ab95dff79b`. Production service and socket were active
+before client traffic, with MainPID2440, UID/GID402, label System and all observed
+capability sets exactly `0x80000` (CAP_SYS_PTRACE). NoNewPrivileges=yes is the
+systemd setting. The AMD-style relative basic.target.wants symlink and inherited
+socket FD coexist; DB/registry inodes remain unchanged. A pre-reboot persistent
+approval is ALLOWED after restart. Development SDB root mode and the frozen test
+script were restored after boot reset the transport to owner and cleared `/tmp`;
+initial permission/missing-script diagnostics remain in the logs.
+
+`endpoint.log` observes PID1/UID0/GID0, credentials length12, peer label
+System::Privileged length19 and AF_UNIX address length22 `/run/.consentd.sock`.
+A production default-deny call is correlated with the server's journal
+`role=rejected` / `no matching live trusted identity`; it is not claimed as a
+client endpoint rejection. The first diagnostic queried the wrong dlog stream;
+the corrected journal assertion passed. `cleanup.log` confirms isolated service
+and socket stopped, MainPID0, ordinary test daemon restored, no observer/gate
+artifacts and production service/socket active. Installed library, daemon and
+test-daemon hashes match the frozen19 RPMs.
+
+The verified service account is the existing `security_fw`, not a newly created
+`security` account. Product roles, actual approval UI and Installer transaction
+hooks remain unintegrated. Offline image registration is the next separate
+implementation unit. Abrupt power loss and real filesystem-full/device-write
+failure remain unverified; orderly reboot and injected storage errors do not
+substitute for them. Earlier full malformed/quota wire evidence remains scoped
+to its recorded snapshots; this unit reran endpoint and shutdown checks.

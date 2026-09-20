@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "repository.hh"
+#include "consent.h"
 
 #include "common/localization.hh"
 
@@ -39,10 +40,10 @@ namespace consentd {
 namespace {
 
 using consent::Message;
-constexpr int kStorage = -2006;
-constexpr int kConflict = -2005;
-constexpr int kInactive = -2003;
-constexpr int kClosed = -2004;
+constexpr int kStorage = CONSENT_ERROR_STORAGE;
+constexpr int kConflict = CONSENT_ERROR_CONFLICT;
+constexpr int kInactive = CONSENT_ERROR_SESSION_INACTIVE;
+constexpr int kClosed = CONSENT_ERROR_SESSION_CLOSED;
 constexpr size_t kRegistryLimit = 4 * 1024 * 1024;
 constexpr size_t kMaxDefinitions = 2048;
 constexpr int64_t kDayMs = 24 * 60 * 60 * 1000;

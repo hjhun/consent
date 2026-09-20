@@ -37,7 +37,7 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/installation_authority.cc")
   ADD_EXECUTABLE(consent-installation-authority installation_authority.cc)
   TARGET_LINK_LIBRARIES(consent-installation-authority PRIVATE PkgConfig::GLIB)
   TARGET_COMPILE_DEFINITIONS(consent-installation-authority PRIVATE
-    CONSENT_STATE_DIR="${CONSENT_STATE_DIR}"
+    CONSENT_AUTHORITY_DIR="${CONSENT_AUTHORITY_DIR}"
     CONSENT_INSTALLATIONS="${CONSENT_INSTALLATIONS}")
   INSTALL(TARGETS consent-installation-authority
     RUNTIME DESTINATION "${CMAKE_INSTALL_SBINDIR}")
@@ -45,9 +45,30 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/installation_authority.cc")
     ADD_EXECUTABLE(consent-installation-authority-isolated installation_authority.cc)
     TARGET_LINK_LIBRARIES(consent-installation-authority-isolated PRIVATE PkgConfig::GLIB)
     TARGET_COMPILE_DEFINITIONS(consent-installation-authority-isolated PRIVATE
-      CONSENT_TEST_BUILD CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
-      CONSENT_INSTALLATIONS="${CONSENT_TEST_STATE_DIR}/installations.conf")
+      CONSENT_TEST_BUILD CONSENT_AUTHORITY_DIR="${CONSENT_TEST_AUTHORITY_DIR}"
+      CONSENT_INSTALLATIONS="${CONSENT_TEST_AUTHORITY_DIR}/installations.conf")
     INSTALL(TARGETS consent-installation-authority-isolated
+      RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+  ENDIF()
+ENDIF()
+
+IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/storage_prepare.cc")
+  ADD_EXECUTABLE(consent-storage-prepare storage_prepare.cc)
+  TARGET_COMPILE_DEFINITIONS(consent-storage-prepare PRIVATE
+    CONSENT_STATE_DIR="${CONSENT_STATE_DIR}"
+    CONSENT_AUTHORITY_DIR="${CONSENT_AUTHORITY_DIR}"
+    CONSENT_SERVICE_USER="${CONSENT_SERVICE_USER}"
+    CONSENT_SERVICE_UNIT="consentd.service")
+  INSTALL(TARGETS consent-storage-prepare
+    RUNTIME DESTINATION "${CMAKE_INSTALL_SBINDIR}")
+  IF(CONSENT_BUILD_TEST_DAEMON)
+    ADD_EXECUTABLE(consent-storage-prepare-isolated storage_prepare.cc)
+    TARGET_COMPILE_DEFINITIONS(consent-storage-prepare-isolated PRIVATE
+      CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
+      CONSENT_AUTHORITY_DIR="${CONSENT_TEST_AUTHORITY_DIR}"
+      CONSENT_SERVICE_USER="${CONSENT_SERVICE_USER}"
+      CONSENT_SERVICE_UNIT="consentd-isolated.service")
+    INSTALL(TARGETS consent-storage-prepare-isolated
       RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
   ENDIF()
 ENDIF()

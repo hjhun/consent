@@ -77,6 +77,7 @@ class Server {
   uint64_t next_client_ = 0;
   consent::Message published_;
   int exit_status_ = 0;
+  int lifecycle_lock_ = -1;
 };
 
 }  // namespace consentd

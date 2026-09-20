@@ -8,7 +8,8 @@
 ## 빌드 환경
 
 CMake 3.12 이상, Python 3, C11, C++17과 pkg-config 패키지 `glib-2.0`, `gio-2.0`,
-`gio-unix-2.0`, `sqlite3`, `libsystemd`, `pkgmgr-info`, native Tizen `parcel`이
+`gio-unix-2.0`, `sqlite3`, `libsystemd`, `pkgmgr-info`, `capi-base-common`,
+native Tizen `parcel`이
 필요합니다.
 2026-09-20 확인한 개발 emulator는 x86_64, GLib 2.80.5, SQLite 3.50.2,
 systemd 244를 사용합니다. 호스트 빌드는 GBS 검증을 보완합니다.
@@ -34,17 +35,20 @@ GBS 설정 전체를 로그에 노출하지 않습니다.
 |---|---|
 | `consent` | 버전이 있는 공개 공유 라이브러리 |
 | `consent-devel` | 공개 C 헤더, 링커 symlink, `consent.pc`, 한영 가이드 |
-| `consentd` | `/usr/bin/consentd`, `/usr/sbin/consent-installation-authority`, systemd unit, 빈 신원 정책 |
+| `consentd` | `/usr/bin/consentd`, `/usr/sbin/consent-installation-authority`, `/usr/sbin/consent-storage-prepare`, systemd unit, 빈 신원 정책 |
 | `consent-tests` | 설정된 libexec 경로의 C 실행 프로그램과 격리 테스트 |
 
 구현과 테스트 소스는 `src/` 아래에 있습니다. 빌드 설정은 구성 요소별로
 나눕니다. 데몬만 mode 0700의 `/opt/var/lib/consentd`와 `consent.db`를 소유합니다.
 Tizen의 `/var`는 `/opt/var`로 연결되므로 실제 경로를 지정하여 symlink를
-허용하지 않는 state 경로 검증을 유지합니다. 이 환경에서 systemd의
-`StateDirectory=consentd`는 같은 위치를 만듭니다.
+허용하지 않는 state 경로 검증을 유지합니다. root 준비 도구가 디렉터리 생성과
+이행을 맡으며, systemd StateDirectory나 RPM 디렉터리 속성으로 검증 전에
+재귀 소유권 변경을 수행하지 않습니다.
 systemd가 `/run/.consentd.sock`을 소유하고 데몬은 상속받은 listener를
 사용합니다. IPC는 크기를 제한한 4바이트 길이 헤더와 native Tizen Parcel을
-사용합니다. 부팅 시에는 socket만 활성화합니다.
+사용합니다. RPM은 sockets.target.wants/consentd.socket과 AMD 방식의
+basic.target.wants/consentd.service symlink를 설치합니다. 부팅 기동과
+socket activation 모두 같은 상속 listener를 사용합니다.
 
 ## Native Parcel IDL
 
@@ -75,8 +79,12 @@ python3 src/tests/idl_codegen_test.py
 
 ## 신원 정책과 배포
 
-초기 서비스는 다른 UID의 프로세스 신원 확인과 복구 registry 보호를 위해
-root로 실행합니다. socket은 mode 0660, root:`system_share`입니다.
+서비스는 기존 플랫폼 계정 `security_fw`(관측 UID/GID402)를 사용하며,
+bounded/ambient capability는 `CAP_SYS_PTRACE` 하나이고 NoNewPrivileges를
+유지합니다. 이름이 정확히 `security`인 계정은 없었으며 새 계정은 만들지 않습니다.
+플랫폼에서 계정 이름을 조회하고 숫자 UID를 추정하여 대체하지 않습니다.
+root 전용 ExecStartPre 준비 도구는 별도 프로세스입니다. socket은 기존처럼
+mode0660, root:`system_share`입니다.
 이 그룹은 전송 경로의 접근만 허용합니다. 데몬은 kernel credential과
 root 소유 `/etc/consent/roles.conf`로 역할을 인증합니다. 출하 설정에는
 허용 신원이 없습니다. 플랫폼 통합 담당자가 실행 파일, kernel security
@@ -119,6 +127,12 @@ socket과 service를 함께 중지합니다. systemd endpoint를 직접 지우�
 
 ## API 연동 계약
 
+공개 C API 헤더는 `src/consent/inc/`에만 두며 비공개 C++ 헤더는 이 디렉터리
+밖에 둡니다. 설치 헤더는 기존 `/usr/include/consent/consent.h`를 유지하고,
+pkg-config를 쓰는 프로그램은 `<consent.h>`로 포함합니다. 공개 헤더가
+`<tizen.h>`를 포함하므로 `consent.pc`는 `capi-base-common`을 공개 의존성으로
+선언하여 필요한 컴파일·링크 설정을 전달합니다.
+
 설치된 메타데이터로 C 프로그램을 빌드합니다.
 
 ```sh
@@ -147,6 +161,46 @@ holder가 재시작하면 명시적인 subject/profile과 `reconcile=1`로
 정리를 조회합니다. 실제 삭제 후 같은 문맥으로 `consent_data_release()`를
 호출하여 완료를 알립니다. 이 대조는 정리 권한만 부여합니다. DB 전체 소실과
 holder 대조의 한계는 [저장 가이드](storage-design.ko.md)를 참조합니다.
+
+## 공개 오류 값과 업그레이드
+
+숫자를 복사하지 않고 `consent_error_e`의 이름을 사용합니다. 표준 오류는
+Tizen 별칭을 사용하며 기존 표준 값 8개는 유지됩니다.
+
+| 공개 이름 | 값 |
+|---|---|
+| `CONSENT_ERROR_NONE` | `0` |
+| `CONSENT_ERROR_INVALID_PARAMETER` | `-EINVAL` (`-22`) |
+| `CONSENT_ERROR_OUT_OF_MEMORY` | `-ENOMEM` (`-12`) |
+| `CONSENT_ERROR_PERMISSION_DENIED` | `-EACCES` (`-13`) |
+| `CONSENT_ERROR_BUSY` | `-EBUSY` (`-16`) |
+| `CONSENT_ERROR_NOT_FOUND` | `-ENOENT` (`-2`) |
+| `CONSENT_ERROR_TIMEOUT` | `-ETIMEDOUT` (`-110`) |
+| `CONSENT_ERROR_DISCONNECTED` | `-ENOTCONN` (`-107`) |
+
+`CONSENT_ERROR_WOULD_DEADLOCK`은 표준 `-EDEADLK` 값으로 변경합니다.
+표준 오류의 공개 별칭으로 `CONSENT_ERROR_STALE` (`-ESTALE`),
+`CONSENT_ERROR_TOO_LARGE` (`-E2BIG`), `CONSENT_ERROR_NO_SPACE` (`-ENOSPC`),
+`CONSENT_ERROR_INVALID_OPERATION` (`-ENOSYS`), `CONSENT_ERROR_IO` (`-EIO`)도
+제공합니다.
+
+consent 고유 오류는 Tizen 모듈 로컬 범위를 사용하며, 플랫폼 전체에서 할당한
+모듈 번호를 뜻하지 않습니다.
+
+| 공개 이름 | 값 |
+|---|---|
+| `CONSENT_ERROR_PROTOCOL` | `TIZEN_ERROR_MIN_MODULE_ERROR + 0` |
+| `CONSENT_ERROR_OUTCOME_UNKNOWN` | `TIZEN_ERROR_MIN_MODULE_ERROR + 1` |
+| `CONSENT_ERROR_SESSION_INACTIVE` | `TIZEN_ERROR_MIN_MODULE_ERROR + 2` |
+| `CONSENT_ERROR_SESSION_CLOSED` | `TIZEN_ERROR_MIN_MODULE_ERROR + 3` |
+| `CONSENT_ERROR_CONFLICT` | `TIZEN_ERROR_MIN_MODULE_ERROR + 4` |
+| `CONSENT_ERROR_STORAGE` | `TIZEN_ERROR_MIN_MODULE_ERROR + 5` |
+
+아직 공개 배포하지 않은 v0.1의 오류 번호를 수정한 변경입니다. `consentd`,
+`libconsent`와 모든 사용 프로그램을 함께 다시 빌드하고 업그레이드해야 합니다.
+이전 `-200x` 오류 값과 새 값을 혼용하는 구성은 지원하지 않습니다. Native
+Parcel frame과 필드 구조는 같고 숫자 status 계약이 변경되었습니다.
+함께 전달된 decision과 관계없이 0이 아닌 status에서는 보호 작업을 차단합니다.
 
 ## 파라미터 필드
 
@@ -348,7 +402,7 @@ UI를 기다리는 요청은 DB transaction이나 worker를 점유하지 않으�
 테스트에 사용합니다. 일반 격리 데몬 설정을 사용하며
 `repository_shutdown_interposer.cc` 테스트 helper만 추가합니다. 운영
 `consentd`와 일반 `consentd-test`에는 이 helper가 없습니다. 제어 프로그램은
-root 소유 mode-0700 `/tmp/consent-test`에 mode-0600 FIFO
+데몬 계정 소유 mode0700 `/tmp/consent-shutdown-gate`에 mode0600 FIFO
 `shutdown-db-release`를 만들고 읽기·쓰기 양쪽으로 열어 둡니다. 실제 grant를
 변경하는 revoke가 COMMIT 전에 멈추면 mode-0600 `shutdown-db-ready`에
 `pid=N state=before-commit`을 기록합니다. PID가 테스트 데몬과 일치하는지

@@ -35,7 +35,7 @@
 #include <utility>
 
 #ifndef CONSENT_INSTALLATIONS
-#define CONSENT_INSTALLATIONS "/opt/var/lib/consentd/installations.conf"
+#define CONSENT_INSTALLATIONS "/opt/var/lib/consent-authority/installations.conf"
 #endif
 
 namespace {

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "consentd/repository.hh"
+#include "consent.h"
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -159,7 +160,7 @@ void PolicyAndRegistry() {
   auto retry = fixture.Definition();
   fixture.Call(fixture.installer, retry);
   retry["message.en.title"] = "changed";
-  fixture.Call(fixture.installer, retry, -2005);
+  fixture.Call(fixture.installer, retry, CONSENT_ERROR_CONFLICT);
   auto mismatch = fixture.Definition("bad", "app3");
   fixture.Call(fixture.installer, mismatch, -EACCES);
   auto request = fixture.Context();
@@ -174,7 +175,7 @@ void PolicyAndRegistry() {
   Check(consent::Get(repeated, "receipt") == consent::Get(authorized, "receipt"),
       "same operation retry does not consume twice");
   request["r0.scope"] = "tomorrow";
-  fixture.Call(fixture.checker, request, -2005);
+  fixture.Call(fixture.checker, request, CONSENT_ERROR_CONFLICT);
   request["r0.scope"] = "today";
   request["step_id"] = "step2";
   auto consumed = fixture.Call(fixture.checker, request);
@@ -264,7 +265,7 @@ void SessionsAndData() {
   Message control = {{"method", "session_suspend"}, {"session", request["session"]},
       {"subject", "agent"}, {"profile", "profile"}, {"generation", "1"}};
   auto suspended = fixture.Call(fixture.argo, control);
-  fixture.Call(fixture.holder, data, -2003);
+  fixture.Call(fixture.holder, data, CONSENT_ERROR_SESSION_INACTIVE);
   control["method"] = "session_resume";
   control["generation"] = consent::Get(suspended, "generation");
   control["resume_token"] = consent::Get(session, "resume_token");
@@ -276,7 +277,7 @@ void SessionsAndData() {
   control["generation"] = consent::Get(resumed, "generation");
   auto closing = fixture.Call(fixture.argo, control);
   Check(consent::Get(closing, "state") == "CLOSING", "close waits for holder evidence");
-  fixture.Call(fixture.holder, data, -2004);
+  fixture.Call(fixture.holder, data, CONSENT_ERROR_SESSION_CLOSED);
   fixture.Call(fixture.holder, {{"method", "cleanup_ack"},
       {"artifact", consent::Get(artifact, "artifact")}, {"success", "0"}});
   control["method"] = "session_get_state";
@@ -373,12 +374,12 @@ void ExpiryAndFailureFences() {
       "result lookup includes full profile context");
   fixture.Call(fixture.argo, {{"method", "result"}, {"client_request_id", "shared"}}, -EINVAL);
   Check(chmod(fixture.database.c_str(), 0644) == 0, "change isolated database permissions");
-  fixture.Call(fixture.checker, fixture.Context(), -2006);
+  fixture.Call(fixture.checker, fixture.Context(), CONSENT_ERROR_STORAGE);
   Check(chmod(fixture.database.c_str(), 0600) == 0, "restore isolated database permissions");
   fixture.Call(fixture.checker, fixture.Context());
   Check(unlink((fixture.registry + "/definitions.registry").c_str()) == 0,
       "delete isolated recovery registry");
-  fixture.Call(fixture.checker, fixture.Context(), -2006);
+  fixture.Call(fixture.checker, fixture.Context(), CONSENT_ERROR_STORAGE);
   Check(access(fixture.database.c_str(), F_OK) == 0, "registry loss must not wipe database");
   std::cout << "PASS timed retry expiry, scoped lookup and permission/registry failure fences\n";
 }
@@ -529,7 +530,7 @@ void DerivedRetentionAndCleanupReconciliation() {
   close["method"] = "session_get_state";
   Check(consent::Get(fixture.Call(fixture.argo, close), "state") == "CLOSED",
       "cleanup-only restarted holder ACK can finish old session");
-  fixture.Call(restarted, use, -2004);
+  fixture.Call(restarted, use, CONSENT_ERROR_SESSION_CLOSED);
   std::cout << "PASS multi-parent TTL, deadline-preserving retries and cleanup-only holder reconciliation\n";
 }
 

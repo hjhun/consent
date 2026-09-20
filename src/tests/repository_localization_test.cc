@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "consentd/repository.hh"
+#include "consent.h"
 
 #include "common/localization.hh"
 
@@ -325,13 +326,13 @@ void RevisionContract() {
   auto changed = definition;
   changed["policy_version"] = "2";
   changed["text_revision"] = "1";
-  fixture.Update(changed, -2005);
+  fixture.Update(changed, CONSENT_ERROR_CONFLICT);
   for (const auto& field : Message{{"message.en.title", "New {days} title"},
       {"default_locale", "ko"}, {"locale_fallback.es-MX", "ko"}}) {
     changed = definition;
     changed["policy_version"] = "2";
     changed[field.first] = field.second;
-    fixture.Update(changed, -2005);
+    fixture.Update(changed, CONSENT_ERROR_CONFLICT);
   }
   changed = definition;
   changed["policy_version"] = "2";
@@ -349,7 +350,7 @@ void RevisionContract() {
   changed["_install_identity"] = "new-installation";
   changed["expected_generation"] = "new-installation";
   changed["text_revision"] = "2";
-  fixture.Update(changed, -2005);
+  fixture.Update(changed, CONSENT_ERROR_CONFLICT);
   changed["text_revision"] = "3";
   fixture.Update(changed);
   auto query = fixture.Request("check");
@@ -370,10 +371,10 @@ void PolicyAndRecovery() {
   auto changed = definition;
   changed["parameter.days.max"] = "90";
   changed["text_revision"] = "2";
-  fixture.Update(changed, -2005);
+  fixture.Update(changed, CONSENT_ERROR_CONFLICT);
   changed = definition;
   changed["locale_fallback.es-MX"] = "ko";
-  fixture.Update(changed, -2005);
+  fixture.Update(changed, CONSENT_ERROR_CONFLICT);
   changed["text_revision"] = "2";
   fixture.Update(changed);
   fixture.Call(fixture.Response(prompt), -ESTALE);
@@ -417,7 +418,7 @@ void ReceiptAndArtifactBinding() {
   Check(Get(retry, "receipt") == Get(authorization, "receipt"), "identical typed retry returns original receipt");
   auto changed = request;
   changed["r0.scope"] = "90";
-  fixture.Call(changed, -2005);
+  fixture.Call(changed, CONSENT_ERROR_CONFLICT);
   changed = request;
   changed.erase("r0.policy_version");
   fixture.Call(changed, -ESTALE);

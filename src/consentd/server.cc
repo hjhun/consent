@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 #include "server.hh"
+#include "consent.h"
 
 #include <glib-unix.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <systemd/sd-daemon.h>
 #include <unistd.h>
 
@@ -29,6 +33,9 @@
 
 #ifndef CONSENT_STATE_DIR
 #define CONSENT_STATE_DIR "/opt/var/lib/consentd"
+#endif
+#ifndef CONSENT_AUTHORITY_DIR
+#define CONSENT_AUTHORITY_DIR "/opt/var/lib/consent-authority"
 #endif
 #ifndef CONSENT_ROLE_CONFIG
 #define CONSENT_ROLE_CONFIG "/etc/consent/roles.conf"
@@ -122,6 +129,9 @@ Server::~Server() {
   g_main_loop_unref(io_loop_);
   g_main_context_unref(io_context_);
   g_main_loop_unref(main_loop_);
+  repository_.reset();
+  if (lifecycle_lock_ >= 0)
+    close(lifecycle_lock_);
 }
 
 void Server::Post(GMainContext* context, std::function<void()> work) {
@@ -158,13 +168,33 @@ int Server::Run(int listener_fd) {
     g_warning("event=identity-config-failed reason=%s", error.c_str());
     return 1;
   }
-  int state = OpenProtected(CONSENT_STATE_DIR, true);
-  if (state < 0) {
+  lifecycle_lock_ = OpenProtected(std::string(CONSENT_AUTHORITY_DIR) + "/lifecycle.lock");
+  if (lifecycle_lock_ < 0 || flock(lifecycle_lock_, LOCK_SH | LOCK_NB) < 0) {
+    close(listener_fd);
+    g_warning("event=storage-migration-unavailable");
+    return 1;
+  }
+  // Role/executable/authority paths remain root protected. Only this state
+  // leaf belongs to the service account, beneath root-owned ancestors.
+  std::string state_path = CONSENT_STATE_DIR;
+  auto slash = state_path.rfind('/');
+  std::string leaf = state_path.substr(slash + 1);
+  int parent = slash != std::string::npos && slash > 0 && !leaf.empty() &&
+      leaf != "." && leaf != ".." ? OpenProtected(state_path.substr(0, slash), true) : -1;
+  int state = parent >= 0 ? openat(parent, leaf.c_str(),
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
+  if (parent >= 0)
+    close(parent);
+  struct stat state_info = {};
+  bool valid_state = state >= 0 && fstat(state, &state_info) == 0 &&
+      state_info.st_uid == geteuid() && (state_info.st_mode & 0777) == 0700;
+  if (state >= 0)
+    close(state);
+  if (!valid_state) {
     close(listener_fd);
     g_warning("event=state-directory-unprotected");
     return 1;
   }
-  close(state);
   GError* gio_error = nullptr;
   GSocket* socket = g_socket_new_from_fd(listener_fd, &gio_error);
   if (!socket) {
@@ -477,17 +507,17 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
   connection->last_input = g_get_monotonic_time();
   for (const auto& field : request) {
     if (field.first.empty() || field.first[0] == '_') {
-      Queue(connection, Error(request, -22));
+      Queue(connection, Error(request, CONSENT_ERROR_INVALID_PARAMETER));
       return;
     }
   }
   if (!identity_.IsAlive(connection->peer, connection->process) ||
       !IdentityPolicy::Allows(connection->peer, method)) {
-    Queue(connection, Error(request, -13));
+    Queue(connection, Error(request, CONSENT_ERROR_PERMISSION_DENIED));
     return;
   }
   if (connection->inflight >= 32 || stopping_) {
-    Queue(connection, Error(request, -16));
+    Queue(connection, Error(request, CONSENT_ERROR_BUSY));
     return;
   }
   if (method == "hello") {
@@ -521,7 +551,7 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
         if (!GetInstallationIdentity(consent::Get(request, "package"),
                 consent::Get(request, "app"), &install) ||
             install != consent::Get(request, "expected_generation")) {
-          reply = Error(request, -13);
+          reply = Error(request, CONSENT_ERROR_PERMISSION_DENIED);
         } else {
           request["_install_identity"] = install;
         }
@@ -533,9 +563,9 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
       // database must never be relabelled with the recovered generation.
       if (consent::Get(reply, "status") == "0" &&
           consent::Get(reply, "epoch") != consent::Get(snapshot, "epoch"))
-        reply = Error(request, -2006);
+        reply = Error(request, CONSENT_ERROR_STORAGE);
     } catch (...) {
-      reply = Error(request, -2006);
+      reply = Error(request, CONSENT_ERROR_STORAGE);
       snapshot.clear();
     }
     reply["v"] = "1";

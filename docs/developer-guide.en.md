@@ -8,7 +8,8 @@ not establish that every CEP acceptance criterion has passed.
 ## Build environment
 
 Use CMake 3.12 or later, Python 3, C11, C++17 and pkg-config packages `glib-2.0`, `gio-2.0`,
-`gio-unix-2.0`, `sqlite3`, `libsystemd`, `pkgmgr-info`, and native Tizen `parcel`.
+`gio-unix-2.0`, `sqlite3`, `libsystemd`, `pkgmgr-info`, `capi-base-common`, and
+native Tizen `parcel`.
 The reference emulator
 inspected on 2026-09-20 has x86_64, GLib 2.80.5, SQLite 3.50.2 and systemd 244.
 Host-only builds supplement GBS validation.
@@ -34,17 +35,20 @@ Do not publish repository credentials or the full GBS configuration in logs.
 |---|---|
 | `consent` | Versioned public shared library |
 | `consent-devel` | Public C headers, linker symlink, `consent.pc`, bilingual guides |
-| `consentd` | `/usr/bin/consentd`, `/usr/sbin/consent-installation-authority`, systemd units, empty identity policy |
+| `consentd` | `/usr/bin/consentd`, `/usr/sbin/consent-installation-authority`, `/usr/sbin/consent-storage-prepare`, systemd units, empty identity policy |
 | `consent-tests` | C exercisers and isolated tests under the configured libexec directory |
 
 Implementation and test sources live under `src/`. Build settings are split by
 component. The daemon alone owns `/opt/var/lib/consentd`, mode 0700, and `consent.db`.
 Tizen links `/var` to `/opt/var`; the canonical path satisfies strict state-path
-validation without accepting symlinks. systemd `StateDirectory=consentd` creates
-the same location on this target.
+validation without accepting symlinks. The root preparation helper owns directory
+creation and migration; neither systemd StateDirectory nor RPM directory attributes
+may recursively change ownership before validation.
 Systemd owns `/run/.consentd.sock`; the daemon requires the inherited listener.
 IPC uses native Tizen Parcel with a bounded four-byte length prefix.
-Only the socket is enabled for boot activation.
+The RPM installs both sockets.target.wants/consentd.socket and the AMD-style
+basic.target.wants/consentd.service symlink. Boot startup and socket activation
+share the same inherited listener.
 
 ## Native Parcel IDL
 
@@ -74,8 +78,12 @@ python3 src/tests/idl_codegen_test.py
 
 ## Identity and deployment
 
-The initial service runs as root to validate cross-UID process identity and
-protect the recovery registry. The socket is mode 0660, root:`system_share`.
+The service uses the existing platform account `security_fw` (observed UID/GID402),
+with `CAP_SYS_PTRACE` as its only bounded/ambient capability and NoNewPrivileges.
+The literal account `security` was absent; no new account is created. The account
+name is resolved by the platform, never replaced with an assumed numeric UID.
+The root-only ExecStartPre preparation helper is a separate process. The socket
+remains mode0660, root:`system_share`.
 This group grants transport access only. The daemon authenticates roles from
 kernel credentials and the root-owned `/etc/consent/roles.conf`. The shipped
 policy authorizes no identities. A platform integrator must provision exact
@@ -117,6 +125,12 @@ and service for maintenance. Never remove the systemd endpoint manually.
 
 ## API integration contract
 
+Public C API headers live only in `src/consent/inc/`; private C++ headers stay
+outside that directory. The installed header remains
+`/usr/include/consent/consent.h`, included as `<consent.h>` by consumers using
+pkg-config. It includes `<tizen.h>`, so `consent.pc` declares the public
+`capi-base-common` dependency and supplies its compiler/linker requirements.
+
 Compile C consumers against installed metadata:
 
 ```sh
@@ -146,6 +160,45 @@ previous process instance. Acknowledge actual deletion with
 `consent_data_release()` using that same context. This reconciliation gives
 cleanup access only. See the [storage guide](storage-design.en.md) for total DB
 loss and incomplete-holder reconciliation limits.
+
+## Public error values and upgrades
+
+Use `consent_error_e` names rather than copied numbers. Standard errors use
+Tizen aliases. The original eight standard values remain unchanged:
+
+| Public name | Value |
+|---|---|
+| `CONSENT_ERROR_NONE` | `0` |
+| `CONSENT_ERROR_INVALID_PARAMETER` | `-EINVAL` (`-22`) |
+| `CONSENT_ERROR_OUT_OF_MEMORY` | `-ENOMEM` (`-12`) |
+| `CONSENT_ERROR_PERMISSION_DENIED` | `-EACCES` (`-13`) |
+| `CONSENT_ERROR_BUSY` | `-EBUSY` (`-16`) |
+| `CONSENT_ERROR_NOT_FOUND` | `-ENOENT` (`-2`) |
+| `CONSENT_ERROR_TIMEOUT` | `-ETIMEDOUT` (`-110`) |
+| `CONSENT_ERROR_DISCONNECTED` | `-ENOTCONN` (`-107`) |
+
+`CONSENT_ERROR_WOULD_DEADLOCK` now uses the standard `-EDEADLK` value.
+Additional public aliases are `CONSENT_ERROR_STALE` (`-ESTALE`),
+`CONSENT_ERROR_TOO_LARGE` (`-E2BIG`), `CONSENT_ERROR_NO_SPACE` (`-ENOSPC`),
+`CONSENT_ERROR_INVALID_OPERATION` (`-ENOSYS`) and `CONSENT_ERROR_IO` (`-EIO`).
+
+Consent-specific errors occupy the module-local Tizen range. This does not
+claim a platform-wide module allocation:
+
+| Public name | Value |
+|---|---|
+| `CONSENT_ERROR_PROTOCOL` | `TIZEN_ERROR_MIN_MODULE_ERROR + 0` |
+| `CONSENT_ERROR_OUTCOME_UNKNOWN` | `TIZEN_ERROR_MIN_MODULE_ERROR + 1` |
+| `CONSENT_ERROR_SESSION_INACTIVE` | `TIZEN_ERROR_MIN_MODULE_ERROR + 2` |
+| `CONSENT_ERROR_SESSION_CLOSED` | `TIZEN_ERROR_MIN_MODULE_ERROR + 3` |
+| `CONSENT_ERROR_CONFLICT` | `TIZEN_ERROR_MIN_MODULE_ERROR + 4` |
+| `CONSENT_ERROR_STORAGE` | `TIZEN_ERROR_MIN_MODULE_ERROR + 5` |
+
+This corrects unpublished v0.1 error numbers. Rebuild and upgrade `consentd`,
+`libconsent` and every consumer together. Mixing earlier `-200x` error values
+with the new values is unsupported. Native Parcel framing and field layout
+are unchanged; the numeric status contract changed. A nonzero status always
+blocks protected execution, regardless of the accompanying decision.
 
 ## Parameter fields
 
@@ -355,7 +408,7 @@ The separate `consentd-shutdown-test` executable supports a controlled pending-D
 scenario. It uses the normal isolated daemon configuration and adds only the
 `repository_shutdown_interposer.cc` test helper; production `consentd` and the
 ordinary `consentd-test` do not contain that helper. The test controller prepares
-root-owned mode-0700 `/tmp/consent-test` and a mode-0600 FIFO named
+daemon-account-owned mode0700 `/tmp/consent-shutdown-gate` and a mode0600 FIFO named
 `shutdown-db-release`, keeping it open for reading and writing. A revoke that
 actually changes a grant pauses before COMMIT and creates mode-0600
 `shutdown-db-ready` containing `pid=N state=before-commit`. Match that PID to the
