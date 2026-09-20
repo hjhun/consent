@@ -73,6 +73,7 @@ class CodegenTest(unittest.TestCase):
             lambda s: s["records"][0].update(name="Reader"),
             lambda s: s["records"][0].update(name="Writer"),
             lambda s: s["records"][0].update(name="Valid"),
+            lambda s: s["records"][0].update(name="ValidString"),
             lambda s: s["records"][0].update(name="WriteToParcel"),
             lambda s: s["records"][0].update(name="ReadFromParcel"),
             lambda s: s["records"][0]["fields"][0].update(name="__hidden"),

@@ -112,6 +112,7 @@ void Serve(int listener) {
       continue;
     if (scenario == "disconnect")
       break;
+    uint64_t reply_revision = revision;
     if (scenario == "invalidate") {
       ++revision;
       if (!Send(fd, {{"v", "1"}, {"id", "0"}, {"method", "event"}, {"event", "invalidate"},
@@ -120,7 +121,7 @@ void Serve(int listener) {
     }
     consent::Message reply{{"v", "1"}, {"method", "reply"}, {"id", consent::Get(input, "id")},
         {"status", "0"}, {"epoch", "test-epoch"},
-        {"revision", std::to_string(revision)}, {"decision", "ALLOWED"}};
+        {"revision", std::to_string(reply_revision)}, {"decision", "ALLOWED"}};
     if (method == "request") {
       ++requests;
       if (!consent::Get(input, "session").empty()) {
@@ -134,6 +135,10 @@ void Serve(int listener) {
         reply["cacheable"] = "1";
         reply["cache_ttl_ms"] = "1000";
         reply["request_id"] = "request-1";
+        if (scenario == "delayed-session") {
+          reply["cache_ttl_ms"] = "100";
+          g_usleep(150000);
+        }
       }
     } else if (method == "result") {
       reply["request_id"] = "pending-1";
@@ -261,7 +266,10 @@ void Protocol() {
 }
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  bool test_fork = argc == 1;
+  if (argc > 1 && (argc != 2 || strcmp(argv[1], "--skip-fork")))
+    return 2;
   test_parent = getpid();
   EndpointPolicy();
   Protocol();
@@ -328,12 +336,16 @@ int main() {
   cached_callback.returned = true;
   DispatchUntil(&cached_callback);
   CHECK(requests == before);
+  // The invalidation trigger's reply deliberately has the previous revision.
+  // Dropping its event leaves an unexpired entry and fails the request counter.
+  gint64 invalidation_started = g_get_monotonic_time();
   CHECK(!consent_params_set(params, "scenario", "invalidate"));
   CHECK(!consent_check(client, params, 2000, &result));
   consent_result_free(result);
   CHECK(!consent_params_set(params, "scenario", "cache"));
   CHECK(!consent_request(client, params, 2000, &result));
   CHECK(requests == before + 1);
+  CHECK(g_get_monotonic_time() - invalidation_started < 500000);
   consent_result_free(result);
   // Session cache requires server-confirmed session/generation; changing
   // generation never hits an older entry, and event invalidation clears both.
@@ -357,6 +369,16 @@ int main() {
   CHECK(!consent_params_set(params, "scenario", "cache"));
   CHECK(!consent_request(client, params, 2000, &result));
   CHECK(requests == before + 2);
+  consent_result_free(result);
+  // A SESSION response delayed longer than its remaining server lifetime must
+  // not restart that lifetime at receipt, even with matching session metadata.
+  CHECK(!consent_params_set(params, "scenario", "delayed-session"));
+  CHECK(!consent_request(client, params, 2000, &result));
+  consent_result_free(result);
+  before = requests;
+  CHECK(!consent_request(client, params, 2000, &result));
+  CHECK(requests == before + 1);
+  CHECK(!strcmp(consent_result_get(result, "source"), "DAEMON"));
   consent_result_free(result);
   // Local wait is finite and is not interpreted as remote denial.
   CHECK(!consent_params_set(params, "scenario", "timeout"));
@@ -397,40 +419,42 @@ int main() {
     CHECK(!faulted.count);
   }
   CHECK(failed_allocations > 5);
-  // Saturate the parent's handle limit. A child must reset the inherited count
-  // and discard callbacks from a parent's context before touching its mutexes.
-  consent_client_h extra[15] = {};
-  std::vector<std::thread> extra_servers;
-  for (auto& handle : extra) {
+  if (test_fork) {
+    // Saturate the parent's handle limit. A child must reset the inherited count
+    // and discard callbacks from a parent's context before touching its mutexes.
+    consent_client_h extra[15] = {};
+    std::vector<std::thread> extra_servers;
+    for (auto& handle : extra) {
+      extra_servers.emplace_back(Serve, listener);
+      CHECK(!consent_client_create(&handle));
+    }
+    CHECK(!consent_params_set(params, "scenario", "allow"));
+    Callback inherited;
+    CHECK(!consent_check_async(client, params, Result, &inherited, &operation));
+    inherited.returned = true;
+    g_usleep(100000);
     extra_servers.emplace_back(Serve, listener);
-    CHECK(!consent_client_create(&handle));
+    pid_t child = fork();
+    CHECK(child >= 0);
+    if (!child) {
+      alarm(10);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      CHECK(!inherited.count);
+      CHECK(consent_client_destroy(client) == CONSENT_ERROR_INVALID_PARAMETER);
+      consent_client_h fresh = nullptr;
+      CHECK(!consent_client_create(&fresh));
+      CHECK(!consent_client_destroy(fresh));
+      _exit(0);
+    }
+    int child_status = 0;
+    CHECK(waitpid(child, &child_status, 0) == child);
+    CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+    DispatchUntil(&inherited);
+    for (auto handle : extra)
+      CHECK(!consent_client_destroy(handle));
+    for (auto& worker : extra_servers)
+      worker.join();
   }
-  CHECK(!consent_params_set(params, "scenario", "allow"));
-  Callback inherited;
-  CHECK(!consent_check_async(client, params, Result, &inherited, &operation));
-  inherited.returned = true;
-  g_usleep(100000);
-  extra_servers.emplace_back(Serve, listener);
-  pid_t child = fork();
-  CHECK(child >= 0);
-  if (!child) {
-    alarm(10);
-    while (g_main_context_iteration(nullptr, FALSE)) {}
-    CHECK(!inherited.count);
-    CHECK(consent_client_destroy(client) == CONSENT_ERROR_INVALID_PARAMETER);
-    consent_client_h fresh = nullptr;
-    CHECK(!consent_client_create(&fresh));
-    CHECK(!consent_client_destroy(fresh));
-    _exit(0);
-  }
-  int child_status = 0;
-  CHECK(waitpid(child, &child_status, 0) == child);
-  CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
-  DispatchUntil(&inherited);
-  for (auto handle : extra)
-    CHECK(!consent_client_destroy(handle));
-  for (auto& worker : extra_servers)
-    worker.join();
   // Destroy from callback suppresses the remaining callbacks and joins I/O.
   CHECK(!consent_params_set(params, "scenario", "allow"));
   Callback closing;
@@ -446,6 +470,6 @@ int main() {
   close(listener);
   unlink(kEndpoint);
   close(lock);
-  puts("PASS client: framing, UTF-8, duplicate rejection, async ordering, pending polling, cache invalidation, timeout, detach, bounds, callback shutdown, allocation failure, fork isolation");
+  printf("PASS client: framing, UTF-8, duplicate rejection, async ordering, pending polling, cache invalidation, timeout, detach, bounds, callback shutdown, allocation failure, fork=%s\n", test_fork ? "verified" : "skipped");
   return 0;
 }

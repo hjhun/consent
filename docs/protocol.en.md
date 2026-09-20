@@ -91,12 +91,32 @@ A request response can opt in to caching using `cacheable=1` and
 `cache_ttl_ms`. The client accepts this only for ALLOWED requests with a nonempty epoch
 and valid revision. Requests carrying a session also require the response to
 confirm exactly the requested session and generation; the daemon bounds their
-TTL by the active session deadlines. It caps lifetime at one
-second and the cache at 64 entries per client with LRU eviction. The full request context is
+TTL by the active session deadlines. The client conservatively anchors that
+lifetime at local operation admission, subtracting all time spent awaiting the
+response; a delayed response never restarts a session's remaining lifetime.
+It caps lifetime at one second and the cache at 64 entries per client with LRU eviction. The full request context is
 compared, except transport ID, request ID, operation ID and deadline. A cache
 hit returns `source=CACHE` and omits the remote `request_id`. QUERY and AUTHORIZE
 always contact the daemon. The cache key includes session and generation. Sharing cache storage across
 multiple client handles remains future work.
+
+## Production endpoint authentication
+
+The production library uses the compiled `/run/.consentd.sock` endpoint.
+It verifies root-owned parent directories and a root-owned, non-world-writable
+socket before and after connection, including the same device and inode.
+The only group-writable parent exception is the exact `/run` directory owned
+by `root:system_share` on Tizen. No other writable-parent exception is made.
+
+Filesystem observations alone do not eliminate pathname races. The connected
+socket must also report kernel SO_PEERCRED PID 1 and UID 0, its exact original
+AF_UNIX bound pathname `/run/.consentd.sock` with the expected sockaddr length
+and terminal NUL, and SO_PEERSEC `System::Privileged`. This label was observed
+on the emulator's systemd-owned production listener. Missing credentials or
+label, a direct root server, a differently labeled endpoint, and a renamed
+unrelated systemd socket all fail verification. Production has no environment
+switch to disable these checks. The separately compiled isolated test client
+has a different endpoint and cannot change production policy.
 
 ## Operations and parameter representation
 
@@ -118,9 +138,20 @@ Request and check use `subject`, `profile`, optional `session`/`generation`,
 Check `mode` is `QUERY` or `AUTHORIZE`. Server methods are `hello`, `register`,
 `unregister`, `request`, `result`, `cancel`, `check`, `prompt`, `respond`,
 `revoke`, `session_open`, `session_suspend`, `session_resume`, `session_close`,
-`session_state`, `data_register`, `data_derived`, `data_release`, and `cleanup`.
+`session_state`, `data_register`, `data_derived`, `data_release`, `cleanup`,
+and `cleanup_list`.
 Detailed policy and mandatory-field rules are enforced in the repository and
 identity adapter; a field's presence is not proof of identity or authority.
+
+`consent_cleanup_get_pending()` maps to `cleanup_list`. An authenticated holder
+must supply `subject` and `profile`; results contain at most 48 pending/failed
+cleanup entries in `count` and `aN.artifact`, `aN.session`, `aN.state`, and
+`aN.error`. Normally only the current process instance is visible. With
+`reconcile=1`, the same stable holder identity can discover blocked artifacts
+from previous instances. It may acknowledge actual deletion through
+`consent_data_release()` with `artifact`, `success`, `reconcile=1`, and the same
+subject/profile. Discovery and reconciliation never grant data-use permission,
+transfer ownership, or permit registration under an old instance.
 
 ## Callback and resource contract
 
@@ -169,3 +200,10 @@ The fake server is a transport fixture, not evidence of platform role checks,
 SQLite recovery or real approval UI behavior. Production and isolated C API
 executables are separately linked; no environment variable changes the
 production endpoint or disables its endpoint ownership checks.
+
+Host sanitizer runs separate fork coverage from LeakSanitizer: run
+`ASAN_OPTIONS=detect_leaks=0 client-test` for the complete ASAN/UBSAN suite,
+and `ASAN_OPTIONS=detect_leaks=1 client-test --skip-fork` for leak checking.
+LeakSanitizer enabled during the multithreaded fork stress hung inside the
+child's fresh client creation on the host. The normal GBS test includes fork;
+`--skip-fork` is a test-executable option only, not a library configuration.

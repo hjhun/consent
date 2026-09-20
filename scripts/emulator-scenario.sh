@@ -38,6 +38,24 @@ subjects=demo.subject;
 profiles=demo.profile;
 enforcers=scenario;
 packages=demo.package;
+[identity cache-scenario]
+uid=0
+executable=$tools/consent-cache-scenario-isolated
+label=System
+roles=installer;argo;checker;ui;admin;session;holder;
+subjects=demo.subject;
+profiles=demo.profile;
+enforcers=cache-scenario;
+packages=demo.package;
+[identity wire-scenario]
+uid=0
+executable=$tools/wire-scenario
+label=System
+roles=checker;
+subjects=demo.subject;
+profiles=demo.profile;
+enforcers=scenario;
+packages=demo.package;
 [identity cli]
 uid=0
 executable=$tools/consent-api-test-isolated
@@ -91,6 +109,41 @@ case "$phase" in
   persistent)
     "$scenario" persistent "$(cat "$state/generation")"
     ;;
+  cache)
+    "$tools/consent-cache-scenario-isolated" "$(cat "$state/generation")"
+    ;;
+  races)
+    "$scenario" races "$(cat "$state/generation")"
+    ;;
+  wire)
+    "$tools/wire-scenario"
+    ;;
+  holder-restart)
+    "$scenario" holder-seed "$(cat "$state/generation")"
+    "$scenario" holder-reconcile "$(cat "$state/generation")"
+    ;;
+  installation)
+    old=$(cat "$state/generation")
+    $authority remove demo.package uninstall-old "$old"
+    "$tools/consent-api-test-isolated" unregister demo.package \
+      operation_id=uninstall-old expected_generation="$old"
+    for definition in demo.read demo.other; do
+      "$tools/consent-api-test-isolated" check subject=demo.subject profile=demo.profile \
+        count=1 r0.definition="$definition" r0.operation=read r0.scope=persistent-scope \
+        r0.purpose=answer r0.holder=scenario --expect-decision=DENIED
+    done
+    generation=$($authority begin demo.package reinstall-new "$old")
+    $authority attach demo.package demo.app reinstall-attach-1 "$generation"
+    $authority attach demo.package demo.app2 reinstall-attach-2 "$generation"
+    $authority commit demo.package reinstall-commit "$generation"
+    printf '%s\n' "$generation" > "$state/generation"
+    "$scenario" reinstalled "$generation"
+    "$tools/consent-api-test-isolated" unregister demo.package \
+      operation_id=uninstall-old expected_generation="$old" --expect-status=-116
+    [ "$($authority remove demo.package uninstall-old "$old")" = "$old" ]
+    "$scenario" recovered "$generation"
+    echo 'PASS package removal, generation rotation and stale uninstall retry'
+    ;;
   running-delete)
     systemctl start consentd-isolated.service
     systemctl is-active consentd-isolated.service
@@ -118,20 +171,21 @@ case "$phase" in
     ;;
   unauthorized)
     # Same UID and security label, different unregistered executable path/inode.
-    cp "$tools/consent-api-test-isolated" "$runtime/untrusted-client"
-    chmod 755 "$runtime/untrusted-client"
-    rejection_before=$(journalctl -u consentd-isolated.service --no-pager -o cat | \
+    cp "$tools/consent-api-test-isolated" "$tools/consent-untrusted-client"
+    chmod 755 "$tools/consent-untrusted-client"
+    rejection_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
       grep -c 'role=rejected' || true)
-    if "$runtime/untrusted-client" check subject=demo.subject profile=demo.profile \
+    if "$tools/consent-untrusted-client" check subject=demo.subject profile=demo.profile \
         count=1 r0.definition=demo.read r0.operation=read r0.scope=persistent-scope \
         r0.purpose=answer r0.holder=scenario; then
       echo 'FAIL unregistered executable accepted' >&2
       exit 1
     fi
-    rejection_after=$(journalctl -u consentd-isolated.service --no-pager -o cat | \
+    rejection_after=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
       grep -c 'role=rejected' || true)
     [ "$rejection_after" -gt "$rejection_before" ]
-    journalctl -u consentd-isolated.service --no-pager -o cat -n 12
+    dlogutil -d STDERR_consentd-test:V '*:S' | tail -12
+    rm "$tools/consent-untrusted-client"
     echo 'PASS same-UID unregistered executable rejected'
     ;;
   *) echo "Unknown phase: $phase" >&2; exit 2 ;;
@@ -143,8 +197,8 @@ fi
 systemctl stop consentd-isolated.socket consentd-isolated.service
 integrity=$(sqlite3 "$state/consent.db" 'PRAGMA integrity_check;')
 [ "$integrity" = ok ]
-[ "$(sqlite3 "$state/consent.db" 'PRAGMA user_version;')" = 1 ]
+[ "$(sqlite3 "$state/consent.db" 'PRAGMA user_version;')" = 2 ]
 [ "$(sqlite3 "$state/consent.db" 'SELECT count(*) FROM meta WHERE key IN ("revision","registry_revision","cleanup_unknown");')" = 3 ]
 [ "$(sqlite3 "$state/consent.db" 'SELECT CAST(value AS INTEGER) FROM meta WHERE key="registry_revision";')" -ge 2 ]
-echo 'PASS integrity_check=ok schema=1 expected_metadata_present'
+echo 'PASS integrity_check=ok schema=2 expected_metadata_present'
 echo "PASS emulator phase=$phase"

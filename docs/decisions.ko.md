@@ -215,6 +215,13 @@ daemon의 `System` 프로세스 라벨로 대체하지 않는다.
 보존하고 다른 holder나 권한 없는 context를 거부한다. ACK 실패·holder/daemon
 재시작·재시도·TTL·파생 데이터 무효화를 기본 session-close 경로와 별도로 시험한다.
 
+새 holder는 artifact ID를 잃었을 수 있으므로 공개 C API로 상한 있는 미완료 정리
+조회를 제공한다. 동일한 인증된 정리 전용 repository 경로로 연결하고 ACK는 기존
+data-release API로 전달할 수 있다. 새 영속 ACK 테이블은 schema 2로 버전 관리하고
+schema 1에서 transaction으로 이행한다. 유효한 persistent grant·definition을
+보존하며 임시 상태에는 기존 restart 무효화 정책을 적용한다. 알 수 없는 미래
+schema version은 명시적 오류로 차단한다.
+
 ## 완료 전에 확인할 초기 검토 사항
 
 - 이전 handle을 닫은 뒤 관련 DB와 journal 파일들을 함께 격리·정리해야 한다.

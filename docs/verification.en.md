@@ -7,7 +7,7 @@ tree changes are not covered by the frozen build unless separately stated.
 ## Frozen build 7
 
 - GBS source tree: `10749441a5839db60024af9ca2d61c6a5164f73c` (tree, not commit).
-- Command: `gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4`.
+- Command: `gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite`.
 - Frozen evidence: `/var/tmp/consent-artifacts/gbs-build-7/` contains source tar,
   four RPMs, `log.txt`, `source-tree.txt`, `changed-files.tsv`, `SHA256SUMS`.
 - Source tar SHA256: `debb4ef05a631f058897731bfb4f8b596a4884c5ed424226907c01fecb62b70e`.
@@ -159,3 +159,167 @@ PASS renamed systemd socket rejected before hello
 
 These are excerpts transcribed from observed tool output, not additional raw
 log files. The persisted daemon/platform/DB log files are listed above.
+
+## Build9: schema migration, cleanup and durability
+
+Tree `e13e9e9b6709652663cf5ed51c58af28a6bca33f` built successfully with
+5/5 CTest suites (client0.59s, crash0.25s, fault0.19s, repository3.49s,
+IDL0.13s). Frozen artifacts are `/var/tmp/consent-artifacts/gbs-build-9/`;
+source SHA256 `f7cf5f4f71f55ccdb2e214c3667d8e810ad4dd528585e18b9c9b560a9f43ae2b`.
+The export count is now39 after `consent_cleanup_get_pending()` was added.
+
+On the emulator, build7 created a v1 DB with one active PERSISTENT grant and
+stopped. Installing build9 preserved that grant: the `persistent` C scenario
+printed PASS, followed by `integrity_check=ok schema=2`. New definitions and
+transient session reset follow the documented migration contract.
+
+The `holder-restart` phase ran two separate processes of the packaged C tool.
+The first closed a session leaving cleanup pending and handed over no artifact
+ID. The second discovered it through the public pending API, could not register
+old data, reported cleanup failure, rediscovered CLEANUP_FAILED, acknowledged
+successful cleanup and repeated the ACK. All assertions and schema2 integrity
+passed. This verifies control metadata and holder-reported ACK, not physical
+backend deletion by a product holder implementation.
+
+Package-wide removal blocked both apps. The Installer authority issued a fresh
+generation, both apps registered again without old grants, and the previous
+unregister retry returned -116. The script initially expected an API not-found
+error for removed definitions; actual policy correctly returns status0/DENIED.
+The corrected script was pushed separately and completed on unchanged build9
+binaries. Logs: `emulator-build-9/holder-install-cache.log` and
+`emulator-build-9/installation-cache.log` under `/var/tmp/consent-artifacts/`.
+
+Live-cache probes on unchanged handles first requested within the original
+lease, before an authoritative actor check: revoke37174us, policy update37975us,
+SESSION suspend36035us. These passed. Closing the already suspended session is
+not independent evidence for ACTIVE→close cache invalidation. The unregister
+probe failed because its helper omitted required stable IDs; DB-loss coverage
+in that scenario was not reached. A subsequent fixture fixes this; build9 is
+not reported as a complete cache-scenario pass. Two independent ONCE contenders
+produced exactly one winner and identical retry receipt; subsequent remote
+cancel tests were likewise blocked by missing IDs in their new helper. Their
+next-snapshot corrections are separate from daemon behavior.
+
+The emulator also ran the packaged repository-crash-test and
+repository-fault-test through `systemd-run --wait --pipe -p SmackProcessLabel=System`.
+`emulator-build-9/crash-fault.log` records all passed cases:
+
+```text
+PASS SIGKILL boundary=1 validated_hot_journal=0 delete_during_write=0 decision=ALLOWED integrity=ok
+PASS SIGKILL boundary=2 validated_hot_journal=1 delete_during_write=0 decision=ALLOWED integrity=ok
+PASS SIGKILL boundary=3 validated_hot_journal=0 delete_during_write=0 decision=CONSENT_REQUIRED integrity=ok
+PASS SIGKILL boundary=2 validated_hot_journal=1 delete_during_write=1 decision=CONSENT_REQUIRED integrity=ok
+PASS directory fsync uncertainty stays fenced across retry and restart
+PASS captured SQLite corruption code survives rollback
+PASS metadata corruption cannot trap recovery in repeated failing SELECT
+```
+
+Boundaries1/2 interrupt a revocation before commit and preserve the previous
+approval; boundary3 interrupts after commit but before repository reply and
+preserves revocation. Boundary2 validates an actual rollback-journal header.
+Unlink+SIGKILL is startup recovery, not a continuing writer. Build9's repository
+fixture uses `/tmp` (tmpfs on this emulator); this is process-kill consistency,
+not persistent-media power-loss evidence. The next fixture adds a chosen
+persistent test root and a separately labelled continuing-writer case.
+
+## Build10: completed target scenarios
+
+Tree `1fddd2b2e38e45b79ce8ff12980b0fda2f2d6906`, source SHA256
+`581d048b325c7194a29498ae220f6d862fbc7207277ce40086213bace38292d9`, is frozen at
+`/var/tmp/consent-artifacts/gbs-build-10/` with four RPMs, build log,
+`LastTest.log`, source archive/tree manifest and checksums. GBS passed5/5:
+client0.59s, crash0.35s, fault0.11s, repository3.40s, IDL0.13s. This includes
+corrected stable IDs in the C fixtures and a continuing-writer deletion test.
+
+After installing these RPMs on the same emulator, the following commands
+completed with status0 (each invoked through the selected sdb shell):
+
+```sh
+systemd-run --wait --pipe --unit=consent-races-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh races
+systemd-run --wait --pipe --unit=consent-holder-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh holder-restart
+systemd-run --wait --pipe --unit=consent-cache-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+```
+
+- Two independent connections compete for ONCE: exactly one ALLOWED, the other
+  CONSENT_REQUIRED; the winner retries with the same receipt. Ordered
+  cancel/respond cases, a concurrent cancel/respond race and expired deadline
+  each deliver one final callback and prevent invalid approval.
+- Separate holder processes discover old pending cleanup without an artifact
+  handoff, reject transferred registration, record a failed cleanup, retry and
+  ACK successfully. Schema2 integrity and expected metadata pass.
+- Both cache handles remain live throughout. The first actor request after each
+  change runs before an authoritative actor check and before the original
+  lease expires. Measured microseconds: revoke39618, policy46282,
+  SESSION suspend35015, package removal39344, DB deletion68304. All pass.
+  DB deletion changes epoch, loses approvals, restores definitions and permits
+  fresh approval/cache use. The raw build10 output says suspend/close; the
+  independent cache invalidation assertion covers **suspend only**. Management
+  close of that suspended session is also checked.
+
+Actual stdout is retained in
+`/var/tmp/consent-artifacts/emulator-build-10/races-holder-cache.log`.
+All three phases end with exact integrity/schema2/metadata assertions.
+
+The manual wire fixture ran through `consent-wire-ten` while shell code checked
+MainPID before/after. `/var/tmp/consent-artifacts/emulator-build-10/wire.log`
+records unchanged PID11388 and a constant epoch across every hello, plus:
+
+- Fragmented header/body and16 coalesced native Parcel frames pass.
+- Zero/oversized length, missing array elements, huge string length, trailing
+  bytes, middle EOF and incomplete-frame timeout close the offending socket.
+- Exactly24 checker connections are admitted and4 refused; the same daemon log
+  contains four `uid-connection-limit` reasons.
+- Slow-reader pressure sends2116 complete38-byte frames (80408 bytes), then
+  output-limit closes that connection. A separate client remains responsive
+  throughout13 monitored hello exchanges. Actual daemon reason is
+  `output-limit`, not a partial input timeout; PID/epoch are unchanged.
+
+These malformed hello tests do not prove that arbitrary mutation requests can
+never partially execute. The subsequent normal service stop is not evidence
+of shutdown with pending DB jobs or partial I/O.
+
+The storage crash fixture ran on persistent emulator state with:
+
+```sh
+systemd-run --wait --pipe --unit=consent-crash-persistent-ten -p SmackProcessLabel=System /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test
+```
+
+`/var/tmp/consent-artifacts/emulator-build-10/crash-persistent.log` contains all
+four prior SIGKILL cases plus:
+
+```text
+PASS live-writer boundary=2 validated_hot_journal=1 delete_during_write=1 decision=CONSENT_REQUIRED integrity=ok
+```
+
+For that final case the parent validates the real journal header, unlinks the
+main DB while the writer is paused at main-DB sync, then releases the same
+writer. The write cannot publish success; the next query on the **same
+Repository** obtains a fresh epoch and no old approval. This is target
+persistent-filesystem process-interruption/recovery evidence, not abrupt
+emulator power loss. Test-only interposition does not enter production targets.
+
+Remaining targeted work after this checkpoint: injected FULL/IOERR preservation,
+partial-I/O shutdown, shutdown with pending DB jobs, independent ACTIVE→close
+cache invalidation, and abrupt-power-loss testing. Product identity/Installer/UI
+integration and typed localization limits remain as described above. Later
+working tree tests/docs for these items are not automatically covered by build10.
+
+### Newly identified gaps after build10 validation
+
+Final review found that derived-data creation did not consistently revalidate
+parent installation provenance before creation, and data-check/derived responses
+lacked complete post-commit provenance revalidation immediately before
+publication. External installation-generation rotation between those boundaries
+can therefore make a metadata result stale. Build10 does **not** complete this
+contract. A subsequent mandatory fix will share recursive parent/context/holder/
+session/generation/retention/revocation validation and test generation rotation
+between the validation boundaries. Build10 artifacts and observations remain
+unchanged.
+
+A multi-condition UI request can also finish with advisory ALLOWED for a
+condition that was already allowed when the prompt opened but was later
+consumed or revoked while another condition awaited approval. Final UI result
+re-evaluation of all current conditions is incomplete. Authoritative AUTHORIZE
+still reevaluates the required conjunction; request/result/cache is not a permit
+to perform protected actions. This separate UI advisory gap is not counted as
+completed by the build10 tests.

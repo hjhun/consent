@@ -1,0 +1,51 @@
+#!/bin/sh
+# Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+set -eu
+# Only on a selected DEVELOPMENT emulator: temporarily replaces consent's socket.
+[ "$(id -u)" = 0 ]
+fixture=/usr/libexec/consent/tests/endpoint-fixture
+client=/usr/libexec/consent/tests/consent-api-test
+systemctl stop consentd.socket consentd.service
+cleanup() {
+  systemctl stop consent-endpoint-other.socket consent-endpoint-other.service 2>/dev/null || true
+  rm -f /run/.consentd.sock /run/consent-endpoint-other.sock
+  rm -f /run/systemd/system/consent-endpoint-other.socket /run/systemd/system/consent-endpoint-other.service
+  systemctl daemon-reload
+  systemctl start consentd.socket
+}
+trap cleanup EXIT
+cat > /run/systemd/system/consent-endpoint-other.socket <<'SOCKET'
+[Socket]
+ListenStream=/run/consent-endpoint-other.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=system_share
+RemoveOnStop=yes
+Service=consent-endpoint-other.service
+SOCKET
+cat > /run/systemd/system/consent-endpoint-other.service <<SERVICE
+[Service]
+ExecStart=$fixture --activated
+SmackProcessLabel=System
+SERVICE
+systemctl daemon-reload
+systemctl start consent-endpoint-other.socket
+mv /run/consent-endpoint-other.sock /run/.consentd.sock
+# Only the original bind address differs from the trusted systemd endpoint.
+"$fixture" --probe
+"$client" check --expect-status=-13
+sleep 1
+[ "$(systemctl show consent-endpoint-other.service -p ExecMainStatus --value)" = 0 ]
+echo 'PASS renamed systemd socket rejected before hello'

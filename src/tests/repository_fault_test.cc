@@ -40,6 +40,7 @@ dev_t registry_device = 0;
 ino_t registry_inode = 0;
 bool corrupt_next_definition_read = false;
 bool corrupt_next_incarnation_read = false;
+sqlite3* corrupt_metadata_connection = nullptr;
 
 void Check(bool condition, const char* description) {
   if (!condition)
@@ -103,7 +104,7 @@ void RemoveFiles(const std::string& directory) {
 
 }  // namespace
 
-extern "C" int fsync(int fd) {
+extern "C" __attribute__((visibility("default"))) int fsync(int fd) {
   struct stat st = {};
   if (failed_directory_syncs > 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
       st.st_dev == registry_device && st.st_ino == registry_inode) {
@@ -114,16 +115,19 @@ extern "C" int fsync(int fd) {
   return static_cast<int>(syscall(SYS_fsync, fd));
 }
 
-extern "C" int sqlite3_step(sqlite3_stmt* statement) {
+extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt* statement) {
   using Step = int (*)(sqlite3_stmt*);
   static Step real_step = reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
   if (!real_step)
     _exit(99);
   const char* sql = sqlite3_sql(statement);
-  if (corrupt_next_incarnation_read && sql &&
-      std::strcmp(sql, "SELECT value FROM meta WHERE key='incarnation'") == 0) {
-    corrupt_next_incarnation_read = false;
-    return SQLITE_CORRUPT;
+  if (sql && std::strcmp(sql, "SELECT value FROM meta WHERE key='incarnation'") == 0) {
+    if (corrupt_next_incarnation_read) {
+      corrupt_next_incarnation_read = false;
+      corrupt_metadata_connection = sqlite3_db_handle(statement);
+    }
+    if (sqlite3_db_handle(statement) == corrupt_metadata_connection)
+      return SQLITE_CORRUPT;  // Sticky until the original connection is retired.
   }
   if (corrupt_next_definition_read && sql &&
       std::strstr(sql, "SELECT config FROM definitions WHERE id=") == sql) {
@@ -133,6 +137,17 @@ extern "C" int sqlite3_step(sqlite3_stmt* statement) {
     return SQLITE_CORRUPT;
   }
   return real_step(statement);
+}
+
+extern "C" __attribute__((visibility("default"))) int sqlite3_close(sqlite3* database) {
+  using Close = int (*)(sqlite3*);
+  static Close real_close = reinterpret_cast<Close>(dlsym(RTLD_NEXT, "sqlite3_close"));
+  if (!real_close)
+    _exit(99);
+  int status = real_close(database);
+  if (status == SQLITE_OK && database == corrupt_metadata_connection)
+    corrupt_metadata_connection = nullptr;
+  return status;
 }
 
 int main() {

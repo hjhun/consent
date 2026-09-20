@@ -7,7 +7,7 @@
 ## 고정 빌드 7
 
 - GBS source tree: `10749441a5839db60024af9ca2d61c6a5164f73c` (commit이 아닌 tree).
-- 명령: `gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4`.
+- 명령: `gbs build -A x86_64 -P tizen_10_1_emulator --include-all -B /var/tmp/consent-gbs-root --threads 4 --overwrite`.
 - `/var/tmp/consent-artifacts/gbs-build-7/`에 source tar, RPM 4개,
   `log.txt`, `source-tree.txt`, `changed-files.tsv`, `SHA256SUMS`를 보관했습니다.
 - source tar SHA256: `debb4ef05a631f058897731bfb4f8b596a4884c5ed424226907c01fecb62b70e`.
@@ -153,3 +153,151 @@ PASS renamed systemd socket rejected before hello
 
 위 내용은 실제 tool 출력에서 발췌해 옮긴 것으로 별도 raw log 파일을 생성했다고
 주장하지 않습니다. 보관한 daemon/platform/DB 로그 경로는 앞 절과 같습니다.
+
+## 빌드9: schema migration, cleanup, 내구성
+
+Tree `e13e9e9b6709652663cf5ed51c58af28a6bca33f`는 CTest5/5 통과했습니다
+(client0.59초, crash0.25초, fault0.19초, repository3.49초, IDL0.13초).
+고정 산출물은 `/var/tmp/consent-artifacts/gbs-build-9/`, source SHA256은
+`f7cf5f4f71f55ccdb2e214c3667d8e810ad4dd528585e18b9c9b560a9f43ae2b`입니다.
+consent_cleanup_get_pending 추가 후 export는39개입니다.
+
+emulator에서 빌드7으로 v1 DB에 활성 PERSISTENT grant1개를 만들고 정지했습니다.
+빌드9 설치 후 persistent C 시나리오가 PASS이고 integrity_check=ok/schema=2로
+기존 승인을 유지했습니다. 정의와 transient session은 문서의 migration 계약을
+따릅니다.
+
+holder-restart는 패키징한 C 도구의 서로 다른 두 process를 실행했습니다. 첫째는
+session을 닫고 cleanup pending을 남겼으며 artifact ID를 전달하지 않았습니다.
+둘째는 public pending API로 발견한 뒤 기존 데이터 등록 거부, cleanup 실패 ACK,
+CLEANUP_FAILED 재조회, 성공 ACK, 중복 ACK를 검증했습니다. 모든 assertion과
+schema2 integrity가 통과했습니다. 이는 metadata와 holder 보고 ACK 검증이며
+제품 holder backend의 물리적 삭제 완료 근거는 아닙니다.
+
+패키지 제거 후 두 앱을 모두 차단하고 Installer authority가 새 generation을
+발급했습니다. 두 앱 재등록에 과거 승인은 없으며 이전 unregister 재시도는 -116입니다.
+script는 처음 제거된 정의에 not-found 오류를 예상했지만 실제 정책은 status0/DENIED가
+맞아 script만 수정해 push한 뒤 같은 빌드9 binary로 완료했습니다. 로그는
+`/var/tmp/consent-artifacts/` 아래 emulator-build-9/holder-install-cache.log 및
+emulator-build-9/installation-cache.log입니다.
+
+live-cache는 같은 handle에서 authoritative actor check보다 request를 먼저 보내고
+기존 lease 안임을 확인했습니다. revoke37174us, policy update37975us, SESSION
+suspend36035us에서 통과했습니다. 이미 suspend된 session을 close한 것은 별도의
+ACTIVE→close cache 무효화 근거가 아닙니다. unregister probe는 helper의 필수
+stable ID 누락으로 실패해 뒤 DB-loss 단계까지 도달하지 못했습니다. 다음 fixture에서
+수정하며 빌드9 전체 cache 시나리오가 통과했다고 표시하지 않습니다. 독립 ONCE
+경쟁은 정확히1승자/동일 retry receipt를 확인했지만 뒤 remote cancel 시험도 새
+helper의 필수ID 누락으로 중단됐습니다. 다음 snapshot의 수정은 daemon 결함과
+구분합니다.
+
+패키징한 repository-crash-test와 repository-fault-test도 emulator에서
+systemd-run --wait --pipe -p SmackProcessLabel=System으로 실행했습니다.
+emulator-build-9/crash-fault.log에 다음 PASS를 보관했습니다.
+
+```text
+PASS SIGKILL boundary=1 validated_hot_journal=0 delete_during_write=0 decision=ALLOWED integrity=ok
+PASS SIGKILL boundary=2 validated_hot_journal=1 delete_during_write=0 decision=ALLOWED integrity=ok
+PASS SIGKILL boundary=3 validated_hot_journal=0 delete_during_write=0 decision=CONSENT_REQUIRED integrity=ok
+PASS SIGKILL boundary=2 validated_hot_journal=1 delete_during_write=1 decision=CONSENT_REQUIRED integrity=ok
+PASS directory fsync uncertainty stays fenced across retry and restart
+PASS captured SQLite corruption code survives rollback
+PASS metadata corruption cannot trap recovery in repeated failing SELECT
+```
+
+경계1/2는 revoke commit 전 중단으로 기존 승인을 유지하며, 경계3은 commit 후
+repository reply 전 중단으로 철회를 유지합니다. 경계2는 실제 rollback-journal
+header를 검증합니다. unlink+SIGKILL은 startup 복구이고 writer가 계속 실행되는
+시험이 아닙니다. 빌드9 fixture는 /tmp(tmpfs)를 사용하므로 process-kill 일관성
+근거이며 영속 매체 전원 차단 근거가 아닙니다. 다음 fixture에 선택 가능한 영속
+시험 root와 별도 continuing-writer 케이스를 추가합니다.
+
+## 빌드10: target 시나리오 완료
+
+Tree `1fddd2b2e38e45b79ce8ff12980b0fda2f2d6906`, source SHA256
+`581d048b325c7194a29498ae220f6d862fbc7207277ce40086213bace38292d9`를
+`/var/tmp/consent-artifacts/gbs-build-10/`에 RPM4개/build log/LastTest.log/source
+archive와 tree manifest/checksum과 함께 고정했습니다. GBS5/5 PASS:
+client0.59초, crash0.35초, fault0.11초, repository3.40초, IDL0.13초입니다.
+C fixture의 stable ID 수정과 계속 실행되는 writer의 DB 삭제 시험을 포함합니다.
+
+동일 emulator에 RPM 설치 후 아래 명령이 각각 status0으로 완료됐습니다.
+모두 선택한 sdb shell을 통해 실행했습니다.
+
+```sh
+systemd-run --wait --pipe --unit=consent-races-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh races
+systemd-run --wait --pipe --unit=consent-holder-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh holder-restart
+systemd-run --wait --pipe --unit=consent-cache-ten -p SmackProcessLabel=System /bin/sh /tmp/consent-emulator-scenario.sh cache
+```
+
+- 독립된 두 연결의 ONCE 경쟁에서 정확히 하나만 ALLOWED, 다른 것은
+  CONSENT_REQUIRED이며 승자의 재시도 receipt가 같습니다. cancel/respond 순서별
+  처리, 실제 동시 경쟁, deadline 만료에서 최종 callback1회와 잘못된 승인 차단을
+  확인했습니다.
+- 서로 다른 holder process가 artifact ID 전달 없이 이전 pending을 발견하고,
+  등록 권한 이전 거부, cleanup 실패 기록, 재시도 성공 ACK를 검증했습니다.
+  schema2 integrity와 예상 metadata가 정상입니다.
+- cache handle2개를 끝까지 유지했습니다. 변경 후 첫 actor request가 authoritative
+  actor check보다 먼저이며 원래 lease 안임을 확인했습니다. 경과 microsecond는
+  revoke39618, policy46282, SESSION suspend35015, package제거39344, DB삭제68304로
+  모두 통과했습니다. DB삭제 시 epoch 변경/과거승인소실/정의복구/새승인과cache사용을
+  확인했습니다. raw build10 출력의 suspend/close 중 독립 cache 무효화는
+  **suspend만** 검증했습니다. suspend된 session의 관리 close도 실행했습니다.
+
+실제 stdout은 `/var/tmp/consent-artifacts/emulator-build-10/races-holder-cache.log`
+입니다. 세 단계 모두 integrity/schema2/metadata assert로 마칩니다.
+
+wire fixture는 consent-wire-ten으로 실행하면서 shell에서 MainPID 전후를
+비교했습니다. `/var/tmp/consent-artifacts/emulator-build-10/wire.log`에 동일
+PID11388/모든 hello의 동일 epoch와 다음 결과를 보관했습니다.
+
+- 분할 header/body와 합쳐 보낸 native Parcel16프레임 정상 처리.
+- 0/초과길이, 배열원소누락, 거대문자열길이, 후행바이트, 중간EOF와 부분프레임
+  timeout에서 해당 socket 종료.
+- checker 연결 정확히24개 허용/4개 거부, 동일 daemon의 uid-connection-limit 로그4개.
+- slow-reader에 완전한38바이트 프레임2116개(80408바이트)를 보낸 뒤 output-limit으로
+  연결 종료. 별도 client는13회 hello 감시 동안 응답을 유지했습니다. 실제 종료 사유는
+  partial input timeout이 아닌 output-limit이며 PID/epoch가 바뀌지 않았습니다.
+
+이 malformed hello 시험으로 모든 변경 요청의 부분실행 금지를 증명하지 않습니다.
+이후 일반 service stop은 pending DB job이나 partial I/O 중 종료 근거가 아닙니다.
+
+영속 emulator 상태에서 storage crash fixture를 실행했습니다.
+
+```sh
+systemd-run --wait --pipe --unit=consent-crash-persistent-ten -p SmackProcessLabel=System /usr/libexec/consent/tests/repository-crash-test --state-root /opt/var/lib/consent-test
+```
+
+`/var/tmp/consent-artifacts/emulator-build-10/crash-persistent.log`에는 기존
+SIGKILL4개와 다음 결과를 기록했습니다.
+
+```text
+PASS live-writer boundary=2 validated_hot_journal=1 delete_during_write=1 decision=CONSENT_REQUIRED integrity=ok
+```
+
+마지막 경우 부모가 실제 journal header를 검사하고 mainDB sync에 멈춘 writer의
+main DB를 unlink한 뒤 **같은 writer**를 재개합니다. 해당 쓰기는 성공을 게시하지
+못하고 **같은 Repository**의 다음 query가 새 epoch와 재승인 필요 상태를 확인합니다.
+이는 target 영속 파일시스템에서 process 중단/복구 근거이며 emulator 강제 전원
+차단 근거가 아닙니다. fault interposition은 test target에만 존재합니다.
+
+이 checkpoint 이후의 구체적 미검증 항목은 FULL/IOERR 보존, partial-I/O 종료,
+pending DB job 중 종료, 독립 ACTIVE→close 캐시 무효화, 강제 전원 차단입니다.
+제품 신원/Installer/UI와 typed localization 제한은 앞 절과 같습니다. 이후
+working tree에 추가한 시험/문서가 자동으로 빌드10 검증에 포함되지는 않습니다.
+
+### 빌드10 검증 이후 발견된 미완료 경로
+
+최종 검토에서 derived 데이터 생성 전 parent 설치 provenance 재검증이 일관되게
+적용되지 않고, data-check/derived 응답의 commit 후 게시 직전 provenance 재검증이
+완전하지 않은 경로를 확인했습니다. 검증 경계 사이 외부 installation generation이
+회전하면 metadata 결과가 이미 낡은 상태일 수 있습니다. 빌드10은 이 계약을
+**완료하지 않았습니다**. 후속 필수 수정에서 재귀 parent/context/holder/session/
+generation/retention/revocation 공통 검증과 검증 경계 사이 generation 회전 회귀를
+추가합니다. 빌드10 산출물과 관측 결과는 그대로 보존합니다.
+
+다중 조건 UI 요청에서도 prompt 생성 시 이미 허용됐던 조건이 다른 조건의 승인을
+기다리는 동안 소비/철회되면 advisory 최종 결과에 ALLOWED가 남을 수 있습니다.
+현재 조건 전체의 최종 UI 재평가는 미완료입니다. 실제 AUTHORIZE는 필수 조건의
+AND를 다시 평가하며 request/result/cache는 보호 작업 실행 permit이 아닙니다.
+이 UI advisory 공백도 빌드10 완료 범위에 포함하지 않습니다.

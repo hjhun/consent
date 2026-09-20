@@ -36,7 +36,8 @@ static const struct management_entry management[] = {
   {"session_suspend", consent_session_suspend}, {"session_resume", consent_session_resume},
   {"session_close", consent_session_close}, {"session_state", consent_session_get_state},
   {"data_register", consent_data_register}, {"data_derived", consent_data_register_derived},
-  {"data_release", consent_data_release}, {"cleanup", consent_cleanup_get_state}
+  {"data_release", consent_data_release}, {"cleanup", consent_cleanup_get_state},
+  {"cleanup_list", consent_cleanup_get_pending}
 };
 
 struct callback_state {
@@ -82,7 +83,7 @@ static void usage(const char* program) {
       "Usage: %s METHOD [PACKAGE [APP]] [key=value ...] [options]\n"
       "Methods: register update unregister request check prompt respond result\n"
       " cancel revoke session_open session_suspend session_resume session_close\n"
-      " session_state data_register data_derived data_release cleanup\n"
+      " session_state data_register data_derived data_release cleanup cleanup_list\n"
       "Options: --async --timeout-ms=N --repeat=N --expect-status=N\n"
       " --expect-decision=ALLOWED|DENIED|CONSENT_REQUIRED|...\n"
       "register/update require package, app, expected_generation, operation_id,\n"

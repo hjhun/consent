@@ -179,6 +179,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     bool sent = false;
     bool accepted = false;
     bool inflight = false;
+    gint64 admitted = 0;
     gint64 deadline = 0;
     gint64 next_poll = 0;
     std::string remote_id;
@@ -302,7 +303,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     operation->asynchronous = asynchronous;
     operation->callback = callback;
     operation->data = data;
-    operation->deadline = g_get_monotonic_time() + static_cast<gint64>(timeout) * 1000;
+    operation->admitted = g_get_monotonic_time();
+    operation->deadline = operation->admitted + static_cast<gint64>(timeout) * 1000;
     // Allocate all callback bookkeeping before publishing acceptance. A failed
     // C ABI call must leave neither I/O nor a callback using caller user_data.
     auto release_source = [](GSource* source) {
@@ -442,7 +444,11 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
           !Get(operation->message, "generation").empty() &&
           Get(message, "generation") == Get(operation->message, "generation")))) {
       gint64 ttl = std::min<int64_t>(1000, Number(message, "cache_ttl_ms", 0));
-      if (ttl > 0) {
+      // The server's remaining lifetime was measured before this reply arrived.
+      // Admission precedes that measurement, so it is a conservative anchor
+      // even after queueing, fragmented reads or a long user approval wait.
+      gint64 expires = operation->admitted + std::max<gint64>(0, ttl) * 1000;
+      if (ttl > 0 && expires > g_get_monotonic_time()) {
         Lock lock(mutex_);
         if (synced_) {
           if (cache_.size() >= 64) {
@@ -453,7 +459,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
             cache_.erase(oldest);
           }
           gint64 now = g_get_monotonic_time();
-          cache_[CacheKey(operation->message)] = {message, now + ttl * 1000, now};
+          if (expires > now)
+            cache_[CacheKey(operation->message)] = {message, expires, now};
         }
       }
     }
@@ -492,6 +499,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   }
 
   bool Read() {
+    size_t received = 0;
     uint8_t bytes[8192];
     while (true) {
       ssize_t count = recv(socket_, bytes, sizeof(bytes), 0);
@@ -502,6 +510,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
           continue;
         return errno == EAGAIN || errno == EWOULDBLOCK;
       }
+      received += static_cast<size_t>(count);
       input_.insert(input_.end(), bytes, bytes + count);
       while (input_.size() >= 4) {
         uint32_t size = FrameSize(input_.data());
@@ -522,6 +531,9 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         partial_since_ = 0;
       else if (!partial_since_)
         partial_since_ = g_get_monotonic_time();
+      // Yield to local deadlines/shutdown even if the peer keeps streaming.
+      if (received >= kMaxFrameSize)
+        return true;
     }
   }
 

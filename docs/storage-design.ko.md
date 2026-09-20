@@ -14,7 +14,10 @@ SQL은 바인딩 인자를 사용합니다. 변경은 `BEGIN IMMEDIATE` 트랜�
 SQLite 설정은 `journal_mode=DELETE`, `synchronous=EXTRA`(3),
 `foreign_keys=ON`, `secure_delete=ON`, busy timeout 100ms입니다.
 시작 시 journal·동기화·외래키 설정을 다시 읽어 지원 여부를 확인합니다.
-스키마 버전 1은 `user_version`에 기록합니다. 실제 flush 내구성은 기기와
+스키마 버전 2는 `user_version`에 기록합니다. 기반 버전 1 DB는 하나의 스키마
+트랜잭션에서 정리 ACK 증거 테이블을 추가합니다. 기존 정의와 지속 승인은
+보존하고 임시 상태에는 정상 재시작 무효화 정책을 적용합니다. 알 수 없는
+상위 버전은 DB를 지우거나 재생성하지 않고 실패합니다. 실제 flush 내구성은 기기와
 파일시스템에도 의존합니다. 프로세스 강제 종료 테스트가 돌발 전원 차단의
 내구성 증거를 대신하지 않습니다.
 
@@ -155,8 +158,15 @@ artifact와 기한을 반환합니다. 파생 artifact는 모든 부모의 grant
 가장 빠른 만료, 가장 높은 등급을 상속하며 다른 세션/holder/목적/scope로 확장하지
 않습니다.
 
-종료·철회·TTL 만료는 먼저 사용을 차단합니다. 실제 holder 프로세스 인스턴스가
-자신의 artifact 정리를 ACK해야 합니다. 실패·무응답은 CLEANUP_PENDING 또는
+종료·철회·TTL 만료는 먼저 사용을 차단합니다. 원래 holder 프로세스 인스턴스가
+자신의 artifact 정리를 ACK할 수 있습니다. 같은 인증된 안정 holder 신원의
+재시작 프로세스는 `cleanup_list` 및 `cleanup_ack`/`data_release`에 명시적으로
+`reconcile=1`을 지정할 수 있습니다. 이 정리 전용 경로는 subject/profile 위임과
+artifact의 세션 문맥 일치를 요구하며 이미 차단되었거나 삭제된 artifact만
+대상으로 합니다. 원래 소유 인스턴스를 변경하거나 사용/등록 권한을 이전하지
+않으며 세션·승인을 되살리지 않습니다. 재시작만으로 삭제 완료를 가정하지도
+않습니다. ACK에는 실제 인증된 신원/인스턴스를 기록하고 물리 정리 책임은
+신뢰 holder에게 있습니다. 실패·무응답은 CLEANUP_PENDING 또는
 CLEANUP_FAILED 및 CLOSING으로 남습니다. 기록된 모든 artifact의 삭제 ACK가
 확인되어야 CLOSED가 됩니다. 이는 신뢰 holder의 증거를 기록하는 기능이며
 다른 프로세스의 데이터를 직접 지우는 기능은 아닙니다.
@@ -175,11 +185,34 @@ epoch 변경은 재동기화를 요구합니다. AUTHORIZE는 항상 현재 원�
 철회, 오래된 prompt, 세션 generation/resume, artifact 보관, holder ACK
 실패/성공, 지속 승인 재시작, 정상 과거 DB 교체, 실행/중지 중 강제 DB 삭제,
 남은 journal 격리 및 손상 복구를 검사합니다. TIMED 재시도 만료, profile 단위
-요청 조회, 권한 오류와 registry 소실 시 차단도 검사합니다. 실패 시 비영 종료합니다.
+요청 조회, 권한/registry 소실 차단, 캐시 기한, 설치 세대 회전, 재개형 lease 만료,
+heartbeat/idle 분리, 복수 부모 TTL 상속, receipt 재시도 기한 및 재시작 holder의
+정리 전용 정합도 검사합니다. 버전 1 fixture로 스키마 이행, 지속 승인 보존,
+임시 상태의 재시작 정책 및 알 수 없는 상위 스키마 거부도 확인합니다.
+서로 다른 ONCE 작업과 취소/응답/기한 확정 순서는
+직렬화된 repository 테스트이며 동시 IPC 검증을 의미하지 않습니다.
+`repository_fault_test.cc`는 해당 테스트 실행 파일 안에서만 `fsync`,
+`sqlite3_step`, `sqlite3_close`를 대체합니다. 재시도/재시작의 디렉터리 동기화
+불확실 차단과 rollback 이후 손상 코드 보존을 결정적으로 검사합니다. 메타데이터
+손상 주입은 원래 연결이 닫힐 때까지 유지되므로 반복 실패하는 incarnation 조회를
+복구 성공으로 오인하는 테스트가 아닙니다. 실패 시 비영 종료합니다.
+
+`repository_crash_test.cc`는 자식 writer를 journal 동기화 직전, main DB 동기화
+직전 및 커밋 성공 후 응답 전에 멈추고 SIGKILL을 보냅니다. 재개 후 지속 승인
+철회의 rollback/유지와 DB 무결성을 확인합니다. main DB 동기화 경계에서는
+[SQLite rollback journal 형식](https://www.sqlite.org/fileformat.html#the_rollback_journal)에
+따라 journal 크기와 유효한 header를 검사합니다. 네 번째 경우는 같은 경계에서
+main DB를 삭제한 뒤 writer를 강제 종료합니다. 쓰기 중 삭제 후 시작 복구이며
+원래 writer가 계속 실행하는 동안의 복구는 아닙니다. 별도의 다섯 번째 경우는
+삭제 후 같은 writer를 계속 실행합니다. 원래 작업은 성공을 반환하면 안 되고
+같은 `Repository`의 후속 check는 새 epoch와 기존 승인이 없는 상태로 복구해야
+합니다. 두 경우 모두 DB를 다시 열어 무결성도 확인합니다. 돌발 전원 차단 내구성이나
+재시작에 걸친 ONCE 소비 내구성의 증거를 대신하지 않습니다. 실제 통과한 소스
+snapshot은 검증 문서에서 구분합니다.
 
 GBS 빌드와 emulator 실행 증거는 프로젝트 검증 문서에 기록합니다. 이 문서만으로
-모든 수용 기준을 통과했다고 주장하지 않습니다. 각 쓰기 경계의 결정적 강제 종료,
-돌발 emulator 종료/전원 차단, 용량 부족/I/O 주입, 제품 Installer 트랜잭션 연동,
+모든 수용 기준을 통과했다고 주장하지 않습니다. 돌발 emulator 종료/전원 차단,
+용량 부족/I/O 주입, 제품 Installer 트랜잭션 연동,
 holder 프로세스 사망 후 정합, 외부 모델 정리, typed 다국어 인자와 장시간 부하
 검증은 별도로 필요합니다. 활성 요청·세션·artifact에는 접수 상한이 있지만 과거 메타데이터의 확정된
 보존 정책에 따른 자동 정리는 아직 없습니다. 상한 초과는 운영 조치가 필요하며 이미 소비한

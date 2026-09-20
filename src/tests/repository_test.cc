@@ -434,6 +434,196 @@ void CacheAndSessionDeadlines() {
   std::cout << "PASS cache metadata, installation reconciliation and logical session deadlines\n";
 }
 
+void DerivedRetentionAndCleanupReconciliation() {
+  Fixture fixture;
+  auto first_definition = fixture.Definition();
+  first_definition["retention_ms"] = "2000";
+  fixture.Call(fixture.installer, first_definition);
+  auto second_definition = fixture.Definition("second", "app2");
+  second_definition["retention_ms"] = "10000";
+  second_definition["level"] = "2";
+  fixture.Call(fixture.installer, second_definition);
+  auto session = fixture.Call(fixture.argo, {{"method", "session_open"}, {"subject", "agent"},
+      {"profile", "profile"}});
+  Message data = {{"method", "data_register"}, {"subject", "agent"}, {"profile", "profile"},
+      {"session", consent::Get(session, "session")}, {"generation", "1"},
+      {"scope", "today"}, {"purpose", "answer"}};
+  auto acquire = [&](const char* definition, const char* tag) {
+    auto request = fixture.Context();
+    request["r0.definition"] = definition;
+    request["session"] = consent::Get(session, "session");
+    request["generation"] = "1";
+    request["client_request_id"] = tag;
+    request["operation_id"] = tag;
+    fixture.Approve(request, "PERSISTENT");
+    request["mode"] = "AUTHORIZE";
+    auto authorized = fixture.Call(fixture.checker, request);
+    data["receipt"] = consent::Get(authorized, "receipt");
+    return fixture.Call(fixture.holder, data);
+  };
+  auto first = acquire("definition", "first-source");
+  auto first_retry = fixture.Call(fixture.holder, data);
+  Check(consent::Get(first, "expires") == consent::Get(first_retry, "expires"),
+      "original registration retry cannot extend acquisition TTL");
+  auto second = acquire("second", "second-source");
+  auto restarted = fixture.holder;
+  restarted.instance = "holder:restarted";
+  fixture.Call(restarted, data, -EACCES);
+  data["reconcile"] = "1";
+  fixture.Call(restarted, data, -EACCES);
+  data.erase("reconcile");
+  Message derived = data;
+  derived["method"] = "data_register_derived";
+  derived["count"] = "2";
+  derived["parent0"] = consent::Get(first, "artifact");
+  derived["parent1"] = consent::Get(second, "artifact");
+  auto child = fixture.Call(fixture.holder, derived);
+  Check(consent::Number(child, "expires") == consent::Number(first, "expires"),
+      "multi-parent derivative inherits earliest TTL");
+  fixture.Call(restarted, derived, -EACCES);
+  Message use = data;
+  use["method"] = "data_check";
+  use["artifact"] = consent::Get(second, "artifact");
+  fixture.Call(restarted, use, -EACCES);
+  use["artifact"] = consent::Get(child, "artifact");
+  fixture.Call(fixture.holder, use);
+  usleep(2100000);
+  fixture.Call(fixture.holder, use, -ESTALE);
+  use["artifact"] = consent::Get(first, "artifact");
+  fixture.Call(fixture.holder, use, -ESTALE);
+  use["artifact"] = consent::Get(second, "artifact");
+  fixture.Call(fixture.holder, use);
+
+  Message cleanup = {{"method", "cleanup_list"}, {"subject", "agent"},
+      {"profile", "profile"}, {"reconcile", "1"}};
+  auto list = fixture.Call(restarted, cleanup);
+  Check(consent::Number(list, "count") == 2, "restarted holder sees only blocked copies for cleanup");
+  cleanup["method"] = "cleanup_ack";
+  cleanup["artifact"] = consent::Get(first, "artifact");
+  cleanup["success"] = "0";
+  fixture.Call(restarted, cleanup);
+  auto wrong_profile = restarted;
+  wrong_profile.profiles.insert("profile2");
+  cleanup["profile"] = "profile2";
+  fixture.Call(wrong_profile, cleanup, -EACCES);
+  cleanup["profile"] = "profile";
+  cleanup["success"] = "1";
+  fixture.Call(restarted, cleanup);
+  fixture.Call(restarted, cleanup);  // Duplicate successful ACK is harmless.
+  cleanup["success"] = "0";
+  fixture.Call(restarted, cleanup, -ESTALE);
+  fixture.Call(fixture.ui, {{"method", "revoke"}, {"subject", "agent"},
+      {"profile", "profile"}, {"definition", "second"}});
+  Message close = {{"method", "session_close"}, {"subject", "agent"}, {"profile", "profile"},
+      {"session", consent::Get(session, "session")}, {"generation", "1"}};
+  Check(consent::Get(fixture.Call(fixture.argo, close), "state") == "CLOSING",
+      "remaining holder copies prevent false CLOSED");
+  cleanup["method"] = "cleanup_list";
+  list = fixture.Call(restarted, cleanup);
+  for (int i = 0; i < consent::Number(list, "count"); ++i) {
+    cleanup["method"] = "cleanup_ack";
+    cleanup["artifact"] = consent::Get(list, "a" + std::to_string(i) + ".artifact");
+    cleanup["success"] = "1";
+    fixture.Call(restarted, cleanup);
+  }
+  close["method"] = "session_get_state";
+  Check(consent::Get(fixture.Call(fixture.argo, close), "state") == "CLOSED",
+      "cleanup-only restarted holder ACK can finish old session");
+  fixture.Call(restarted, use, -2004);
+  std::cout << "PASS multi-parent TTL, deadline-preserving retries and cleanup-only holder reconciliation\n";
+}
+
+void FinalizationAndOnceContenders() {
+  Fixture fixture;
+  fixture.Call(fixture.installer, fixture.Definition());
+  auto request = fixture.Context();
+  auto allowed = fixture.Approve(request);
+  auto final = fixture.Call(fixture.argo, {{"method", "result"},
+      {"request_id", consent::Get(allowed, "request_id")}});
+  Check(consent::Get(final, "r0.decision") == "ALLOWED", "final result agrees with condition decisions");
+  request["mode"] = "AUTHORIZE";
+  int allowed_count = 0;
+  for (int i = 0; i < 2; ++i) {
+    request["operation_id"] = "contender" + std::to_string(i);
+    if (consent::Get(fixture.Call(fixture.checker, request), "decision") == "ALLOWED")
+      ++allowed_count;
+  }
+  Check(allowed_count == 1, "serialized distinct operations consume ONCE exactly once");
+  request = fixture.Context("request");
+  request["client_request_id"] = "cancel-race";
+  auto pending = fixture.Call(fixture.argo, request);
+  Message response = {{"method", "get_prompt"}, {"request_id", consent::Get(pending, "request_id")},
+      {"locale", "en"}};
+  auto prompt = fixture.Call(fixture.ui, response);
+  fixture.Call(fixture.argo, {{"method", "cancel"}, {"request_id", consent::Get(pending, "request_id")}});
+  response["method"] = "respond";
+  response["decision"] = "ALLOWED";
+  response["prompt_token"] = consent::Get(prompt, "prompt_token");
+  fixture.Call(fixture.ui, response, -ESTALE);
+  final = fixture.Call(fixture.argo, {{"method", "result"}, {"request_id", consent::Get(pending, "request_id")}});
+  Check(consent::Get(final, "decision") == "CANCELLED", "cancel wins one finalization order");
+  request["client_request_id"] = "respond-race";
+  allowed = fixture.Approve(request);
+  final = fixture.Call(fixture.argo, {{"method", "cancel"}, {"request_id", consent::Get(allowed, "request_id")}});
+  Check(consent::Get(final, "decision") == "ALLOWED", "respond wins reverse finalization order");
+  request["r0.scope"] = "expired-scope";
+  request["client_request_id"] = "deadline-race";
+  request["deadline_ms"] = "100";
+  pending = fixture.Call(fixture.argo, request);
+  response["method"] = "get_prompt";
+  response["request_id"] = consent::Get(pending, "request_id");
+  prompt = fixture.Call(fixture.ui, response);
+  usleep(130000);
+  response["method"] = "respond";
+  response["prompt_token"] = consent::Get(prompt, "prompt_token");
+  fixture.Call(fixture.ui, response, -ESTALE);
+  final = fixture.Call(fixture.argo, {{"method", "result"}, {"request_id", consent::Get(pending, "request_id")}});
+  Check(consent::Get(final, "decision") == "EXPIRED", "deadline wins against late UI response");
+  std::cout << "PASS condition results, serialized ONCE contenders and cancel/respond/deadline orders\n";
+}
+
+void SchemaMigration() {
+  Fixture fixture;
+  fixture.Call(fixture.installer, fixture.Definition());
+  fixture.Approve(fixture.Context(), "PERSISTENT");
+  auto session = fixture.Call(fixture.argo, {{"method", "session_open"}, {"subject", "agent"},
+      {"profile", "profile"}});
+  auto request = fixture.Context("request");
+  request["r0.scope"] = "migration-pending";
+  request["client_request_id"] = "migration-pending";
+  auto pending = fixture.Call(fixture.argo, request);
+  fixture.repository.reset();
+  sqlite3* database = nullptr;
+  Check(sqlite3_open(fixture.database.c_str(), &database) == SQLITE_OK, "open offline migration fixture");
+  Check(sqlite3_exec(database, "DROP TABLE cleanup_acknowledgements; PRAGMA user_version=1;",
+      nullptr, nullptr, nullptr) == SQLITE_OK, "construct foundation schema v1 fixture");
+  sqlite3_close(database);
+  fixture.Start();
+  Check(consent::Get(fixture.Call(fixture.checker, fixture.Context()), "decision") == "ALLOWED",
+      "v1 to v2 preserves persistent decision and definition");
+  auto state = fixture.Call(fixture.argo, {{"method", "session_get_state"}, {"subject", "agent"},
+      {"profile", "profile"}, {"session", consent::Get(session, "session")}});
+  Check(consent::Get(state, "state") == "CLOSED", "migration applies normal transient-session retirement");
+  auto result = fixture.Call(fixture.argo, {{"method", "result"},
+      {"request_id", consent::Get(pending, "request_id")}});
+  Check(consent::Get(result, "decision") == "INVALIDATED", "migration invalidates pending request");
+  fixture.repository.reset();
+  Check(sqlite3_open(fixture.database.c_str(), &database) == SQLITE_OK, "inspect migrated schema");
+  sqlite3_stmt* query = nullptr;
+  Check(sqlite3_prepare_v2(database, "PRAGMA user_version", -1, &query, nullptr) == SQLITE_OK &&
+      sqlite3_step(query) == SQLITE_ROW && sqlite3_column_int(query, 0) == 2,
+      "schema revision advances transactionally to v2");
+  sqlite3_finalize(query);
+  Check(sqlite3_exec(database, "SELECT * FROM cleanup_acknowledgements; PRAGMA user_version=3;",
+      nullptr, nullptr, nullptr) == SQLITE_OK, "cleanup evidence table exists; create unsupported version");
+  sqlite3_close(database);
+  Repository future(fixture.database, fixture.registry);
+  std::string error;
+  Check(!future.Open(&error) && error.find("unsupported database schema") != std::string::npos,
+      "unknown future schema fails without wiping persistent database");
+  std::cout << "PASS transactional v1-to-v2 migration and future-schema refusal\n";
+}
+
 }  // namespace
 
 int main() {
@@ -444,6 +634,9 @@ int main() {
     Recovery();
     ExpiryAndFailureFences();
     CacheAndSessionDeadlines();
+    DerivedRetentionAndCleanupReconciliation();
+    FinalizationAndOnceContenders();
+    SchemaMigration();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "FAIL: " << error.what() << '\n';

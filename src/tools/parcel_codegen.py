@@ -42,7 +42,8 @@ protected public register reinterpret_cast requires return short signed sizeof
 static static_assert static_cast struct switch synchronized template this
 thread_local throw true try typedef typeid typename union unsigned using virtual
 void volatile wchar_t while xor xor_eq final override std tizen_base
-Reader Writer Valid WriteToParcel ReadFromParcel uint32_t int32_t uint64_t""".split())
+Reader Writer Valid ValidString WriteToParcel ReadFromParcel
+uint32_t int32_t uint64_t""".split())
 COPYRIGHT = "Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved"
 APACHE_NOTICE = """Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

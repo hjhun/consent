@@ -24,6 +24,10 @@ FOREACH(SOURCE ${TOOL_SOURCES})
     ADD_EXECUTABLE(${TOOL_NAME}-isolated "${SOURCE}")
     TARGET_LINK_LIBRARIES(${TOOL_NAME}-isolated PRIVATE
       consent-test-library PkgConfig::GLIB)
+    IF(TOOL_NAME STREQUAL "consent-cache-scenario")
+      TARGET_COMPILE_DEFINITIONS(${TOOL_NAME}-isolated PRIVATE
+        CONSENT_TEST_DB_PATH="${CONSENT_TEST_STATE_DIR}/consent.db")
+    ENDIF()
     INSTALL(TARGETS ${TOOL_NAME}-isolated
       RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
   ENDIF()

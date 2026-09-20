@@ -162,6 +162,14 @@ CONSENT_API int consent_data_release(consent_client_h client,
     const consent_params_t* params, consent_result_t** result);
 CONSENT_API int consent_cleanup_get_state(consent_client_h client,
     const consent_params_t* params, consent_result_t** result);
+/* Discover pending/failed cleanup for the authenticated holder and explicit
+ * subject/profile. reconcile=1 includes earlier instances of the same holder;
+ * this grants cleanup access only, never artifact-use or registration rights.
+ * Results contain count and aN.artifact/session/state/error (at most 48).
+ * Acknowledge actual deletion with consent_data_release(), using reconcile=1
+ * and the same subject/profile when reconciling an earlier process instance. */
+CONSENT_API int consent_cleanup_get_pending(consent_client_h client,
+    const consent_params_t* params, consent_result_t** result);
 
 CONSENT_API void consent_result_free(consent_result_t* result);
 CONSENT_API int consent_result_clone(const consent_result_t* result,

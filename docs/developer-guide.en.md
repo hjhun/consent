@@ -81,6 +81,13 @@ kernel credentials and the root-owned `/etc/consent/roles.conf`. The shipped
 policy authorizes no identities. A platform integrator must provision exact
 executables, kernel security labels, roles and delegated contexts.
 
+The production client verifies the fixed `/run/.consentd.sock` path, root ownership
+and unchanged socket device/inode across connection. It accepts the inherited
+systemd endpoint only when kernel peer credentials identify PID 1/UID 0 and the
+configured `System::Privileged` security label. `/run` may be root:`system_share`
+group-writable on this target; other writable parent paths remain rejected.
+A socket owned by a normal process does not authenticate as the service.
+
 Each `[identity NAME]` keyfile section specifies `uid`, `executable`, `label`,
 and semicolon-separated `roles`, `subjects`, `profiles`, `enforcers`, and
 `packages`. `enforcers` lists delegated enforcement identities; `packages`
@@ -96,13 +103,14 @@ sdb -s "$CONSENT_DEVICE" root on
 for package in consent consentd consent-devel consent-tests; do
   sdb -s "$CONSENT_DEVICE" push "$CONSENT_RPM_DIR/$package-0.1.0-1.x86_64.rpm" /tmp/
 done
-sdb -s "$CONSENT_DEVICE" shell 'rpm -Uvh --replacepkgs /tmp/consent-0.1.0-1.x86_64.rpm /tmp/consentd-0.1.0-1.x86_64.rpm /tmp/consent-devel-0.1.0-1.x86_64.rpm /tmp/consent-tests-0.1.0-1.x86_64.rpm'
+sdb -s "$CONSENT_DEVICE" shell 'rpm -Uvh --replacepkgs --replacefiles /tmp/consent-0.1.0-1.x86_64.rpm /tmp/consentd-0.1.0-1.x86_64.rpm /tmp/consent-devel-0.1.0-1.x86_64.rpm /tmp/consent-tests-0.1.0-1.x86_64.rpm'
 sdb -s "$CONSENT_DEVICE" shell 'systemctl status consentd.socket'
 sdb -s "$CONSENT_DEVICE" shell 'journalctl -u consentd.service -n 80 --no-pager'
 ```
 
-Use the actual release and RPM paths printed by GBS. `--replacepkgs` permits
-reinstalling this development version without changing its version number.
+Use the actual release and RPM paths printed by GBS. The verified repeated
+development installation uses `--replacepkgs --replacefiles` for these exact
+consent RPMs without changing their version number.
 
 Stopping `consentd.service` alone permits reactivation. Stop both the socket
 and service for maintenance. Never remove the systemd endpoint manually.
@@ -132,6 +140,12 @@ Sessions describe conversations, independently of transport connections.
 Artifacts and data-use permits store control metadata, never conversation
 bodies. Holders enforce actual data lifetime and acknowledge cleanup. A close
 response means further use is blocked; it does not prove physical deletion.
+After a holder restarts, call `consent_cleanup_get_pending()` with the explicit
+subject/profile and `reconcile=1` to discover outstanding cleanup from its
+previous process instance. Acknowledge actual deletion with
+`consent_data_release()` using that same context. This reconciliation gives
+cleanup access only. See the [storage guide](storage-design.en.md) for total DB
+loss and incomplete-holder reconciliation limits.
 
 ## Parameter fields
 
@@ -194,8 +208,9 @@ activates the completed list. Use `absent` only for a never-recorded package.
 Each command also takes a unique operation ID and expected generation; retry
 the same operation after an uncertain result. Register only after the real
 package installation and authority commit have succeeded. For removal,
-unregister consent definitions with the current generation before marking the
-authority removed. Reinstallation uses a new generation. The utility is an
+mark the installation removed in the authority first, then unregister consent
+definitions using the same expected generation. The tombstone prevents new
+authorization while package-wide cleanup proceeds. Reinstallation uses a new generation. The utility is an
 Installer integration surface, not evidence that platform hooks are installed.
 
 The C API exerciser accepts `METHOD [PACKAGE [APP]] key=value ...`, `--async`,
@@ -218,6 +233,15 @@ The production binaries have no runtime switch to enable that adapter. The
 client unit test uses a mock transport peer and therefore tests the client
 contract, not daemon policy or platform identity.
 
+`scripts/emulator-scenario.sh` provides the isolated emulator phases. `basic`
+requires fresh test installation state; it does not silently delete previous
+results. Later phases cover persistence, running/stopped DB deletion, corrupt DB
+recovery, stale DB replacement and same-UID role rejection. Run only on the
+selected development emulator as root with the `System` security label.
+`endpoint-fixture` is a separate manual endpoint-authentication fixture excluded
+from CTest because it uses the actual `/run/.consentd.sock` path. Follow the
+[validation evidence](verification.en.md) setup before using it.
+
 Keep process kills, orderly reboots and abrupt emulator power interruption as
 separate test scenarios. Forced DB deletion must target only an isolated test
 state or the selected development emulator's consent state. Do not remove any
@@ -237,13 +261,14 @@ Ordinary restarts invalidate pending requests and sessions while preserving
 eligible persistent grants. Holder cleanup remains outstanding until evidence
 of deletion is received.
 
-GBS has compiled the native Parcel client, daemon, C exercisers and installation
-authority with GCC 14.2 and `-Werror`. The sixth build passed all four CTest suites:
-client contracts, repository policies/recovery, injected storage faults and IDL
-generation. These build-root tests are separate from emulator integration.
-Current device results and remaining acceptance gaps belong in the paired
-validation evidence documents; mocked identities do not prove product identity
-integration. Real Installer, argo and UI policy integration remains necessary.
+GBS builds the native Parcel client, daemon, C exercisers and installation
+authority with GCC 14.2 and `-Werror`. Package checks cover client contracts,
+repository policies/recovery, injected storage failures, process-kill boundaries
+and IDL generation. Build-root tests are separate from emulator integration.
+The [validation evidence](verification.en.md) records each tested snapshot,
+executed results and remaining acceptance gaps. Mocked identities do not prove
+product identity integration; real Installer, argo and UI policy integration
+remains necessary.
 
 The daemon marks eligible PERSISTENT/SESSION grants cacheable for at most 500 ms
 and reconciles installation generations during its timer work. Each client

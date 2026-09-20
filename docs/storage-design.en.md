@@ -14,7 +14,11 @@ wait for UI responses. All SQL uses bound parameters. Mutations use
 SQLite is configured with `journal_mode=DELETE`, `synchronous=EXTRA` (3),
 `foreign_keys=ON`, `secure_delete=ON` and a 100 ms busy timeout. Startup reads
 back the journal, synchronization and foreign-key settings and rejects an
-unsupported configuration. Schema version 1 is stored in `user_version`.
+unsupported configuration. Schema version 2 is stored in `user_version`.
+The version 1 foundation database migrates within one schema transaction by
+adding cleanup acknowledgement evidence. Existing definitions and persistent
+grants survive; the normal restart policy still invalidates transient state.
+An unknown future version fails without erasing or recreating the database.
 SQLite's actual flush behavior still depends on the device/filesystem; passing
 a process-kill test is not evidence of abrupt power-loss durability.
 
@@ -162,8 +166,16 @@ Repeated registration returns the original artifact and deadline. Derived
 artifacts retain all parent grant dependencies, the earliest expiry and highest
 sensitivity; cross-session/holder/purpose/scope expansion is rejected.
 
-Close, revocation and TTL expiry block use before cleanup. A holder's exact
-process instance must ACK its own artifacts. Failed or absent ACK leaves
+Close, revocation and TTL expiry block use before cleanup. A holder's original
+process instance can ACK its own artifacts. A restarted process with the same
+authenticated stable holder identity can explicitly set `reconcile=1` on
+`cleanup_list` and `cleanup_ack`/`data_release`. This cleanup-only path requires
+subject/profile delegation and an exact match with the artifact's session
+context, and only covers already blocked or deleted artifacts. It does not
+change the stored owning instance, transfer use/registration rights, revive a
+session/grant, or assume deletion merely because the process restarted.
+Acknowledgements record the actual authenticated identity/instance; physical
+cleanup remains the trusted holder's responsibility. Failed or absent ACK leaves
 CLEANUP_PENDING/CLEANUP_FAILED and CLOSING visible. CLOSED is reached only after
 all recorded artifacts are acknowledged deleted. This tracks evidence supplied
 by trusted holders; it cannot itself erase another process's data.
@@ -183,13 +195,40 @@ removal and reinstall, ONCE consumption and stable retries, all-or-nothing AND,
 revocation, stale prompts, session generation/resume, artifact retention, holder
 ACK failure/success, persistent restart, valid stale DB replacement, forced live
 and stopped DB deletion, surviving journal quarantine and corruption recovery.
-It also checks TIMED retry expiry, profile-scoped request lookup and permission
-or registry-loss fencing. The test exits nonzero on any failed assertion.
+It also checks TIMED retry expiry, profile-scoped request lookup, permission
+or registry-loss fencing, cache leases, installation generation rotation,
+resumable lease expiry, heartbeat/idle separation, multi-parent TTL inheritance,
+receipt retry deadlines and cleanup-only reconciliation after holder restart.
+It also constructs a version 1 fixture to check migration, persistent approval
+preservation, transient restart behavior and refusal of an unknown future schema.
+Distinct ONCE contenders and cancel/respond/deadline orders are serialized
+repository tests; they do not claim concurrent IPC coverage.
+`repository_fault_test.cc` separately interposes `fsync`, `sqlite3_step` and
+`sqlite3_close` only inside that test executable. It deterministically verifies
+registry directory-sync uncertainty across retry/restart and corruption-code
+preservation across rollback. A metadata-corruption fault stays sticky on the
+original connection until it is closed, so repeated failing incarnation reads
+cannot masquerade as successful recovery. The test exits nonzero on any failed assertion.
+
+`repository_crash_test.cc` pauses a child writer before journal synchronization,
+before main-DB synchronization and after successful commit before response,
+then sends SIGKILL. It checks persistent revocation rollback or durability and
+database integrity after reopening. The main-DB synchronization case verifies
+the journal's size and valid header using the documented
+[SQLite rollback-journal format](https://www.sqlite.org/fileformat.html#the_rollback_journal).
+A fourth case removes the main DB at that boundary before killing the writer:
+it tests active-write deletion followed by startup recovery, not recovery while
+the original writer continues. A separate fifth case releases that same writer
+after deletion. The original operation must not report success; a subsequent
+check on the same `Repository` must recover a new epoch with no old approvals.
+Both cases also reopen the database and verify integrity. These tests do not
+demonstrate abrupt power-loss durability or ONCE-consumption durability across
+restart. The validation guide identifies which source snapshot actually passed.
 
 GBS builds and emulator execution are recorded in the project validation guide;
 this document is not evidence that each acceptance criterion has passed.
-Still required beyond these direct tests: deterministic kill during each write
-boundary, abrupt emulator termination/power loss, storage-full/I/O injection,
+Still required beyond these direct tests: abrupt emulator termination/power loss,
+storage-full/I/O injection,
 product Installer transaction integration, holder process-death reconciliation,
 remote model cleanup, typed localized parameters, and sustained load/resource
 measurement. Active request/session/artifact admission is bounded. Historical metadata is not automatically

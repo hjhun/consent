@@ -82,6 +82,13 @@ root 소유 `/etc/consent/roles.conf`로 역할을 인증합니다. 출하 설�
 허용 신원이 없습니다. 플랫폼 통합 담당자가 실행 파일, kernel security
 label, 역할 및 위임 문맥을 명시적으로 등록해야 합니다.
 
+운영 클라이언트는 고정된 `/run/.consentd.sock` 경로와 root 소유권을 검사하며
+연결 전후 socket의 device/inode가 같은지 확인합니다. kernel peer credential이
+PID 1/UID 0과 설정된 `System::Privileged` security label을 가리킬 때만 systemd
+상속 endpoint를 인정합니다. 이 환경에서는 `/run`의 root:`system_share`
+group 쓰기 권한만 허용하며, 다른 쓰기 가능한 상위 경로는 거부합니다.
+일반 프로세스가 소유한 socket은 서비스 신원으로 인정하지 않습니다.
+
 각 `[identity NAME]` keyfile 절에는 `uid`, `executable`, `label`과
 세미콜론으로 구분한 `roles`, `subjects`, `profiles`, `enforcers`, `packages`를
 적습니다. `enforcers`는 위임된 집행 주체 신원이며 `packages`는 Installer가
@@ -98,13 +105,14 @@ sdb -s "$CONSENT_DEVICE" root on
 for package in consent consentd consent-devel consent-tests; do
   sdb -s "$CONSENT_DEVICE" push "$CONSENT_RPM_DIR/$package-0.1.0-1.x86_64.rpm" /tmp/
 done
-sdb -s "$CONSENT_DEVICE" shell 'rpm -Uvh --replacepkgs /tmp/consent-0.1.0-1.x86_64.rpm /tmp/consentd-0.1.0-1.x86_64.rpm /tmp/consent-devel-0.1.0-1.x86_64.rpm /tmp/consent-tests-0.1.0-1.x86_64.rpm'
+sdb -s "$CONSENT_DEVICE" shell 'rpm -Uvh --replacepkgs --replacefiles /tmp/consent-0.1.0-1.x86_64.rpm /tmp/consentd-0.1.0-1.x86_64.rpm /tmp/consent-devel-0.1.0-1.x86_64.rpm /tmp/consent-tests-0.1.0-1.x86_64.rpm'
 sdb -s "$CONSENT_DEVICE" shell 'systemctl status consentd.socket'
 sdb -s "$CONSENT_DEVICE" shell 'journalctl -u consentd.service -n 80 --no-pager'
 ```
 
-GBS가 출력한 실제 release와 RPM 경로를 사용합니다. `--replacepkgs`는
-버전 번호를 바꾸지 않고 같은 개발 버전을 재설치할 때 사용합니다.
+GBS가 출력한 실제 release와 RPM 경로를 사용합니다. 검증한 개발 재설치는
+버전 번호를 바꾸지 않고 위 consent RPM에 `--replacepkgs --replacefiles`를
+적용했습니다.
 
 `consentd.service`만 중지하면 다시 활성화될 수 있습니다. 유지보수 시에는
 socket과 service를 함께 중지합니다. systemd endpoint를 직접 지우지 않습니다.
@@ -134,6 +142,11 @@ AUTHORIZE 검사를 사용하며 일회성 소비와 재시도 식별자를 원�
 제어 메타데이터만 저장하며 대화 본문을 저장하지 않습니다. 실제 데이터 수명은
 holder가 집행하고 정리를 ACK합니다. close 응답은 이후 사용 차단을 뜻하며
 물리적 삭제 완료를 증명하지 않습니다.
+holder가 재시작하면 명시적인 subject/profile과 `reconcile=1`로
+`consent_cleanup_get_pending()`을 호출하여 이전 프로세스 인스턴스의 미완료
+정리를 조회합니다. 실제 삭제 후 같은 문맥으로 `consent_data_release()`를
+호출하여 완료를 알립니다. 이 대조는 정리 권한만 부여합니다. DB 전체 소실과
+holder 대조의 한계는 [저장 가이드](storage-design.ko.md)를 참조합니다.
 
 ## 파라미터 필드
 
@@ -195,8 +208,9 @@ root 전용 installation authority는 `begin`, `attach`, `commit`, `remove`로
 활성화합니다. 한 번도 기록되지 않은 패키지에만 `absent`를 사용합니다.
 명령마다 고유 operation ID와 기대 세대가 필요하며 결과가 불확실하면 같은
 operation으로 재시도합니다. 실제 패키지 설치와 authority commit이 성공한
-후에만 등록합니다. 삭제할 때는 현재 세대로 consent 정의를 먼저 unregister한
-뒤 authority를 removed로 바꿉니다. 재설치는 새 세대를 사용합니다. 이 도구는
+후에만 등록합니다. 삭제할 때는 authority를 먼저 removed로 바꾼 뒤 같은
+기대 세대로 consent 정의를 unregister합니다. tombstone은 패키지 전체 정리가
+진행되는 동안 새 권한 부여를 막습니다. 재설치는 새 세대를 사용합니다. 이 도구는
 Installer 연동 지점이며 플랫폼 hook 설치 완료를 뜻하지 않습니다.
 
 C API 실행 프로그램은 `METHOD [PACKAGE [APP]] key=value ...`, `--async`,
@@ -220,6 +234,14 @@ C API 실행 프로그램은 `METHOD [PACKAGE [APP]] key=value ...`, `--async`,
 사용하므로 클라이언트 계약을 검증하며 데몬 정책이나 플랫폼 신원 검증을
 대신하지 않습니다.
 
+`scripts/emulator-scenario.sh`는 격리된 에뮬레이터 단계별 테스트를 제공합니다.
+`basic`은 새 테스트 설치 상태가 필요하며 이전 결과를 임의로 삭제하지 않습니다.
+후속 단계는 지속성, 실행·정지 중 DB 삭제, 손상 DB 복구, 과거 DB 교체 및
+동일 UID의 역할 거부를 확인합니다. 선택한 개발 에뮬레이터에서 root와
+`System` security label로만 실행합니다. `endpoint-fixture`는 실제
+`/run/.consentd.sock`을 사용하는 별도 수동 endpoint 인증 도구이므로 CTest에서
+제외합니다. 실행 전 [검증 증거](verification.ko.md)의 준비 절차를 따릅니다.
+
 프로세스 강제 종료, 정상 재부팅, emulator 전원 강제 중단을 별도 시나리오로
 기록합니다. 강제 DB 삭제는 격리된 테스트 상태 또는 선택한 개발 emulator의
 consent 상태만 대상으로 합니다. 다른 플랫폼 DB를 삭제하지 않습니다.
@@ -236,12 +258,12 @@ rollback journal은 SQLite가 관리하므로 복구 중 따로 지우지 않습
 정상 재시작에서는 pending 요청과 세션을 무효화하며 조건을 만족하는 지속 승인을
 보존합니다. 삭제 증거가 수신될 때까지 holder 정리는 미완료로 남습니다.
 
-GBS에서 GCC 14.2와 `-Werror`로 native Parcel 클라이언트·데몬·C 실행
-프로그램·installation authority를 컴파일했습니다. 여섯 번째 빌드는 클라이언트
-계약, 저장 정책·복구, 저장 장애 주입, IDL 생성의 CTest 4개를 모두 통과했습니다.
-이 build-root 테스트와 에뮬레이터 통합 검증은 구분합니다. 실제 기기 결과와
-남은 수용 조건은 한영 검증 증거 문서에 기록하며, mock 신원 테스트가 제품
-신원 연동을 입증하지는 않습니다. 실제 Installer·argo·UI 정책 연동이 필요합니다.
+GBS는 GCC 14.2와 `-Werror`로 native Parcel 클라이언트·데몬·C 실행
+프로그램·installation authority를 빌드합니다. 패키지 검사는 클라이언트 계약,
+저장 정책·복구, 저장 장애 주입, 프로세스 강제 종료 경계 및 IDL 생성을 다룹니다.
+build-root 테스트와 에뮬레이터 통합 검증은 구분합니다. [검증 증거](verification.ko.md)에
+검사한 snapshot, 실제 결과와 남은 수용 조건을 기록합니다. mock 신원 테스트가
+제품 신원 연동을 입증하지는 않으며 실제 Installer·argo·UI 정책 연동이 필요합니다.
 
 데몬은 조건을 만족하는 PERSISTENT/SESSION 승인을 최대 500 ms 동안 cache
 가능으로 표시하며 timer 처리에서 설치 세대를 대조합니다. 각 클라이언트

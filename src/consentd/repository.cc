@@ -319,7 +319,10 @@ CREATE TABLE IF NOT EXISTS artifact_grants(artifact TEXT NOT NULL REFERENCES art
  grant_id TEXT NOT NULL REFERENCES grants(id),PRIMARY KEY(artifact,grant_id));
 CREATE TABLE IF NOT EXISTS artifact_parents(child TEXT NOT NULL REFERENCES artifacts(id),
  parent TEXT NOT NULL REFERENCES artifacts(id),PRIMARY KEY(child,parent));
-PRAGMA user_version=1;
+CREATE TABLE IF NOT EXISTS cleanup_acknowledgements(artifact TEXT PRIMARY KEY
+ REFERENCES artifacts(id),holder TEXT NOT NULL,instance TEXT NOT NULL,
+ success INTEGER NOT NULL,acknowledged INTEGER NOT NULL);
+PRAGMA user_version=2;
 )SQL";
 
 }  // namespace
@@ -596,7 +599,7 @@ void Repository::Impl::OpenDatabase(bool recovering) {
       throw Failure(kStorage, "database corrupt");
     }
     Statement version(db_, "PRAGMA user_version");
-    Require(version.Row() && version.Int(0) <= 1, kStorage, "unsupported database schema");
+    Require(version.Row() && version.Int(0) <= 2, kStorage, "unsupported database schema");
   }
   {
     Transaction transaction(db_);
@@ -1477,8 +1480,16 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
             .Bind(8, mode).Bind(9, expires).Bind(10, mode == "ONCE" ? 1 : -1).Run();
       }
     }
-    Statement update(db_, "UPDATE requests SET state=?,token='' WHERE id=? AND state='PENDING'");
-    update.Bind(1, decision).Bind(2, Get(pending, "request_id")).Run();
+    Message final_payload = pending;
+    for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
+      final_payload.erase(field);
+    for (int i = 0; i < count; ++i) {
+      std::string key = "r" + std::to_string(i) + ".decision";
+      if (decision == "ALLOWED" || Get(final_payload, key) != "ALLOWED")
+        final_payload[key] = decision;
+    }
+    Statement update(db_, "UPDATE requests SET state=?,token='',payload=? WHERE id=? AND state='PENDING'");
+    update.Bind(1, decision).Bind(2, Pack(final_payload)).Bind(3, Get(pending, "request_id")).Run();
     result = {{"request_id", Get(pending, "request_id")}, {"decision", decision}};
   }
   Bump();
@@ -1508,10 +1519,15 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
   std::string method = Get(request, "method");
   Transaction transaction(db_);
   if (method == "cleanup_list") {
+    Context(peer, request);
+    bool reconcile = Get(request, "reconcile") == "1";
     Message result;
-    Statement rows(db_, "SELECT id,session,state,cleanup_error FROM artifacts WHERE holder=? AND instance=? "
-        "AND state IN ('CLEANUP_PENDING','CLEANUP_FAILED') LIMIT 48");
-    rows.Bind(1, peer.identity).Bind(2, peer.instance);
+    Statement rows(db_, "SELECT artifacts.id,session,artifacts.state,cleanup_error FROM artifacts "
+        "JOIN sessions ON sessions.id=artifacts.session WHERE holder=? AND (artifacts.instance=? OR ?=1) "
+        "AND sessions.subject=? AND sessions.profile=? "
+        "AND artifacts.state IN ('CLEANUP_PENDING','CLEANUP_FAILED') LIMIT 48");
+    rows.Bind(1, peer.identity).Bind(2, peer.instance).Bind(3, reconcile ? 1 : 0)
+        .Bind(4, Get(request, "subject")).Bind(5, Get(request, "profile"));
     int count = 0;
     while (rows.Row()) {
       std::string prefix = "a" + std::to_string(count++) + ".";
@@ -1525,11 +1541,20 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
     return result;
   }
   if (method == "data_release" || method == "cleanup_ack") {
-    Statement artifact(db_, "SELECT holder,instance,state FROM artifacts WHERE id=?");
+    Statement artifact(db_, "SELECT holder,artifacts.instance,artifacts.state,sessions.subject,sessions.profile "
+        "FROM artifacts JOIN sessions ON sessions.id=artifacts.session WHERE artifacts.id=?");
     artifact.Bind(1, Get(request, "artifact"));
     Require(artifact.Row(), -ENOENT, "artifact not found");
-    Require(artifact.Text(0) == peer.identity && artifact.Text(1) == peer.instance,
-        -EACCES, "holder instance mismatch");
+    Require(artifact.Text(0) == peer.identity, -EACCES, "holder identity mismatch");
+    if (artifact.Text(1) != peer.instance) {
+      Require(Get(request, "reconcile") == "1", -EACCES, "holder instance mismatch");
+      Context(peer, request);
+      Require(artifact.Text(3) == Get(request, "subject") &&
+          artifact.Text(4) == Get(request, "profile"), -EACCES,
+          "cleanup reconciliation context mismatch");
+      Require(artifact.Text(2) == "CLEANUP_PENDING" || artifact.Text(2) == "CLEANUP_FAILED" ||
+          artifact.Text(2) == "DELETED", -EACCES, "reconciliation is cleanup-only");
+    }
     bool success = Get(request, "success", "1") == "1";
     Require(success || artifact.Text(2) != "DELETED", -ESTALE,
         "completed deletion cannot become failed");
@@ -1537,11 +1562,18 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
     update.Bind(1, success ? "DELETED" : "CLEANUP_FAILED")
         .Bind(2, success ? "" : "holder reported cleanup failure")
         .Bind(3, Get(request, "artifact")).Run();
+    Statement evidence(db_, "INSERT INTO cleanup_acknowledgements VALUES(?,?,?,?,?) "
+        "ON CONFLICT(artifact) DO UPDATE SET holder=excluded.holder,instance=excluded.instance,"
+        "success=excluded.success,acknowledged=excluded.acknowledged");
+    evidence.Bind(1, Get(request, "artifact")).Bind(2, peer.identity).Bind(3, peer.instance)
+        .Bind(4, success ? 1 : 0).Bind(5, Now()).Run();
     FinishCleanup();
     Bump();
     transaction.Commit();
     return {{"state", success ? "DELETED" : "CLEANUP_FAILED"}};
   }
+  Require(Get(request, "reconcile") != "1", -EACCES,
+      "cleanup reconciliation does not transfer data-use rights");
   Context(peer, request);
   Require(Get(request, "storage_class", "MEMORY_ONLY") == "MEMORY_ONLY", -EACCES,
       "persistent data storage is disabled");
@@ -1561,9 +1593,11 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
         "acquisition context mismatch");
     // One original artifact per receipt and holder. Repeating registration
     // returns the old identity and deadline rather than extending retention.
-    Statement prior(db_, "SELECT id,state,expires,purpose,recipient,scope FROM artifacts WHERE receipt=? AND holder=? AND instance=?");
-    prior.Bind(1, receipt).Bind(2, peer.identity).Bind(3, peer.instance);
+    Statement prior(db_, "SELECT id,state,expires,purpose,recipient,scope,instance FROM artifacts WHERE receipt=? AND holder=?");
+    prior.Bind(1, receipt).Bind(2, peer.identity);
     if (prior.Row()) {
+      Require(prior.Text(6) == peer.instance, -EACCES,
+          "acquisition receipt belongs to a prior holder instance");
       Require(prior.Text(3) == Get(request, "purpose") &&
           prior.Text(4) == Get(request, "recipient") && prior.Text(5) == Get(request, "scope"),
           kConflict, "artifact retry payload conflict");

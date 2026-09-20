@@ -350,7 +350,8 @@ bool IdentityPolicy::Allows(const Peer& peer, const std::string& method) {
     return role("ui");
   if (method == "revoke")
     return role("admin");
-  if (method == "session_get_state" || method == "cleanup_get_state")
+  if (method == "session_get_state" || method == "session_state" ||
+      method == "cleanup_get_state" || method == "cleanup")
     return role("session") || role("holder") || role("argo") || role("checker");
   if (method.compare(0, 8, "session_") == 0)
     return role("session");

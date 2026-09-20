@@ -264,12 +264,23 @@ int Server::Run(int listener_fd) {
   sigint_ = attach_signal(SIGINT);
   Submit([this] {
     std::string error;
-    repository_ = std::make_unique<Repository>(
-        std::string(CONSENT_STATE_DIR) + "/consent.db", CONSENT_STATE_DIR);
-    repository_->SetInstallationValidator(ValidateInstallation);
-    repository_->SetPackageGenerationValidator(ValidatePackageGeneration);
-    bool ready = repository_->Open(&error);
-    auto snapshot = ready ? repository_->Snapshot() : consent::Message{};
+    bool ready = false;
+    consent::Message snapshot;
+    try {
+      repository_ = std::make_unique<Repository>(
+          std::string(CONSENT_STATE_DIR) + "/consent.db", CONSENT_STATE_DIR);
+      repository_->SetInstallationValidator(ValidateInstallation);
+      repository_->SetPackageGenerationValidator(ValidatePackageGeneration);
+      ready = repository_->Open(&error);
+      if (ready)
+        snapshot = repository_->Snapshot();
+    } catch (const std::exception& failure) {
+      ready = false;
+      error = failure.what();
+    } catch (...) {
+      ready = false;
+      error = "storage initialization failed";
+    }
     Post(main_context_, [this, ready, error, snapshot] {
       if (!ready) {
         g_warning("event=database-open-failed reason=%s", error.c_str());

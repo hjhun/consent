@@ -247,6 +247,7 @@ CONSENT_MANAGEMENT(consent_data_register, "data_register")
 CONSENT_MANAGEMENT(consent_data_register_derived, "data_derived")
 CONSENT_MANAGEMENT(consent_data_release, "data_release")
 CONSENT_MANAGEMENT(consent_cleanup_get_state, "cleanup")
+CONSENT_MANAGEMENT(consent_cleanup_get_pending, "cleanup_list")
 #undef CONSENT_MANAGEMENT
 
 void consent_result_free(consent_result_t* result) { delete result; }

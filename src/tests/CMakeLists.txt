@@ -18,6 +18,21 @@ FOREACH(SOURCE ${TEST_SOURCES})
   GET_FILENAME_COMPONENT(TEST_NAME "${SOURCE}" NAME_WE)
   STRING(REPLACE "_" "-" TEST_NAME "${TEST_NAME}")
   ADD_EXECUTABLE(${TEST_NAME} "${SOURCE}")
+  IF(TEST_NAME STREQUAL "endpoint-fixture")
+    # Explicit emulator-only fixture: it uses the real activation socket path.
+    INSTALL(TARGETS ${TEST_NAME}
+      RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+    CONTINUE()
+  ENDIF()
+  IF(TEST_NAME STREQUAL "wire-scenario")
+    # The native wire fixture requires an isolated daemon and explicit roles.
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-common PkgConfig::GLIB)
+    TARGET_COMPILE_DEFINITIONS(${TEST_NAME} PRIVATE
+      CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock")
+    INSTALL(TARGETS ${TEST_NAME}
+      RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+    CONTINUE()
+  ENDIF()
   # Assertions in executable tests include fixture setup and must stay active.
   TARGET_COMPILE_OPTIONS(${TEST_NAME} PRIVATE -UNDEBUG)
   TARGET_INCLUDE_DIRECTORIES(${TEST_NAME} PRIVATE

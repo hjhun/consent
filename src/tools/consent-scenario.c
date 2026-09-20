@@ -31,6 +31,7 @@
 static consent_client_h client;
 static consent_client_h ui;
 static unsigned serial;
+static char phase[64] = "basic";
 static int callbacks;
 static int returned;
 static int callback_status;
@@ -102,8 +103,8 @@ static void define(const char* app, const char* definition,
 static void approve(const char* scope, const char* mode, const char* session,
     const char* generation) {
   consent_params_t* p = query(scope, session, generation);
-  char operation[64];
-  snprintf(operation, sizeof(operation), "approval-%u", ++serial);
+  char operation[128];
+  snprintf(operation, sizeof(operation), "%s-approval-%u", phase, ++serial);
   set(p, "client_request_id", operation);
   set(p, "operation_id", operation);
   consent_async_id_t async_id;
@@ -155,19 +156,292 @@ static void check(const char* scope, consent_decision_e decision) {
   consent_params_free(p);
 }
 
+struct race_gate {
+  GMutex mutex;
+  GCond condition;
+  int ready;
+  int go;
+};
+
+struct race_job {
+  struct race_gate* gate;
+  consent_client_h handle;
+  consent_params_t* request;
+  int kind;  /* 0 authorize, 1 cancel, 2 respond */
+  int status;
+  consent_result_t* result;
+};
+
+static gpointer race_worker(gpointer value) {
+  struct race_job* job = value;
+  g_mutex_lock(&job->gate->mutex);
+  ++job->gate->ready;
+  g_cond_broadcast(&job->gate->condition);
+  while (!job->gate->go)
+    g_cond_wait(&job->gate->condition, &job->gate->mutex);
+  g_mutex_unlock(&job->gate->mutex);
+  if (job->kind == 0)
+    job->status = consent_check(job->handle, job->request, 5000, &job->result);
+  else if (job->kind == 1)
+    job->status = consent_cancel_request(job->handle, job->request, &job->result);
+  else
+    job->status = consent_respond(job->handle, job->request, &job->result);
+  return NULL;
+}
+
+static void run_race(struct race_job jobs[2]) {
+  struct race_gate gate = {0};
+  g_mutex_init(&gate.mutex);
+  g_cond_init(&gate.condition);
+  jobs[0].gate = jobs[1].gate = &gate;
+  GThread* first = g_thread_new("contender-a", race_worker, &jobs[0]);
+  GThread* second = g_thread_new("contender-b", race_worker, &jobs[1]);
+  g_mutex_lock(&gate.mutex);
+  while (gate.ready != 2)
+    g_cond_wait(&gate.condition, &gate.mutex);
+  gate.go = 1;
+  g_cond_broadcast(&gate.condition);
+  g_mutex_unlock(&gate.mutex);
+  g_thread_join(first);
+  g_thread_join(second);
+  g_cond_clear(&gate.condition);
+  g_mutex_clear(&gate.mutex);
+}
+
+static void await_decision(consent_decision_e decision) {
+  gint64 deadline = g_get_monotonic_time() + 5000000;
+  while (!callbacks && g_get_monotonic_time() < deadline) {
+    while (g_main_context_iteration(NULL, FALSE)) {}
+    g_usleep(1000);
+  }
+  CHECK(callbacks == 1 && callback_status == 0 && callback_decision == decision);
+}
+
+static consent_params_t* pending(const char* scope, const char* deadline) {
+  consent_params_t* request = query(scope, NULL, NULL);
+  char id[128];
+  snprintf(id, sizeof(id), "%s-pending-%u", phase, ++serial);
+  set(request, "client_request_id", id);
+  set(request, "operation_id", id);
+  set(request, "deadline_ms", deadline);
+  callbacks = returned = 0;
+  consent_async_id_t local;
+  CALL(consent_request_async(client, request, completed, NULL, &local));
+  returned = 1;
+  consent_params_free(request);
+  consent_params_t* lookup = params();
+  set(lookup, "client_request_id", id);
+  consent_result_t* result = NULL;
+  int status = CONSENT_ERROR_NOT_FOUND;
+  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND; ++attempt) {
+    g_usleep(10000);
+    status = consent_get_request_result(ui, lookup, &result);
+  }
+  CHECK(status == 0 && consent_result_get_decision(result) == CONSENT_DECISION_PENDING);
+  set(lookup, "request_id", consent_result_get(result, "request_id"));
+  consent_result_free(result);
+  set(lookup, "locale", "en");
+  CALL(consent_get_prompt(ui, lookup, &result));
+  set(lookup, "prompt_token", consent_result_get(result, "prompt_token"));
+  set(lookup, "decision", "ALLOWED");
+  set(lookup, "grant_mode", "ONCE");
+  consent_result_free(result);
+  return lookup;
+}
+
+static void races(void) {
+  approve("once-race", "ONCE", NULL, NULL);
+  struct race_job jobs[2] = {{0}, {0}};
+  for (int i = 0; i < 2; ++i) {
+    jobs[i].handle = i ? ui : client;
+    jobs[i].request = query("once-race", NULL, NULL);
+    set(jobs[i].request, "mode", "AUTHORIZE");
+    char operation[96];
+    snprintf(operation, sizeof(operation), "%s-once-%d", phase, i);
+    set(jobs[i].request, "operation_id", operation);
+    set(jobs[i].request, "step_id", "read");
+  }
+  run_race(jobs);
+  CHECK(jobs[0].status == 0 && jobs[1].status == 0);
+  int allowed = 0;
+  for (int i = 0; i < 2; ++i) {
+    consent_decision_e decision = consent_result_get_decision(jobs[i].result);
+    if (decision == CONSENT_DECISION_ALLOWED) {
+      ++allowed;
+      char* receipt = field(jobs[i].result, "receipt");
+      consent_result_t* retry = NULL;
+      CALL(consent_check(jobs[i].handle, jobs[i].request, 5000, &retry));
+      CHECK(consent_result_get_decision(retry) == CONSENT_DECISION_ALLOWED);
+      CHECK(!strcmp(receipt, consent_result_get(retry, "receipt")));
+      CHECK(!strcmp("1", consent_result_get(retry, "retry")));
+      g_free(receipt);
+      consent_result_free(retry);
+    } else {
+      CHECK(decision == CONSENT_DECISION_CONSENT_REQUIRED);
+    }
+    consent_result_free(jobs[i].result);
+    consent_params_free(jobs[i].request);
+  }
+  CHECK(allowed == 1);
+  puts("PASS two independent connections: one ONCE winner, stable receipt retry");
+
+  consent_params_t* lookup = pending("cancel-first", "5000");
+  consent_result_t* result = NULL;
+  CALL(consent_cancel_request(ui, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_CANCELLED);
+  consent_result_free(result);
+  CHECK(consent_respond(ui, lookup, &result) < 0);
+  await_decision(CONSENT_DECISION_CANCELLED);
+  consent_params_free(lookup);
+
+  lookup = pending("respond-first", "5000");
+  CALL(consent_respond(ui, lookup, &result));
+  consent_result_free(result);
+  CALL(consent_cancel_request(ui, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
+  consent_result_free(result);
+  await_decision(CONSENT_DECISION_ALLOWED);
+  consent_params_free(lookup);
+
+  lookup = pending("cancel-response-race", "5000");
+  jobs[0] = (struct race_job){ .handle = client, .request = lookup, .kind = 1 };
+  jobs[1] = (struct race_job){ .handle = ui, .request = lookup, .kind = 2 };
+  run_race(jobs);
+  CHECK(jobs[0].status == 0);
+  consent_decision_e final = consent_result_get_decision(jobs[0].result);
+  CHECK((final == CONSENT_DECISION_CANCELLED && jobs[1].status < 0) ||
+      (final == CONSENT_DECISION_ALLOWED && jobs[1].status == 0));
+  consent_result_free(jobs[0].result);
+  consent_result_free(jobs[1].result);
+  await_decision(final);
+  consent_params_free(lookup);
+
+  lookup = pending("deadline-first", "100");
+  g_usleep(150000);
+  CALL(consent_get_request_result(ui, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_EXPIRED);
+  consent_result_free(result);
+  CHECK(consent_respond(ui, lookup, &result) < 0);
+  await_decision(CONSENT_DECISION_EXPIRED);
+  consent_params_free(lookup);
+  check("cancel-first", CONSENT_DECISION_CONSENT_REQUIRED);
+  check("deadline-first", CONSENT_DECISION_CONSENT_REQUIRED);
+  puts("PASS remote cancellation/respond race/deadline with exactly one final callback");
+}
+
+static void holder_seed(const char* install_generation) {
+  define("demo.app", "demo.read", phase, install_generation);
+  consent_params_t* p = params();
+  consent_result_t* result = NULL;
+  CALL(consent_session_open(client, p, &result));
+  char* session = field(result, "session");
+  char* generation = field(result, "generation");
+  consent_result_free(result);
+  consent_params_free(p);
+  approve("holder-restart-scope", "SESSION", session, generation);
+  p = query("holder-restart-scope", session, generation);
+  set(p, "mode", "AUTHORIZE");
+  char operation[96];
+  snprintf(operation, sizeof(operation), "%s-acquire", phase);
+  set(p, "operation_id", operation);
+  set(p, "step_id", "read");
+  CALL(consent_check(client, p, 5000, &result));
+  char* receipt = field(result, "receipt");
+  consent_result_free(result);
+  consent_params_free(p);
+  p = params();
+  set(p, "session", session);
+  set(p, "generation", generation);
+  set(p, "receipt", receipt);
+  set(p, "scope", "holder-restart-scope");
+  set(p, "purpose", "answer");
+  CALL(consent_data_register(client, p, &result));
+  consent_result_free(result);
+  CALL(consent_session_close(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "state"), "CLOSING"));
+  consent_result_free(result);
+  consent_params_free(p);
+  g_free(session);
+  g_free(generation);
+  g_free(receipt);
+  puts("PASS holder seed: exited with cleanup pending, no artifact ID handoff");
+}
+
+static void holder_reconcile(void) {
+  consent_params_t* p = params();
+  set(p, "reconcile", "1");
+  consent_result_t* result = NULL;
+  CALL(consent_cleanup_get_pending(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "count"), "1"));
+  char* artifact = field(result, "a0.artifact");
+  consent_result_free(result);
+  set(p, "artifact", artifact);
+  set(p, "reconcile", "0");
+  CHECK(consent_data_release(client, p, &result) == CONSENT_ERROR_PERMISSION_DENIED);
+  set(p, "reconcile", "1");
+  CHECK(consent_data_register(client, p, &result) == CONSENT_ERROR_PERMISSION_DENIED);
+  set(p, "success", "0");
+  CALL(consent_data_release(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "state"), "CLEANUP_FAILED"));
+  consent_result_free(result);
+  CALL(consent_cleanup_get_pending(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "count"), "1"));
+  CHECK(!strcmp(consent_result_get(result, "a0.state"), "CLEANUP_FAILED"));
+  consent_result_free(result);
+  set(p, "success", "1");
+  CALL(consent_data_release(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "state"), "DELETED"));
+  consent_result_free(result);
+  CALL(consent_data_release(client, p, &result));
+  consent_result_free(result);
+  CALL(consent_cleanup_get_pending(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "count"), "0"));
+  consent_result_free(result);
+  consent_params_free(p);
+  g_free(artifact);
+  puts("PASS new holder process: pending discovery, blocked reuse, failed cleanup/retry/ACK");
+}
+
 int main(int argc, char** argv) {
   if (argc != 3) {
-    fprintf(stderr, "Usage: %s basic|persistent|recovered GENERATION\n", argv[0]);
+    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled GENERATION\n", argv[0]);
     return 2;
   }
+  snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1], g_get_monotonic_time());
   CHECK(consent_client_create(&client) == 0);
   CHECK(consent_client_create(&ui) == 0);
+  if (!strcmp(argv[1], "reinstalled")) {
+    char operation[96];
+    snprintf(operation, sizeof(operation), "%s-app1", phase);
+    define("demo.app", "demo.read", operation, argv[2]);
+    snprintf(operation, sizeof(operation), "%s-app2", phase);
+    define("demo.app2", "demo.other", operation, argv[2]);
+    check("persistent-scope", CONSENT_DECISION_CONSENT_REQUIRED);
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
+    puts("PASS reinstall: two apps registered in new generation without old grants");
+    return 0;
+  }
   if (!strcmp(argv[1], "persistent") || !strcmp(argv[1], "recovered")) {
     check("persistent-scope", !strcmp(argv[1], "persistent") ?
         CONSENT_DECISION_ALLOWED : CONSENT_DECISION_CONSENT_REQUIRED);
     printf("PASS %s\n", argv[1]);
     consent_client_destroy(ui);
     consent_client_destroy(client);
+    return 0;
+  }
+  if (!strcmp(argv[1], "races")) {
+    define("demo.app", "demo.read", phase, argv[2]);
+    races();
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
+    return 0;
+  }
+  if (!strcmp(argv[1], "holder-seed") || !strcmp(argv[1], "holder-reconcile")) {
+    if (!strcmp(argv[1], "holder-seed")) holder_seed(argv[2]);
+    else holder_reconcile();
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
     return 0;
   }
   CHECK(!strcmp(argv[1], "basic"));

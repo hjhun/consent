@@ -235,6 +235,13 @@ of physical deletion. Retry must preserve completed deletion and reject another
 holder or unauthorized context. Test failed ACK, holder/daemon restart, retry,
 TTL, and derived-data invalidation separately from the basic session-close path.
 
+Expose bounded pending-cleanup discovery through the public C API, since a new
+holder may no longer know its artifact IDs. Connect it to the same authenticated
+cleanup-only repository path; the existing data-release API can carry its ACK.
+Version the new durable ACK table as schema 2 and migrate schema 1 transactionally.
+Preserve valid persistent grants/definitions and apply normal restart invalidation
+to transient state. Unknown future schema versions remain explicit errors.
+
 ## Initial review findings to verify before completion
 
 - Recovery must retire/quarantine the applicable DB and journal artifact set

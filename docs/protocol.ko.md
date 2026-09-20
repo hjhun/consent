@@ -1,0 +1,184 @@
+# consent IPC 프로토콜 버전 1
+
+이 문서는 `src/common/message.hh`가 구현한 wire 형식을 설명합니다.
+`platform/core/base/bundle`의 실제 Tizen `parcel` 라이브러리를 사용합니다.
+`src/protocol/consent.idl.json`이 스키마이며 결정적 compiler가 native
+`Parcelable` Field/Envelope 클래스를 `consent_wire.hh`에 생성합니다.
+CEP v0.4의 JSON 예시는 도메인 객체를 설명하며 실제 통신은 Parcel입니다.
+JSON이나 GVariant를 내부 payload로 감싸지 않습니다.
+
+## 프레임과 인코딩
+
+AF_UNIX/SOCK_STREAM 메시지는 **big-endian** unsigned 4바이트 본문 길이와
+그 길이만큼의 native Parcel 본문으로 구성됩니다. 본문은 1~65,536바이트입니다.
+송수신은 부분 헤더, 부분 본문, 한 read에 여러 프레임이 오는 경우를 처리합니다.
+
+읽기와 쓰기 모두 `Parcel::SetByteOrder(true)`를 사용합니다. 모든 정수와 문자열
+길이는 host와 무관하게 big-endian입니다. 문자열은 `WriteString`과 호환됩니다.
+마지막 NUL을 포함한 u32 바이트 길이 다음에 UTF-8 바이트와 NUL이 옵니다.
+Envelope 순서는 다음과 같습니다.
+
+| Native Parcel 필드 | 타입 / 상한 |
+|---|---|
+| version | u32, 정확히 1 |
+| kind | u32: request=1, reply=2, event=3 |
+| correlation | u64: request/reply는 1..INT64_MAX, event는 0 |
+| method | NUL 제외 1..128바이트 UTF-8 문자열 |
+| status | i32: reply는 0 이하, request/event는 0 |
+| field count | u32, 최대 256; 전체 Message도 최대 256필드 |
+| 반복 key/value | key 최대 128바이트, value 최대 8192바이트 |
+
+인코더는 필드를 사전순으로 정렬합니다. 수신자는 중복 필드, 필드 배열 속 예약
+메타데이터, 잘못된 UTF-8, 중간 NUL, 마지막 NUL 누락, 초과 count, 잘린 데이터,
+후행 바이트를 거부합니다. key는 비어 있지 않은 `A-Z a-z 0-9 _ . -` 조합입니다.
+requirement는 최대 16개입니다. 문자열로 표현한 숫자는 후행 문자와 signed 64-bit
+범위 초과를 거부합니다.
+
+생성된 reader는 Parcel primitive 읽기 전에 길이를 검사합니다. 문자열 길이,
+스키마 상한, 남은 본문을 먼저 확인하고 빌린 span의 NUL/UTF-8을 검증한 뒤
+문자열을 할당합니다. 비신뢰 입력에 `Parcel::ReadString()`을 사용하지 않습니다.
+배열도 남은 바이트가 각 원소의 최소 wire 길이를 수용하는지 확인한 뒤 resize합니다.
+`ReadParcelable()` 반환값만으로 성공을 판단하지 않고 생성된 validation 상태와
+본문 전체 소비를 확인합니다.
+
+다음 회귀 test vector는 4바이트 헤더를 포함합니다.
+추가 필드가 없는 `v=1, id=1, method=hello`입니다.
+
+```text
+00000022
+00000001 00000001 0000000000000001
+00000006 68656c6c6f00
+00000000 00000000
+```
+
+첫 줄은 본문 크기 34입니다. 이후 version/kind/correlation, method 문자열,
+status, field count 순서입니다. 공백과 줄바꿈은 가독성을 위한 표시입니다.
+
+## Envelope와 요청 연결
+
+각 요청은 `v=1`, 연결 내 고유한 양의 십진수 `id`, `method`를 가집니다.
+reply는 `v`, `id`, `status`를 반환하며 정상 repository 응답에는 `epoch`,
+`revision`이 포함됩니다. status는 처리 성공 0 또는 음수 API 오류입니다.
+`ALLOWED`, `DENIED`, `CONSENT_REQUIRED`, `PENDING`, `CANCELLED`, `EXPIRED`,
+`INVALIDATED` 결정은 API 오류와 별개입니다. 0이 아닌 status로 보호 작업을 허용하지
+않습니다.
+
+daemon은 accepted socket과 보호된 플랫폼 정책에서 신원을 얻습니다. caller가
+보낸 role/PID/UID/underscore 접두어 private 필드는 권한 근거가 아닙니다.
+public params builder는 예약 필드를 거부하고 서버도 별도로 검증합니다.
+라이브러리 입력 검증 자체가 인증 경계는 아닙니다.
+
+`request`의 `decision=PENDING` 응답에는 `request_id`가 있습니다. client I/O
+thread는 새로운 transport correlation ID로 `result`를 주기적으로 조회하며,
+조회 사이에는 서버 worker와 DB executor를 점유하지 않습니다. 최종 결정이 원래
+로컬 operation을 한 번 완료합니다. 명시적으로 호출한 result API는 PENDING을
+바로 반환할 수 있습니다. 안정된 `client_request_id`와 operation ID는 응답 유실
+이후에도 사용합니다. transport `id`는 영속 중복 처리 방지 키가 아닙니다.
+
+## 무효화와 캐시 계약
+
+daemon은 변경 commit 후 `v=1, method=event, event=invalidate, epoch=...,
+revision=...`를 broadcast합니다. 각 연결에서 해당 변경 reply보다 event가 먼저
+갑니다. client는 event 또는 epoch/revision 변경 시 전체 캐시를 지웁니다.
+연결이 끊기면 캐시를 지우고 비활성화합니다.
+
+request 응답은 `cacheable=1`, `cache_ttl_ms`로 캐시를 허용할 수 있습니다.
+client는 유효한 epoch/revision이 있는 ALLOWED request만 저장합니다. session
+request는 응답 session/generation이 요청과 정확히 같아야 하며 daemon이 TTL을
+session deadline 이내로 제한합니다. client는 로컬 operation 접수 시각부터 응답까지
+경과한 시간을 차감하므로 늦게 도착한 응답이 수명을 다시 시작하지 않습니다. client 상한은 1초, handle당 LRU 64개입니다.
+transport ID, request ID, operation ID, deadline을 제외한 전체 문맥을 비교합니다.
+cache hit는 `source=CACHE`이고 원격 request_id를 포함하지 않습니다.
+QUERY/AUTHORIZE는 항상 daemon에 문의합니다. key에는 session/generation이
+포함됩니다. 여러 client handle 사이 캐시 공유는 구현하지 않았습니다.
+
+## Production endpoint 인증
+
+production은 컴파일된 `/run/.consentd.sock`을 사용합니다. 연결 전후 root 소유
+상위 디렉터리와 root 소유/non-world-write socket, 동일 device/inode를 확인합니다.
+group write 예외는 Tizen의 root:system_share 소유 정확한 /run뿐입니다.
+
+파일 stat만으로 pathname race가 없어지지 않습니다. 연결된 socket의 kernel
+SO_PEERCRED PID1/UID0, getpeername의 정확한 AF_UNIX 원래 bind 경로와 sockaddr
+길이/마지막 NUL, 실제 target에서 관측한 SO_PEERSEC System::Privileged가 모두
+필요합니다. credential/label 조회 실패, root 직접 bind 서버, 다른 label,
+다른 systemd socket rename은 거부합니다. production에는 우회 환경변수가 없으며
+별도 격리 test client는 다른 endpoint로 컴파일됩니다.
+
+## Operation과 parameter 표현
+
+public C params는 확장 가능한 문자열 dictionary입니다. requirement는 `count`,
+`r0.definition`, `r0.operation`, `r0.scope`, `r0.purpose`, `r0.recipient`,
+`r1.*`처럼 표현합니다. 등록 필드는 package/app/definition/enforcer,
+operation_id/expected_generation, policy_version/text_revision/level/modes,
+default_locale, `message.<locale>.title/body`, retention metadata입니다.
+
+`consent_register(client, package, app, params)`는 package와 app을 명시적으로
+복사합니다. `consent_unregister(client, package, params)`는 app 없이 package
+단위로 제거합니다. 안정된 operation_id와 expected_generation으로 지연된 제거
+재시도가 새 설치를 제거하는 것을 막습니다. 신뢰할 installation generation은
+daemon 측 authority에서 조회합니다.
+
+request/check는 subject/profile, 선택적 session/generation, client_request_id,
+operation_id/step_id/deadline_ms와 requirement를 사용합니다. check mode는 QUERY
+또는 AUTHORIZE입니다. wire method는 hello, register, unregister, request, result,
+cancel, check, prompt, respond, revoke, session_open, session_suspend,
+session_resume, session_close, session_state, data_register, data_derived,
+data_release, cleanup, cleanup_list입니다. repository와 identity adapter가 구체적인 필수 필드와
+정책을 검증합니다. 필드의 존재 자체로 신원이나 권한이 입증되지 않습니다.
+
+`consent_cleanup_get_pending()`은 cleanup_list로 매핑됩니다. 인증된 holder가
+subject/profile을 전달하면 count와 aN.artifact/session/state/error에 최대48개
+pending/failed 항목을 반환합니다. 기본은 현재 process instance이며 reconcile=1은
+동일 stable holder가 이전 instance의 차단된 artifact를 조회하는 cleanup 전용
+경로입니다. 실제 삭제 후 consent_data_release에 artifact/success/reconcile=1과
+동일 subject/profile로 ACK합니다. 사용 권한/소유권을 이전하거나 기존 instance로
+새 artifact를 등록하는 기능이 아닙니다.
+
+## Callback과 자원 계약
+
+handle마다 bounded I/O thread 하나를 사용합니다. process당 최대 16 handle,
+handle당 최대 64 outstanding operation이며 dispatch 대기 callback도 포함합니다.
+송신 queue는 최대 256 KiB, 수신 중인 부분 프레임의 완료 제한은 5초입니다.
+
+client 생성은 생성 thread와 GLib thread-default context 또는
+`consent_client_create_with_context()`의 context를 기록합니다. 같은 thread가
+async API 호출, context 반복, client 파괴를 담당합니다. async API 실행 도중
+nested main loop를 돌리지 않습니다. callback은 idle source로 등록되어 inline
+실행되지 않고, 실행 중 라이브러리 mutex를 잡지 않습니다.
+
+async 성공은 로컬 접수를 뜻합니다. 원격 처리 오류는 callback으로 전달됩니다.
+입력과 callback bookkeeping은 접수 전에 할당합니다. 접수 전 할당 실패는 callback,
+I/O operation, user_data 참조를 남기지 않습니다. 결과는 callback 동안 빌려 쓰며
+보관하려면 `consent_result_clone()`을 호출합니다. `consent_async_detach()`는
+로컬 callback을 억제하며 원격 요청을 취소하지 않습니다. 원격 취소는
+`consent_cancel_request()`를 사용합니다.
+
+SYNC는 callback dispatch와 별도 condition으로 대기합니다. callback context를
+소유한 상태에서 호출하면 CONSENT_ERROR_WOULD_DEADLOCK입니다. 로컬 timeout은
+거부나 원격 취소를 의미하지 않습니다. 송신 후 응답을 확인하지 못하면
+CONSENT_ERROR_OUTCOME_UNKNOWN일 수 있으므로 같은 안정된 ID로 재시도/조회합니다.
+async 로컬 상한은 5분이며 daemon이 원격 request deadline을 별도 검사합니다.
+
+Destroy는 대기 callback 억제, SYNC waiter 깨우기, I/O thread join을 수행합니다.
+callback 안에서 destroy를 지원합니다. caller가 다른 thread의 raw handle 사용과
+파괴를 조정해야 합니다. fork로 상속한 handle은 상속 mutex 접근 전에 거부하며,
+child에서는 부모 callback도 억제합니다. child는 새 admission count로 새 handle을
+만듭니다. 신원이 바뀌어도 기존 handle을 폐기하고 새로 생성합니다.
+
+## 검증 범위
+
+`src/tests/client-test.cc`는 분할 wire, Parcel golden bytes, UTF-8, 중복 key,
+truncation/trailing bytes, bounded 문자열/배열, 숫자 overflow, 즉시 ALLOWED/DENIED,
+PENDING 조회, 캐시/무효화, 로컬 timeout/detach, queue 상한, callback 내 destroy,
+할당 실패 주입, 부모 16 handle 상태의 fork 격리를 검증합니다.
+mock server는 transport fixture이며 플랫폼 role 검사나 DB 복구, 실제 승인 UI를
+검증한 근거가 아닙니다. production과 격리 C 실행 프로그램은 별도 target으로
+link합니다. 환경변수로 production endpoint를 바꾸거나 인증을 끄지 않습니다.
+
+Host sanitizer는 fork와 LeakSanitizer를 나눠 실행합니다.
+`ASAN_OPTIONS=detect_leaks=0 client-test`는 fork16 포함 전체 ASAN/UBSAN,
+`ASAN_OPTIONS=detect_leaks=1 client-test --skip-fork`는 leak 검사를 수행합니다.
+LeakSanitizer와 multithreaded fork를 함께 켜면 host child의 새 client 생성에서
+hang이 관측됐습니다. 일반 GBS 시험은 fork를 포함하며 --skip-fork는 시험 프로그램
+옵션일 뿐 라이브러리 설정이 아닙니다.
