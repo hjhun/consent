@@ -265,6 +265,41 @@ UI 응답 transaction에서 새로 승인한 grant를 기록한 뒤 현재 요�
 QUERY가 grant를 소비하지 않음을 확인한다. 이 결정은 수정 계약이며 build10
 checkpoint에서는 후속 구현·검증 전까지 해당 경로를 미완료로 명시한다.
 
+## D-10: 승인 필드에 결합한 타입 있는 문구
+
+`template_version=1`을 상한이 있는 이름 기반 변수 계약으로 구현한다. 정의마다
+최대 8개 `parameter.<name>` schema에 source·type·해당 범위를 명시한다. source는
+요구 조건의 `scope`, `purpose`, `recipient`, `operation` 또는 정의의
+`retention_ms`로 제한한다. scope는 길이가 제한된 UTF-8 string 또는 정규 십진
+integer, 다른 요청 source는 string, retention은 integer다. 독립적인 호출자
+표시 인자나 임의 source 표현식은 받지 않는다.
+
+데몬은 저장된 요청과 등록된 정의에서 값을 구한다. 이 source는 기존 grant 범위,
+policy version, retry/cache key, receipt/artifact 검증에 이미 결합되어 있다.
+schema·source·type·범위 변경은 승인 의미 변경이므로 `policy_version`을 올린다.
+typed 요청은 해당 조건의 일치하는 policy version을 명시해야 한다. “최근 30일”은
+실제 조회 scope를 사용하며 결과 보관 시간을 대신 표시하지 않는다. v1은 단위를
+자동 변환하지 않고 retention 값을 ms로 유지한다.
+
+템플릿은 `{name}` 치환만 허용한다. 잘못되거나 중첩된 문법을 거부하고 모든 locale의
+title/body 변수 집합이 선언 schema와 일치해야 한다. template·값·field 수·wire·확장
+출력의 상한을 할당과 게시 전에 확인한다. 치환 값의 중괄호·퍼센트·markup은 재해석하지
+않는 평문이다. 공개 C formatter는 해제 API가 문서화된 소유 문자열을 반환하고 실패 시
+출력 포인터를 null로 유지한다. 정수는 우선 정규 십진 표기이며 언어별 복수형·날짜·숫자
+서식은 별도 플랫폼 통합 과제로 남긴다.
+
+기존 literal 정의는 호환된다. typed prompt 조회에는 UI가 template version 1 지원을
+명시해야 하며 구 UI에는 미확장 문구 대신 미지원 오류를 반환한다. typed 응답은 표시한
+locale과 최신 token에 결합하고 재표시마다 token을 갱신한다. 등록된 직접 locale
+fallback mapping을 기존 명시적 fallback과 기본 언어보다 먼저 적용한다. mapping
+연쇄·순환·미등록 대상은 거부한다. 번역·fallback mapping 변경은 text revision을
+올리고 표시 중 요청을 무효화한다. 의미 변경은 여전히 policy revision이 필요하다.
+
+한영 값, 미지정·누락 변수, 타입·범위 오류, 미지원 version, locale/token 경쟁, 출력
+상한, 치환 값의 평문 처리를 검증한다. 30일 승인으로 90일 요청을 허용하지 못하며
+cache·retry·receipt·artifact가 같은 범위 결합을 유지함을 확인한다. native unit,
+GBS, 실제 C API/emulator 결과는 이 결정과 구분해 기록한다.
+
 ## 완료 전에 확인할 초기 검토 사항
 
 - 이전 handle을 닫은 뒤 관련 DB와 journal 파일들을 함께 격리·정리해야 한다.

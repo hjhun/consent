@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 상태 | Draft — 설계 검토용 |
-| 문서 버전 | 0.4 |
+| 문서 버전 | 0.5 |
 | 작성일 | 2026-09-20 |
 | 대상 시스템 | Tizen AI OS |
 | 라이브러리 | `consent` — 공개 C API, 내부 C++ 구현 |
@@ -24,6 +24,8 @@
 v0.3은 4.2~4.10의 GLib 실행·스레드·잠금·소켓 프로토콜, 14.5~14.8의 systemd unit·FD 수명·종료, 15.1~15.4의 ucred·로그·인증에 대한 구현 지침을 추가한다. GMainLoop, 서브스레드 연결 처리, endpoint, socket activation과 peer credential 사용은 사용자 확정 요구다. 구체적인 스레드 개수·unit의 계정·큐 상한은 제품 환경에 맞춰 확정할 제안값이다.
 
 v0.4는 사용자 지시에 따라 client–consentd 통신에 `~/tizen/platform/core/base/bundle`의 parcel library를 사용하도록 확정한다. 기존 JSON wire 제안과 구현 중 검토한 GVariant wire 선택을 대체한다. 사용자가 허용한 통신 IDL과 간단한 compiler는 PO가 공통 메시지 규격을 유지하는 방법으로 채택했다. 4.8절의 parcel·IDL 계약은 구현 지침이며, 생성기·새 wire·GBS·emulator 검증 완료를 뜻하지 않는다. 상세 결정과 실제 검증 상태는 별도 결정 기록과 개발 가이드에서 구분한다.
+
+v0.5는 11.5절에 기존 승인 필드와 결합한 typed template v1의 구현 계약을 추가한다. 일반적인 복합 scope 언어나 전체 국제화 formatter의 구현 완료를 의미하지 않는다. PO 결정은 `decisions.ko.md`의 D-10, 실제 검증은 `verification.ko.md`에서 구분한다.
 
 ## 1. 개요
 
@@ -845,6 +847,32 @@ Capability Manager가 데이터 조건을 사전 조회하고 앱이 실제 데�
 prompt_token 또는 동등한 서버 관리 식별자로 request_id, policy_version, text_revision, scope fingerprint, 표시한 locale을 연결한다. UI 응답에서 이 결합을 확인한다. 언어 변경으로 다시 표시하면 새 prompt revision을 발급하고 이전 응답과의 경쟁을 처리한다.
 
 단순 번역 수정은 text_revision, 승인 의미·범위·목적·등급 변경은 policy_version을 변경한다. 오역 수정이 사용자의 이해나 승인 의미를 바꾼다면 단순 문구 수정으로 취급하지 않는다. 표시 중 정책이 바뀌면 요청을 INVALIDATED로 종료한다. 이전 문구 revision은 관련 요청·감사 보존기간 동안 참조 가능하게 유지한다.
+
+### 11.5 확정 구현 계약: typed template v1
+
+첫 구현은 등록 정의의 `template_version=1`과 최대 8개
+`parameter.<name>.{source,type,min,max,max_bytes}`를 사용한다. source는 요구 조건의
+scope·purpose·recipient·operation 또는 정의의 retention_ms로 제한하며, 저장된 요청과
+정의에서 값을 추출한다. 별도 display_args는 받지 않는다. scope의 정규 십진 정수 또는
+길이 제한 UTF-8 문자열, 다른 요청 필드의 문자열, retention_ms 정수를 검증한다.
+타입에 맞지 않는 제약·미등록 변수·문법 오류·과도한 출력은 명시적 오류다.
+
+11.2절 예시의 “최근 30일”은 조회 범위이므로 정수형 scope `30`에 결합한다.
+취득한 결과를 얼마나 보관하는지 나타내는 retention_ms와 혼동하지 않는다. 모든 값은
+기존 grant·retry·cache·receipt·artifact 범위 검증과 동일한 원본을 사용한다. schema나
+범위 의미가 바뀌면 policy_version을 올리며 typed 요청은 일치하는 version을 명시한다.
+
+템플릿은 전체 문장 내 `{name}`만 허용하고 모든 locale의 title/body 변수 집합과
+schema를 일치시킨다. UI에는 선택한 template와 검증된 이름·타입·값을 전달한다.
+`consent_prompt_format()`은 상한 있는 단일 치환으로 평문 소유 문자열을 제공하며,
+인자의 중괄호·퍼센트·markup을 다시 실행하지 않는다. v1 정수는 정규 십진 표기로
+제한하고 단위 자동 변환·복수형·날짜·언어별 숫자 서식은 후속 플랫폼 통합 범위다.
+
+UI는 typed prompt를 받을 때 version 1 지원을 명시하고 응답 시 표시 locale과 최신
+token을 결합한다. 구 UI에는 미지원 오류를 반환하며 기존 literal 정의는 호환된다.
+언어를 바꾸어 다시 표시하면 token을 교체한다. 등록된 직접 locale fallback을 먼저
+적용하고 기존 명시적 fallback과 기본 언어를 뒤에 적용한다. 연쇄·순환·미등록 대상은
+거부한다. 번역·fallback 변경은 text_revision 증가와 표시 중 요청 무효화가 필요하다.
 
 ## 12. 프로세스 내부 캐시
 
@@ -1850,3 +1878,4 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 | 0.2 | 논리적 대화 세션·connection 수명·재연결·SESSION 캐시를 기본 범위로 추가. 접근 승인과 결과 보관·reuse를 분리하고 취득 receipt·data-use permit·provenance·holder cleanup 계약, API·DB·수용 기준을 통합 개정 |
 | 0.3 | GMainLoop·고정 I/O 서브스레드·bounded GThreadPool·GMutex/GRecMutex 규칙을 추가. `/run/.consentd.sock` UDS와 systemd socket/service unit, 상속 FD·ucred 로그 C++ 예시, GLib dispatch·framing·backpressure·종료 계약 및 추가 수용 기준 반영 |
 | 0.4 | 사용자 요구로 JSON/GVariant wire 선택을 bundle parcel·Parcelable로 대체. 작은 IDL/compiler, 제한된 reader, 생성·호환성·라이선스·빌드 의존성과 검증 기준을 추가. 구현 완료와 설계 결정을 구별 |
+| 0.5 | 승인 필드 원본에 결합하는 typed template v1, 제한된 source/type/schema, UI 지원 명시와 locale/token 결합, 단일 평문 formatter 및 검증 범위를 추가 |

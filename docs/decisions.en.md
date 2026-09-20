@@ -294,6 +294,48 @@ condition is awaiting approval and verify that QUERY does not consume grants.
 This decision defines the repair contract; the build10 checkpoint explicitly
 records these paths as incomplete until later implementation and verification.
 
+## D-10: Typed messages bound to authorization fields
+
+Implement `template_version=1` as a bounded named-variable contract. A definition
+may declare at most eight `parameter.<name>` schemas, each with an explicit
+source, type and applicable bounds. Sources are the requirement's `scope`,
+`purpose`, `recipient` or `operation`, or the definition's `retention_ms`.
+Scope can be a bounded UTF-8 string or a canonical decimal integer; the other
+request sources are strings, and retention is an integer. Do not accept
+independent caller-supplied display arguments or arbitrary source expressions.
+
+The daemon obtains values from the stored request and registered definition.
+These sources already participate in grant scope, policy version, retry/cache
+keys and receipt/artifact checks. Changing schema, source, type or bounds changes
+policy meaning and requires a higher `policy_version`. Typed requests must name
+the matching requirement policy version. A lookback such as “last 30 days” uses
+the actual query scope; it must not be derived from the result's retention time.
+Version 1 performs no implicit unit conversion: retention values remain in ms.
+
+Templates use only `{name}` substitution. Reject malformed/nested syntax and
+require every locale's title/body variable set to equal the declared schema.
+Bound templates, values, field counts, wire size and expanded output before
+allocation or publication. Substituted data remains plain text even if it
+contains braces, percent signs or markup. The public C formatter returns owned
+strings with a documented release API and leaves outputs null on failure.
+Canonical decimal output is the initial integer format; locale-aware plural,
+date and number formatting remains a separate platform integration task.
+
+Literal definitions remain compatible. A UI must explicitly opt into template
+version 1 when requesting a typed prompt; an old UI must receive an unsupported
+format error instead of an unexpanded typed message. Bind typed responses to the
+displayed locale and latest token, rotating the token on every redisplay.
+Registered direct locale fallback mappings precede the existing explicit locale
+fallbacks and default. Reject fallback chains/cycles and unregistered targets.
+Changing translations or fallback mappings requires a new text revision and
+invalidates pending displays; semantic changes still require a policy revision.
+
+Verify Korean/English values, unknown/missing variables, wrong types/ranges,
+unsupported versions, locale/token races, bounded expansion, and literal-data
+handling. Prove that a 30-day approval cannot authorize a 90-day request and that
+cache, retries, receipts and artifacts retain the same scope binding. Record
+native unit, GBS and real C API/emulator results separately from this decision.
+
 ## Initial review findings to verify before completion
 
 - Recovery must retire/quarantine the applicable DB and journal artifact set
