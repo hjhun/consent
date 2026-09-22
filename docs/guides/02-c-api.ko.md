@@ -1,6 +1,6 @@
 # 가이드 02: 공개 C API
 
-`consent` 라이브러리는 41개 C 함수를 제공합니다. `<consent.h>` 또는 기능별
+`consent` 라이브러리는 42개 C 함수를 제공합니다. `<consent.h>` 또는 기능별
 헤더를 포함하고 `pkg-config consent`로 링크합니다. 헤더는 Tizen Device와
 Application Manager API 문서 형식에 맞춰 인자, 소유권, 콜백 규칙과 오류를
 설명합니다. `@since 0.1.0`은 이 프레임워크 버전이며 Tizen 플랫폼 API 버전이나
@@ -324,7 +324,11 @@ session과 현재 generation이 필요하고 resume에는 token과 같은 소유
 인스턴스가 필요합니다. CONNECTION_BOUND의 suspend는 close이며 resumable suspend는
 generation을 올리고 사용을 차단합니다. Resume은 generation/token을 회전하고
 30000 ms lease를 시작하지만 원래 idle/maximum deadline을 늘리지 않습니다.
-현재 공개 C API에는 heartbeat가 없습니다. 상태 조회나 일반 check는 lease를
+session 소유자는 만료 전에 subject/profile/session/generation으로
+`consent_session_heartbeat`를 호출해 lease를 30,000ms로 갱신할 수 있습니다.
+idle/absolute 수명은 늘리지 않습니다. local wait는 5,000ms이고 입력은 caller 소유,
+출력은 consent_result_free로 해제합니다. 다른 owner/옛 generation/비활성·종료
+session/offline handle은 거절합니다. 상태 조회나 일반 check는 lease를
 갱신하지 않습니다. daemon 재시작은 이전 session을 다시 활성화하지 않습니다.
 반환 deadline/expiry는 daemon의 monotonic milliseconds이며 UTC 날짜가 아닙니다.
 
@@ -369,3 +373,13 @@ error ABI가 같아야 하며 이전 미공개 `-200x` 값은 폐기되었습니
 `device/doc/device_doc.h`, `app-manager/include/app_context.h`,
 `app-manager/doc/appfw_app_manager_doc.h`를 따릅니다. 위 계약은 이 저장소의
 client·wrapper·daemon에서 확인했으며 외부 플랫폼 version/privilege 주석은 복사하지 않았습니다.
+
+## 기능 선택 요청
+
+opt-in 필드와 canonical digest는 [프로토콜 가이드](../design/03-protocol.ko.md#기능-선택-승인-version-1)에 정의합니다.
+설정 선택에서도 request는 argo만 호출합니다. PREAPPROVAL은 선택 기간 충족을,
+TASK는 유효한 exact grant 재사용과 부족 조건만의 추가 승인을 처리합니다.
+opt-in은 cache를 사용하지 않고 daemon hello capability가 필요합니다.
+배치는 공통 기간과 최대 16개 논리 조건을 가지지만 240필드/64KiB 전체 prompt 및
+render 예산에서 더 일찍 E2BIG가 날 수 있습니다. 묵시 분할이나 부분 승인은 금지입니다.
+격리 설정 흐름은 [기능 가이드](10-feature-approval.ko.md)를 참고하세요.

@@ -326,9 +326,16 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       Lock lock(mutex_);
       if (closed_ || disconnected_)
         return CONSENT_ERROR_DISCONNECTED;
+      if (operation->message.count("approval_version")) {
+        if (Get(operation->message, "approval_version") != "1")
+          return CONSENT_ERROR_INVALID_PARAMETER;
+        if (!approval_supported_)
+          return CONSENT_ERROR_INVALID_OPERATION;
+      }
       if (operations_.size() >= kMaxPending)
         return CONSENT_ERROR_BUSY;
-      if (Get(operation->message, "method") == "request" && synced_) {
+      if (Get(operation->message, "method") == "request" && synced_ &&
+          !operation->message.count("approval_version")) {
         auto it = cache_.find(CacheKey(operation->message));
         if (it != cache_.end() && it->second.expires > g_get_monotonic_time()) {
           cached = it->second.result;
@@ -438,6 +445,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       return true;
     }
     if (!status && Get(operation->message, "method") == "request" &&
+        !operation->message.count("approval_version") &&
         Get(message, "decision") == "ALLOWED" && Get(message, "cacheable") == "1" &&
         (Get(operation->message, "session").empty() ||
          (Get(message, "session") == Get(operation->message, "session") &&
@@ -649,6 +657,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   bool closed_ = false;
   bool disconnected_ = false;
   bool synced_ = false;
+  bool approval_supported_ = false;
   uint64_t next_local_ = 1;
   uint64_t next_wire_ = 1;
   std::string epoch_;
@@ -713,7 +722,12 @@ int Client::Connect() {
     return CONSENT_ERROR_OUT_OF_MEMORY;
   }
   Message result;
-  return Call({{"method", "hello"}}, 2000, &result);
+  int status = Call({{"method", "hello"}}, 2000, &result);
+  if (status == 0) {
+    Lock lock(state_->mutex_);
+    state_->approval_supported_ = Get(result, "approval_version") == "1";
+  }
+  return status;
 }
 
 int Client::Close() {

@@ -91,8 +91,9 @@ app-control은 무시합니다. 언어는 UI 언어 버튼에서만 바꾸며 �
 token을 얻은 뒤 교체합니다. 기술 ID/revision은 내부에만 보관합니다.
 
 전용 worker가 C client와 private GLib context를 소유합니다. 모든 페이지를
-확인해야 이번 한 번 허용 버튼을 활성화하며 모든 조건이 ONCE를 지원해야
-합니다. 500ms 간격의 prompt refresh에서 결합 내용이 같을 때만 페이지
+확인해야 허용 버튼을 활성화합니다. 기존 요청은 모든 조건이 ONCE를
+지원할 때 이번 한 번 허용을 사용합니다. approval-v1 요청은 결합된 공통
+SESSION/TIMED/ONCE 기간을 표시하고 화면에 나타난 부족 조건만 발급합니다. 500ms 간격의 prompt refresh에서 결합 내용이 같을 때만 페이지
 확인 상태를 유지합니다. launch 입력으로 token/policy/session을 바꾸지
 않습니다. 거부, Back, 닫기, 로컬 60초 timeout은 승인하지 않습니다.
 오류 시 팝업을 닫고 정리 응답 실패를 성공으로 표시하지 않습니다.
@@ -271,3 +272,156 @@ Hash, 화면, 정확한 근거와24/25 실패 구분은 [Guide 07](07-verificati
 참고합니다. 검증 후 PoC daemon/socket과 actor는 중지하고 명시 PoC state/roles와
 설치 TPK는 검토용으로 보존했습니다. Common Emulator PoC이며 제품 role/UI/Installer
 연동이나 실제 TV 수용 완료 주장은 아닙니다.
+
+## 기능 설정 연동
+
+최초 DEFAULT app-control은 선택을 변경하지 않고 설정을 엽니다.
+`consent-poc-launch org.tizen.consentui --settings ko-KR`가 이 경로이며 VIEW는
+기존 특정 승인 요청을 엽니다. launch 인자로 기능 선택·저장·실행을 하지 않습니다.
+선택, 부족분 승인, 실행 계약은 [Guide 10](10-feature-approval.ko.md)을 참고합니다.
+
+별도 `libconsent-feature-poc.so.0`는 `consent-feature-poc.socket` 및
+`consent-feature-poc.service`가 활성화하는
+`/opt/var/lib/consent-feature-runtime/argo.sock`에만 연결합니다. UI는 root 보호
+경로, PID1/UID0, kernel 원래 bind 주소, inode, `System::Privileged` listener
+label을 검증합니다. coordinator는 실제 UI UID, 보호된 loader, 정확한 package
+label을 검증합니다. 선택 target의 앱은 root coordinator process identity를
+읽을 수 없으므로 cross-UID executable 조회나 UI capability 추가를 주장하지
+않습니다. 전용 runtime leaf만 root:root 0755/SMACK `_`로 준비하며 socket은
+root:users 0660입니다.
+
+argo actor가 immutable catalog, 선택 CAS, coordinator epoch를 소유합니다.
+저장한 SESSION 또는 30분 선택은 설정을 닫아도 대화/선택 기간 안에서 유지됩니다.
+명시적인 이번 작업만 ONCE 선택은 저장 설정과 별개입니다. 모든 변경은 표시한
+catalog hash, epoch, expected revision, stable command ID를 전달합니다. 응답이
+불확실하면 immutable submission을 보존하여 같은 명령 재시도를 명시적으로
+제공합니다. coordinator 재시작 뒤에는 과거 명령을 거부하고 새로 확인한 선택을
+요구합니다. 모든 조건이 통합 prompt 예산에 들어가야 하며 일부 승인이나 자동
+분할을 하지 않습니다.
+
+기존 PoC 신원·generation 설정 뒤 새 host artifact 디렉터리와 확인된 emulator
+serial을 사용합니다.
+
+```sh
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run start --locale ko-KR
+# 실제 앱에서 설정과 승인 페이지를 확인하고 조작합니다.
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run collect
+# 명시적인 대화 종료 작업을 선택하고 holder 정리부터 확인합니다.
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run stop
+```
+
+Driver는 대응 보호 준비 script를 복사하여 root/System::Privileged 문맥에서
+실행합니다. mock CM/CE의 enforcer를 분리하고 stop에서 원 PoC 역할을 복원합니다.
+증거를 수집할 뿐 요청 승인이나 화면 성공을 대신 판정하지 않습니다. 일반 PoC의
+최종 종료는 여전히 `emulator-poc-setup.sh stop`을 사용합니다. holder ACK 없이
+강제 종료한 것은 데이터 정리 성공이 아닙니다.
+
+별도 `consent-feature-gate-*` 실행파일은 tests에만 설치됩니다.
+`scripts/emulator-feature-gate.py`는 보호된
+`/etc/systemd/system/consent-feature-poc.service.d/gate.conf` override를 명시적으로
+준비하고 실제 AUTHORIZE receipt/operation/job/PID를 기록하며 actor를 막지 않고
+동작 dispatch를 최대 30초 보류합니다. prepare/wait/release/audit/cleanup 단계는
+실제 UI 선택 해제를 요구하고 해당 작업 취소와 action event 0개를 검증한 뒤
+원 역할/unit 설정을 복원합니다. 일반 coordinator에는 gate나 runtime switch가
+없습니다. native completion 주입 증거와 실제 target 시험은 Guide 07에서 구분합니다.
+
+`scripts/emulator-feature-endpoint-test.py`는 설치된 private bridge와 endpoint
+fixture로 직접 bind한 위조 서버 및 기대 경로로 rename한 다른 PID1 socket을
+요청 byte 송신 전에 거부하는지 검사합니다. 보호된 `/etc/systemd/system` 임시
+unit을 사용하고 기록한 feature unit 상태만 복원합니다. 별도 negative .NET
+package도 bridge를 조회합니다. 해당 PID의 coordinator
+`feature-peer-rejected` / `ui-peer-rejected` 로그와 consent daemon의 역할 거부
+증거를 함께 확인하며 transport 오류만으로 인증 거부를 주장하지 않습니다.
+
+별도 재사용 경계는 `prepare --kind reuse`로 전용 test coordinator의 계측만
+선택합니다. 기본값은 `--kind acquisition`입니다. 취득 증거는
+`proof_kind=acquisition-receipt`, 재사용 증거는 실제 `reuse-data` 권한 조회 뒤
+기록한 `proof_kind=artifact-permit`이며 artifact, session/generation, 정확한
+문맥의 canonical SHA-256, operation/job/PID에 결합합니다. 새 취득 receipt가
+아닙니다. 두 종류 모두 actor 최종 선택 검증 및 start dispatch 전에 보류합니다.
+다음 run을 준비하기 전에 이전 gate 자료를 증거로 보존해야 하며 script는 기존
+기록 덮어쓰기를 거부합니다.
+
+
+worker 채널은 보호된 feature runtime 아래에 일시적인 root 소유0600 pathname을
+만든다. coordinator가 fork 전에 connect/accept하고 양쪽 kernel PID가 자신인지,
+UID0/GID0 및 System label이 일치하는지 검사한다. 이후 listener 경로를 제거하고
+검증한 실행파일에 연결 FD만 전달한다. worker의 부모 실행파일 inode/starttime/
+수명 검사는 유지한다. 선택한 커널의 socketpair는 peer label이 비어 있으며,
+이를 허용하는 fallback은 없다. 시작/종료 진단은 단계와 status만 포함한다.
+inode를 증명하지 못한 잔여 node는 생성된 경로를 기록하고 무조건 unlink하지 않는다.
+
+matching tests RPM 설치와 보호 feature runtime 준비 후 실제 SMACK 근거를
+필수로 검사하는 target 명령은 다음과 같다.
+
+```sh
+# 선택한 target의 privileged 시험 준비 문맥에서 실행:
+systemd-run --wait --pipe -p User=root -p Group=root \
+  -p SmackProcessLabel=System -p CapabilityBoundingSet=CAP_SYS_PTRACE \
+  -p AmbientCapabilities=CAP_SYS_PTRACE -p NoNewPrivileges=yes \
+  /usr/libexec/consent/tests/consent-feature-test --worker-channel
+```
+
+이 명시 모드는 양쪽 kernel 신원, Parcel 전달, 다른 부모 실행파일 거부,
+일시 stat 오류 재시도 및 자기 node 정리를 반드시 통과해야 하며 SMACK 부재를
+SKIP하지 않는다. 일반 host/GBS 시험은 해당 플랫폼 양성 부분만 SKIP으로 구분하고
+다른 kernel PID 거부는 실행한다. 실제 빌드와 target 결과는 Guide07에 기록한다.
+
+### 검증된 선택 기능 흐름(build29)
+
+정확한 build29 TPK/RPM으로 실제 KO SESSION 및 EN 30분 TIMED 선택·승인,
+앱 닫기·재실행 중 heartbeat 유지, 같은 대화 artifact 재사용, 부족한 기기 권한만
+표시한 popup 및 일정+기기 실행을 완료했습니다. 넓은 일회 일정 요청을 거부하면
+저장 선택과 실행 count가 유지되며, 별도로 명시한 대안은 기존 좁은 artifact를
+재사용합니다. 빈 선택 저장 및 명시적 대화 종료에서 holder wipe/ACK와
+CLOSED/pending0을 확인했습니다. [Guide 07](07-verification.ko.md#build-29-선택-기능-사전승인과-실제-작업-실행)에
+정확한 해시, request/job/PID/revision 문맥, 화면·명령·제한을 기록했습니다.
+격리 mock provider의 Public Common Emulator 수용 결과이며 TV 하드웨어 또는
+제품 Settings/argo 연동 완료가 아닙니다.
+
+설치 가능한 positive TPK는
+`/var/tmp/consent-artifacts/gbs-build-29/org.tizen.consentui-0.1.0.tpk`입니다.
+같은 폴더의 runtime/daemon/PoC RPM 및 위 setup 절차와 함께 사용하세요.
+TPK만으로 신뢰 역할이나 generation authority가 준비되지는 않습니다.
+실제 화면과 단계 로그는
+`/var/tmp/consent-artifacts/emulator-build-29/feature-main/`에 있습니다.
+`prompt-ko-1.png`~`prompt-ko-3.png`는 정확한 일정 범위와 별도 보관기간,
+`missing-device-ko-1.png`~`-3.png`는 부족한 한 조건,
+`timed-prompt-en-1.png`~`-5.png`는 30분 선택을 보여줍니다.
+넓은 요청 거부 후에는 **이번 작업만 한 번** 체크를 해제하고 이미 승인된 좁은
+대안을 선택하세요. 일회 작업을 설정에 저장하는 동작이 아닙니다.
+
+실제 dispatch 경계 시험은 일치하는 script를 선택 개발 emulator에 복사한 뒤
+각 단계를 명시적 root privileged unit으로 실행합니다. 다음은 target 명령입니다.
+
+```sh
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py prepare --kind acquisition
+# 실제 설정/승인 UI를 조작하고 검토한 일정 작업을 요청합니다.
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py wait --timeout 10
+# 기존 30초 gate 안에서 일정 체크 해제→검토→저장을 수행합니다.
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py release
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py audit
+```
+
+다음 `prepare` 전에 완료된 근거 폴더를 보존하고, 끝나지 않은 run의 기록을
+덮어쓰지 마세요. 별도 재사용 시험은 `--kind reuse`로 시작하여 먼저 정상적으로
+artifact 한 개를 취득한 뒤 다시 요청합니다. release 후 audit/unit 복원 전,
+살아 있는 holder에서 **대화 종료**를 선택하여 CLOSED/pending0을 확인하세요.
+중단 시 script의 `cleanup` 단계를 실행하되 강제 중지를 실제 삭제 근거로 보지
+않습니다. actual29 두 gate는 해당 action event0으로 통과했고 재사용 기준 상태의
+최초 취득 1건은 그대로 남았습니다. 첫 취득 시도는 확인 중 기한 만료로 실패하여
+별도 보존했습니다. Native 지연 결과/retry/epoch 주입 회귀는 실제 UI gate와 다른
+근거이며, 이미 시작된 효과를 나중 선택 해제로 되돌린다고 주장하지 않습니다.
+
+최종 actual29 정리에서는 일반 PoC 역할 복원, feature/PoC/test unit 중지,
+소유 gate FIFO/override/임시 소켓 제거를 확인했습니다. production은 default-deny와
+기존 DB/registry inode를 유지하며 active입니다. 설치 패키지와 보호된 일반 근거 파일은
+검토용으로 남겼으며 소유 Aurum bootstrap/forward는 종료했습니다. 최종 Guide07/08
+근거와 PO Guide10 정리만 archive 이후 문서이며, 소스와 시험 TPK는 exact29를 유지합니다.

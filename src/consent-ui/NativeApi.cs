@@ -30,6 +30,7 @@ internal sealed class NativeApi : IConsentBackend
   private const string Library = "libconsent-poc.so.0";
   private IntPtr context;
   private IntPtr client;
+  private FeatureCatalog? catalog;
 
   public NativeApi()
   {
@@ -45,6 +46,7 @@ internal sealed class NativeApi : IConsentBackend
     parameters.Set("request_id", requestId);
     parameters.Set("locale", locale);
     parameters.Set("template_version", "1");
+    parameters.Set("approval_version", "1");
     IntPtr result = IntPtr.Zero;
     try
     {
@@ -57,12 +59,21 @@ internal sealed class NativeApi : IConsentBackend
         Check(consent_result_get_at(result, i, out var key, out var value));
         fields.Add(Utf8(key), Utf8(value));
       }
+      string terminal = fields.GetValueOrDefault("decision", "");
+      if (string.IsNullOrEmpty(fields.GetValueOrDefault("prompt_token")) &&
+          terminal is "ALLOWED" or "DENIED" or "INVALIDATED" or "CANCELLED" or "EXPIRED")
+        throw new PromptFinished(terminal);
       if (!int.TryParse(fields.GetValueOrDefault("count"), out int count) || count < 1 || count > 16)
         throw new InvalidOperationException("Invalid native requirement count");
       var text = new List<(string, string)>();
       for (uint i = 0; i < count; ++i)
         text.Add((Format(result, i, "title"), Format(result, i, "body")));
-      return new PromptSnapshot(requestId, locale, fields, text);
+      if (fields.ContainsKey("approval_version"))
+      {
+        catalog ??= new FeatureApi().Catalog();
+        for (int i = 0; i < count; ++i) catalog.Match(fields, $"r{i}.");
+      }
+      return new PromptSnapshot(requestId, locale, fields, text, catalog);
     }
     finally { consent_result_free(result); }
   }
@@ -70,19 +81,7 @@ internal sealed class NativeApi : IConsentBackend
   public string Respond(PromptSnapshot snapshot, bool allow)
   {
     using var parameters = new Parameters();
-    parameters.Set("request_id", snapshot.RequestId);
-    parameters.Set("prompt_token", snapshot.Token);
-    parameters.Set("locale", snapshot.Locale);
-    parameters.Set("decision", allow ? "ALLOWED" : "DENIED");
-    parameters.Set("grant_mode", "ONCE");
-    // Token binding is authoritative in consentd. Echo the exact displayed
-    // context/revisions as well; launch data cannot replace any of these.
-    foreach (var field in snapshot.Fields)
-      if (field.Key is "subject" or "profile" or "session" or "generation" ||
-          field.Key.StartsWith("r", StringComparison.Ordinal) &&
-          (field.Key.EndsWith(".policy_version", StringComparison.Ordinal) ||
-           field.Key.EndsWith(".text_revision", StringComparison.Ordinal)))
-        parameters.Set(field.Key, field.Value);
+    foreach (var field in snapshot.ResponseFields(allow)) parameters.Set(field.Key, field.Value);
     IntPtr result = IntPtr.Zero;
     try
     {
@@ -161,4 +160,10 @@ internal sealed class NativeFailure : Exception
 {
   public int Status { get; }
   public NativeFailure(int status) : base($"Native consent status {status}") { Status = status; }
+}
+
+internal sealed class PromptFinished : Exception
+{
+  public string Decision { get; }
+  public PromptFinished(string decision) { Decision = decision; }
 }

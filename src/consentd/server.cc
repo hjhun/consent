@@ -563,6 +563,7 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
     reply["method"] = "reply";
     reply["id"] = consent::Get(request, "id");
     reply["status"] = "0";
+    reply["approval_version"] = "1";
     Queue(connection, reply);
     return;
   }

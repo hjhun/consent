@@ -25,10 +25,13 @@ int main(int argc, char **argv) {
       (strcmp(argv[3], "en-US") && strcmp(argv[3], "ko-KR")))
     return 2;
   app_control_h control = NULL;
+  const int settings = !strcmp(argv[2], "--settings");
   int status = app_control_create(&control);
   if (!status) status = app_control_set_app_id(control, argv[1]);
-  if (!status) status = app_control_set_operation(control, APP_CONTROL_OPERATION_VIEW);
-  if (!status) status = app_control_add_extra_data(control, "request_id", argv[2]);
+  if (!status) status = app_control_set_operation(control,
+      settings ? APP_CONTROL_OPERATION_DEFAULT : APP_CONTROL_OPERATION_VIEW);
+  if (!status && !settings)
+    status = app_control_add_extra_data(control, "request_id", argv[2]);
   if (!status) status = app_control_add_extra_data(control, "locale", argv[3]);
   if (!status) status = app_control_send_launch_request(control, NULL, NULL);
   if (control) app_control_destroy(control);

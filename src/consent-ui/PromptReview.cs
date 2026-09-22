@@ -20,7 +20,7 @@ internal sealed class PromptReview
   public PromptSnapshot? Snapshot { get; private set; }
   public int Page { get; private set; }
   public int Reviewed { get; private set; }
-  public bool CanAllow => Snapshot is not null && Snapshot.CanAllowOnce && Reviewed == Snapshot.Pages.Count;
+  public bool CanAllow => Snapshot is not null && Snapshot.CanApprove && Reviewed == Snapshot.Pages.Count;
 
   public int PageFor(PromptSnapshot fresh) => Snapshot is not null && Snapshot.SameContent(fresh) ? Page : 0;
 
@@ -31,6 +31,8 @@ internal sealed class PromptReview
     Snapshot = fresh;
     Reviewed = Math.Max(Reviewed, Page + 1);
   }
+
+  public void Clear() { Snapshot = null; Page = 0; Reviewed = 0; }
 
   public void Move(int offset)
   {

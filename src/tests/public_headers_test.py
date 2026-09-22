@@ -44,7 +44,7 @@ FEATURES = {
     ),
     "consent_session.h": (
         "consent_session_open", "consent_session_suspend", "consent_session_resume",
-        "consent_session_close", "consent_session_get_state",
+        "consent_session_heartbeat", "consent_session_close", "consent_session_get_state",
     ),
     "consent_data.h": (
         "consent_data_register", "consent_data_register_derived", "consent_data_release",

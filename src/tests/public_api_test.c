@@ -138,7 +138,7 @@ static void existing_symbols(void) {
   const management_function functions[] = {
     consent_get_prompt, consent_respond, consent_get_request_result, consent_cancel_request,
     consent_revoke, consent_session_open, consent_session_suspend, consent_session_resume,
-    consent_session_close, consent_session_get_state, consent_data_register,
+    consent_session_heartbeat, consent_session_close, consent_session_get_state, consent_data_register,
     consent_data_register_derived, consent_data_release, consent_cleanup_get_state,
     consent_cleanup_get_pending
   };

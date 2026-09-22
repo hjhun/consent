@@ -96,8 +96,9 @@ launches. Only its language button changes language, fetching a fresh complete
 snapshot/token before display. Technical IDs/revisions remain internal.
 
 A dedicated worker owns the C client and its private GLib context. Every page
-must be reviewed before Allow once is enabled; every condition must support
-ONCE. Prompt refresh is bounded to 500 ms, preserving page review only when the
+must be reviewed before approval is enabled. Legacy requests use Allow once
+and require ONCE support. Approval-v1 requests display the bound common
+SESSION/TIMED/ONCE period and issue only the displayed missing conditions. Prompt refresh is bounded to 500 ms, preserving page review only when the
 bound content is unchanged. Token/policy/session changes cannot be replaced by
 launch data. Deny, Back, close and the 60-second local timeout never approve.
 Errors dismiss the popup; a failed cleanup response is not reported as success.
@@ -280,3 +281,170 @@ See [Guide 07](07-verification.en.md) for hashes, screenshots, exact evidence
 and the separate24/25 failures. After verification the PoC daemon/socket and
 actors are stopped; explicit PoC state/roles and installed TPKs remain for review.
 This is a Common Emulator PoC, not product role/UI/Installer or physical TV acceptance.
+
+## Feature Settings integration
+
+The initial DEFAULT app-control opens Settings without changing a selection.
+`consent-poc-launch org.tizen.consentui --settings en-US` uses this path; VIEW
+continues to open a specific approval request. Launch parameters never select,
+save or execute a function. See [Guide 10](10-feature-approval.en.md) for the
+selection, missing-only approval and execution contract.
+
+The private `libconsent-feature-poc.so.0` connects only to
+`/opt/var/lib/consent-feature-runtime/argo.sock`, activated by
+`consent-feature-poc.socket` and `consent-feature-poc.service`. The UI verifies
+the root-protected path, PID1/UID0, original kernel bind address, inode and
+`System::Privileged` listener label. The coordinator verifies the actual UI
+UID, protected loader and exact package label. The app cannot read the root
+coordinator's process identity on the selected target; no cross-UID executable
+inspection or added UI capability is claimed. Only the dedicated runtime leaf
+is prepared root:root 0755 with SMACK `_`; the socket is root:users 0660.
+
+The argo actor owns the immutable catalog, selection CAS and coordinator epoch.
+Saved SESSION or 30-minute selections survive closing Settings while the
+conversation/selection period remains valid. An explicit task-only ONCE choice
+is separate from those saved settings. Every mutation carries the viewed
+catalog hash, epoch, expected revision and stable command ID. An ambiguous
+reply retains the immutable submission for explicit same-command retry. A
+coordinator restart rejects old commands and requires a newly reviewed choice.
+All conditions must fit the combined prompt budget; no partial batch or silent
+splitting is performed.
+
+After ordinary PoC identity and generation setup, use a fresh host artifact
+directory and the selected emulator serial:
+
+```sh
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run start --locale en-US
+# Review Settings and approval pages and operate the actual application.
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run collect
+# Choose the explicit conversation-close task and observe holder cleanup first.
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir /var/tmp/consent-feature-run stop
+```
+
+The driver uploads the matching protected preparation script and runs it in
+root/System::Privileged context. It temporarily assigns distinct mock CM/CE
+enforcers and restores the original PoC roles on stop. It collects evidence;
+it does not approve requests or assert a visual result. Final ordinary PoC
+shutdown still uses `emulator-poc-setup.sh stop`. A force-stop without a holder
+ACK is not successful data cleanup.
+
+The separate `consent-feature-gate-*` executables are installed only with tests.
+`scripts/emulator-feature-gate.py` prepares an explicit protected
+`/etc/systemd/system/consent-feature-poc.service.d/gate.conf` override, records
+a real AUTHORIZE receipt/operation/job/PID, and holds action dispatch for at
+most 30 seconds without blocking the actor. Its prepare/wait/release/audit/cleanup
+phases require actual UI selection removal, verify cancellation and zero matching
+action events, and restore the saved roles/unit configuration. The ordinary
+coordinator has no gate or runtime switch. Native injected-completion evidence
+and this target experiment are reported separately in Guide 07.
+
+`scripts/emulator-feature-endpoint-test.py` uses the installed private bridge
+and endpoint fixture to reject a directly bound fake server and a different
+PID1 socket renamed to the expected path before any request bytes are sent.
+It uses protected temporary `/etc/systemd/system` units and restores only the
+recorded feature-unit states. The separate negative .NET package also probes
+the bridge; correlate its PID with `feature-peer-rejected` /
+`ui-peer-rejected` in the coordinator log, in addition to the consent daemon's
+role-rejection evidence. A transport error alone does not establish this result.
+
+For the separate reuse boundary, `prepare --kind reuse` selects instrumentation
+only in the dedicated test coordinator; the default is `--kind acquisition`.
+Acquisition evidence is `proof_kind=acquisition-receipt`. Reuse evidence is
+`proof_kind=artifact-permit`, recorded after the real `reuse-data` permission
+check, with artifact, session/generation, canonical exact-context SHA-256 and
+operation/job/PID. It is not a new acquisition receipt. Both kinds pause before
+the actor's final selection check and start dispatch. Preserve the old gate run
+as evidence before preparing another run; the script refuses existing records.
+
+
+Worker channels use a transient root-owned 0600 pathname under the protected
+feature runtime directory. The coordinator connects and accepts before fork,
+verifies its exact kernel PID/UID0/GID0 and System label at both ends, then
+removes the listener pathname and transfers only the connected FD to the
+verified executable. The worker still verifies the parent's executable inode,
+start time and lifetime. The selected kernel returns an empty peer label for
+socketpair; that case is rejected rather than accepted as a fallback. Channel
+startup/exit diagnostics contain only stages and status; an unprovable leftover
+node is reported by its generated path and is never blindly unlinked.
+
+After installing the matching tests RPM and preparing the protected feature
+runtime directory, the dedicated target test requires actual SMACK evidence:
+
+```sh
+# On the selected target, in the privileged test preparation context:
+systemd-run --wait --pipe -p User=root -p Group=root \
+  -p SmackProcessLabel=System -p CapabilityBoundingSet=CAP_SYS_PTRACE \
+  -p AmbientCapabilities=CAP_SYS_PTRACE -p NoNewPrivileges=yes \
+  /usr/libexec/consent/tests/consent-feature-test --worker-channel
+```
+
+This explicit mode must pass both-end kernel identity, Parcel transfer,
+wrong-parent executable rejection, transient-stat retry and owned-node cleanup;
+it does not skip when SMACK is unavailable. Ordinary host/GBS tests label that
+positive platform portion SKIP while still testing wrong kernel PID rejection.
+See Guide07 for the actual build and target outcome.
+
+### Verified selected-feature flow (build29)
+
+The exact build29 TPK/RPM set completed actual KO SESSION and EN 30-minute TIMED
+selection/approval, app close/reopen with heartbeat, same-conversation artifact
+reuse, a device-only missing-permission popup, and calendar-plus-device execution.
+Denying a wider one-time calendar request kept both the saved selection and
+execution counter unchanged; an explicitly chosen alternative reused the old
+narrow artifact. Empty selection save and explicit conversation-close completed
+holder wipe/ACK and CLOSED/pending0. [Guide 07](07-verification.en.md#build-29-selected-feature-preapproval-and-actual-task-execution)
+records exact hashes, request/job/PID/revision context, screenshots, commands and
+limits. This is Public Common Emulator acceptance of isolated mock providers,
+not TV hardware or production Settings/argo integration.
+
+The installable positive TPK is
+`/var/tmp/consent-artifacts/gbs-build-29/org.tizen.consentui-0.1.0.tpk`.
+Use that directory's matching runtime/daemon/PoC RPMs and the setup steps above;
+the TPK alone does not provision trusted roles or generation authority.
+Actual screenshots and phase logs are in
+`/var/tmp/consent-artifacts/emulator-build-29/feature-main/`. In particular,
+`prompt-ko-1.png` through `prompt-ko-3.png` show exact calendar scope and separate
+retention, `missing-device-ko-1.png` through `-3.png` show the single missing
+condition, and `timed-prompt-en-1.png` through `-5.png` show the 30-minute choice.
+After wider denial, uncheck **This task only: once** before selecting the
+already-authorized narrow alternative; that operation must not save the
+one-time task into Settings.
+
+For the actual dispatch-boundary test, copy the matching script to the selected
+development emulator and run each phase through an explicit root privileged
+unit. For example, on the target:
+
+```sh
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py prepare --kind acquisition
+# Operate the real Settings/approval UI; submit the reviewed calendar task.
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py wait --timeout 10
+# Within the unchanged 30-second gate, uncheck calendar, review, and save.
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py release
+systemd-run --wait --pipe -p SmackProcessLabel=System::Privileged \
+  /usr/bin/python3 /tmp/consent-feature-gate.py audit
+```
+
+Preserve the completed evidence directory before the next `prepare`; never
+replace records from an unfinished run. Use `--kind reuse` for the separate
+reuse test, first acquire one artifact normally and then request it again.
+After release and before audit/unit restoration, choose **conversation-close**
+while the holder is still alive and confirm CLOSED/pending0. On interruption,
+run the script's `cleanup` phase; a forced stop is not evidence of physical data
+erasure. Both actual29 gates passed with matching action events0, while the
+reuse baseline retained its single acquisition action. The first acquisition
+attempt expired during inspection and is separately recorded as failure.
+Native injected late-result/retry/epoch tests are distinct from these actual UI
+gates; actions already started cannot be undone by later deselection.
+
+Final actual29 cleanup restored ordinary PoC roles, stopped all feature/PoC/test
+units, removed owned gate FIFOs/overrides/transient sockets, and left production
+active with default-deny roles and unchanged DB/registry inodes. Installed
+packages and protected regular evidence remain available for review. The scoped
+Aurum bootstrap/forward were stopped. Final Guide07/08 evidence and PO Guide10
+updates are post-archive documentation only; source and tested TPKs remain exact29.

@@ -29,6 +29,9 @@ remains a proposal, with adopted choices recorded in the
   authoritative `AUTHORIZE` checks atomically consume one-time grants.
 - Localized approval messages with bounded typed templates and responses bound
   to the displayed prompt, policy, and session generation.
+- Feature selections bound to exact provider, scope, purpose, recipient and
+  period. The opt-in approval contract displays only missing permissions while
+  retaining the complete requirement set for final evaluation.
 - Logical sessions, data-use permits, provenance, expiry, revocation, and holder
   cleanup acknowledgements. Stored metadata does not include conversation bodies.
 - SQLite recovery and definitions-only reconciliation. Recovery never rebuilds
@@ -72,7 +75,7 @@ src/
   tools/                IDL compiler, provisioning tools and API scenarios
   tests/                Unit and integration test sources
   examples/             Executable C API integration examples
-  consent-ui/           .NET approval popup and negative identity probe
+  consent-ui/           .NET Settings, approval popup and negative identity probe
   mocks/                Separate argo, CM, CE, holder and Installer participants
   poc-tools/            PoC app launcher and socket identity diagnostic
 packaging/              RPM spec, SMACK manifest and systemd units
@@ -125,11 +128,25 @@ never implicitly enable offline writes.
 The [Consent UI guide](docs/guides/08-consent-ui-poc.en.md) describes the .NET NUI
 popup, GBS-built TPK installation and separate mock participants. The popup uses
 the public C API through a dedicated worker, supports English/Korean messages,
-and offers explicit allow-once or deny choices after reviewing the prompt.
-Allow once requires every page to be reviewed; changing language resets that
+and requires an explicit allow or deny choice. Allowing requires every page to
+be reviewed; changing language resets that
 review. Closing the popup never approves a request. The PoC has its own systemd
 socket, daemon, storage and observed package identity; production role enrollment
 remains a separate integration task.
+
+The [feature approval guide](docs/guides/10-feature-approval.en.md) adds a TV-oriented
+flow: select understandable features in Settings, approve the current task's
+missing permissions together, and reuse permitted results in the same
+conversation. Settings offers this conversation or 30 minutes; an explicit
+task-only choice uses ONCE without changing saved selections. Users review the
+actual task target and effect even when an existing grant avoids another popup.
+
+A separate argo mock owns the catalog and submits requests through the public C
+API. Settings receives no argo role. Each provider action still requires
+AUTHORIZE and a current selection check immediately before it starts. The mock
+calendar and device participants demonstrate execution and holder cleanup;
+they do not access a user's calendar or control physical devices. Later catalog
+permissions never silently join an earlier selection.
 
 The [storage maintenance guide](docs/guides/09-storage-maintenance.en.md) explains
 bounded metadata compaction and the retry/cleanup records it preserves. Loss of
@@ -147,6 +164,7 @@ links each English guide to its Korean counterpart.
 | Architecture and trust boundaries | [Design 02](docs/design/02-architecture.en.md) | [설계 02](docs/design/02-architecture.ko.md) |
 | Installer integration contract | [Guide 06](docs/guides/06-installer-integration.en.md) | [가이드 06](docs/guides/06-installer-integration.ko.md) |
 | Verification and remaining scope | [Guide 07](docs/guides/07-verification.en.md) | [가이드 07](docs/guides/07-verification.ko.md) |
+| Feature selection and task approval | [Guide 10](docs/guides/10-feature-approval.en.md) | [가이드 10](docs/guides/10-feature-approval.ko.md) |
 
 Contributors and coding agents should also read [AGENTS.md](AGENTS.md).
 

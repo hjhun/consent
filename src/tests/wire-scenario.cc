@@ -105,6 +105,8 @@ class Connection final {
       Require(consent::Number(response, "id") == static_cast<int64_t>(id), "reply correlation");
       Require(consent::Number(response, "status", -1) == 0, "hello rejected");
       Require(!consent::Get(response, "epoch").empty(), "hello epoch missing");
+      Require(consent::Get(response, "approval_version") == "1",
+          "hello approval capability missing");
       if (baseline_epoch.empty())
         baseline_epoch = consent::Get(response, "epoch");
       Require(consent::Get(response, "epoch") == baseline_epoch,

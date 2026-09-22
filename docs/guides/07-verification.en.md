@@ -989,3 +989,258 @@ PO's removal of extra EOF blank lines from five mock C wrappers/eighteen INI fil
 were applied after frozen26; the EOF cleanup changes no tokens or behavior.
 Other implementation sources remain the tested26 content. These final document
 and formatting changes do not alter the archived26 RPMs or their hashes.
+
+## Build27: feature-preapproval integration, incomplete target flow
+
+GBS exported tree `db578048661ddb23c003de04386fd1838039e801` from base
+`5f3364d604d1f8bfe3fd2da06fdc227ea8a0b71e`. All207 source blobs match
+`/var/tmp/consent-artifacts/gbs-build-27/consent-0.1.0.tar.gz`; SHA-256 is
+`943f72ef9e731b2d3ae026ae121ce18e62f340f3becd6dcc2787e0acf02688e0`.
+The unchanged GBS command in `snapshot.json` produced five RPMs,16 passed and
+four root-only skipped CTests, and five managed regression groups. Both TPKs
+were compiled inside GBS. Extracted RPM payloads match the corresponding build
+outputs: positive SHA-256
+`5011726c97ccc79d1f05c6599d724eb8361e975905ed53168483c46e4540fb2f`,
+negative `5f185fe5f19d2e392d7bc0f4d944985967c24624a875a01ce67af92925cb0005`.
+`public-installed-abi.log` verifies10 installed feature headers independently
+in C11/C++17, pkg-config and exactly42 exported/referenced C symbols, including
+`consent_session_heartbeat`. This SDK audit does not install target-devel.
+
+On emulator-26101, the exact27 runtime/daemon/tests/PoC RPM transaction and
+positive TPK registration succeeded. Base-common remained0.4.82; production
+DB/registry inodes128673/128674 and402:402/0600 ownership were preserved.
+`emulator-build-27/feature-units.log` passes the packaged17 repository feature
+scenarios, actor fixture/backlog deadline and public C ABI executable. Actor
+completion/retry injection remains supplementary to actual application actions.
+`endpoint-trial.log` and `endpoint-evidence` prove direct fake-server and renamed
+alternate PID1 socket rejection with actual bridge -EACCES/NULL, no request
+bytes received, successful fixture exit and restored feature units.
+
+The actual Settings screen and four English review pages are in
+`/var/tmp/consent-artifacts/emulator-build-27/feature-trial/`. They show the
+complete selected tuple, access period and separate retention. The checkbox
+glyph was unsuitable on the target font and is corrected in the next snapshot.
+The first PREAPPROVAL stopped with -38: the server's direct hello path omitted
+`approval_version`, although Repository's test-facing hello included it. The
+client correctly refused the unsupported capability; this is an actual
+integration failure, not a completed approval flow. `ui-pid-logs.log` and
+`first-preapproval-failure.log` preserve the failure. The next snapshot adds
+the field to the actual hello reply and an actual-wire assertion.
+
+Read-only execution review also found that holder reuse combined authorization
+and action without the actor's final selection check, and cancelled jobs dropped
+late action results. Build27 is therefore **not final feature acceptance**.
+The following increment separates reuse check/start, retains bounded retired
+completion evidence and tests the actual target reuse gate. Build27's feature
+service/socket were stopped and original PoC roles restored (`post-trial-state.log`);
+production remained active. The scoped Aurum session remains in use for the
+next increment. PO's Guide10 reproduction additions occurred after27 export.
+
+
+## Build 28: preapproval succeeds; worker startup still blocks task execution
+
+The frozen source is `2e6126f026a0a65fa94235511c2322e948b2b92b`, with
+archive SHA-256 `cf13b1e750af5790e260dea115b945f1e9865222317341230b6f7f993086a314`.
+All 207 source blobs match the archive. `/var/tmp/consent-artifacts/gbs-build-28/`
+contains five RPMs, both GBS-compiled TPKs, build metadata and logs. GBS passed
+16 CTests and skipped four root-only tests; all five managed test groups passed.
+The SDK installed-tree audit passed ten independent C11/C++17 headers,
+pkg-config and exactly 42 public C symbols. This does not install the unavailable
+matching development package on the emulator.
+
+The exact runtime/daemon/tests/PoC RPMs installed normally on `emulator-26101`.
+Production DB/registry device/inodes `65026:128673` / `65026:128674` and owner
+402:402 remained unchanged; capi-base-common stayed at 0.4.82-1. The positive
+TPK SHA-256 is `bf9a1a13bd10aef3f1c878f04bf1334b14812bf5529fd08cca9643453760aa9e`;
+the negative TPK is `b3079d1cddd4b89da98ffee675ac947387a02aaa9b02da1eaf84acd00c299d29`.
+Both match the RPM payload. Target `feature-units.log` records all 17 repository
+feature groups, four mock test groups and the public C API test passing.
+
+Actual EN Settings review (four pages), approval review (five pages), and the
+real **Allow as displayed** button completed SESSION PREAPPROVAL with ALLOWED
+and action_count=0. Screenshots and paired journals are under
+`/var/tmp/consent-artifacts/emulator-build-28/feature-en/`. This resolves build27's
+missing real hello capability. The following calendar-summary task failed
+before any provider action or CE daemon connection. Preserve that failure as
+`first-task-failure.log` and `feature-en/task-result.png`; it is not a successful
+feature execution or reuse test.
+
+Read-only process evidence found the CE child exited with status1. An isolated
+root/System probe using the coordinator's capability/NNP policy observed
+socketpair SO_PEERCRED with the actual parent PID but SO_PEERSEC containing only
+a NUL byte (`pair-probe.log`). Thus the required exact System peer-label check
+correctly rejected the child channel. A protected temporary pathname
+connect/accept probe returned actual parent PID/UID0 and System+NUL on both ends
+(`connect-probe.log`); its socket was removed. A subsequent source/build must
+repair that transport without relaxing authentication before execution or gate
+acceptance can be claimed. Native injected actor tests do not cover this kernel
+SMACK distinction.
+
+`feature-stop.log` and `post-trial-state.log` confirm feature service/socket
+stopped, no overrides, saved PoC roles restored and production daemon active.
+No artifact was acquired; this is not holder cleanup-ACK evidence. The Aurum
+session remains owned by this ongoing verification for the subsequent build.
+Guide08's serial variable spelling was corrected after this archive; it uses
+`CONSENT_SERIAL` consistently.
+
+## Build 29: selected-feature preapproval and actual task execution
+
+The completed feature increment uses frozen tree
+`4400b206b611a881cbf10217a042c53fa0f4e503` (207 source blobs), based on
+`5f3364d`. Archive SHA-256:
+`aad23f34306a29e8d2d189bcfb4d9f2a099d5c85d11aeaf79debd76074b90542`.
+Artifacts are preserved under `/var/tmp/consent-artifacts/gbs-build-29/` and
+`/var/tmp/consent-artifacts/emulator-build-29/`. The final Guide07/08 evidence
+and PO's Guide10 introduction/reproduction updates are post-archive documents;
+the tested source, RPMs and TPKs were not changed after this build.
+
+GBS compiled the native implementation and both .NET TPKs inside the build
+root: 16 CTests passed and four root-only tests were explicitly skipped out of
+20; all five managed test groups passed. The SDK installed-tree audit passed
+ten standalone C11/C++17 public headers, duplicate/reverse includes, pkg-config,
+and exactly 42 C exports/references, including `consent_session_heartbeat()`.
+On the selected emulator, the packaged repository feature test passed all
+17 groups and the public C API test passed both groups (`root-regressions.log`).
+Its earlier wrong executable-path attempts remain in that log as failures.
+The explicit packaged `--worker-channel` test passed with real System SMACK,
+CAP_SYS_PTRACE and NNP (`worker-channel.log`): both-end kernel identity,
+connected Parcel exchange, wrong-parent rejection, transient-stat retry and
+owned-node cleanup. This closes build28's empty-label socketpair startup fault
+without accepting an empty label or weakening authentication.
+
+Five RPMs and both TPKs are retained. The four runtime/daemon/tests/PoC RPMs were
+installed normally; the target's capi-base-common remains 0.4.82-1. Matching
+0.4.82 development headers were unavailable, so SDK header/pkg-config results
+are not presented as a target devel-package installation. Positive TPK:
+`gbs-build-29/org.tizen.consentui-0.1.0.tpk`, SHA-256
+`f2bce18e1df11d7d598d7101a1c39ff215350cfe5d8aa93ac764fe84df001647`.
+Negative TPK SHA-256:
+`117811b4fd74edf646edb94f70aeceb06c3776e4ec7b81a25ffc5164a91d102a`.
+`installed-hashes.log` verifies 59 installed ELF/TPK/DLL files against the exact
+RPM/TPK payloads and resolves all 42 public symbols from the installed library.
+The expected hashes and reproducible audit are beside that log.
+
+Build and scenario entry commands used for this increment are below. Reproduction requires the matching RPM install and explicit PoC setup from Guide08, and a fresh artifact directory; do not overwrite the preserved completed run.
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite \
+  /home/hjhun/samba/workspace/consent
+python3 scripts/emulator-feature-flow.py --serial emulator-26101 \
+  --artifact-dir /var/tmp/consent-artifacts/emulator-build-29/feature-main \
+  start --locale ko-KR
+# Target: matching uploaded frozen29 script; isolated endpoint/state only.
+systemd-run --wait --pipe -p SmackProcessLabel=System \
+  /bin/sh /tmp/consent-scenario-29.sh wire
+```
+
+### Actual Settings, approval and execution
+
+This is a 1920×1080 Public Common Emulator (`emulator-26101`,
+`calendar-resolution-p5`), not TV-hardware acceptance. Actual application
+buttons were operated through Aurum, with screenshots inspected after inputs;
+no API approval response was injected. The bounded private bridge and real
+libconsent/daemon were used, with isolated mock providers/holders. Evidence is
+in `feature-main/*.png`, the phase logs, and `analysis-final-main/`. The latter
+preserves the main coordinator journal before later gate tests/restarts and
+contains 25 reproducible scoped assertions. Its raw journal SHA-256 is
+`645d09c1baf580e9df075aedc77768330442473cfd75b75405b32c0f9ddcb354`.
+
+All rows below belong to coordinator PID568853 and epoch
+`selection-6255879d-c90d-426a-8406-f43ea8758e82`. The initial calendar selection
+is revision2, digest
+`9d801e44597b421bb63f57fbdb18c8a4daf731b3b8dbf9a548f4b8a5330b9b94`.
+
+| Actual operation | Observed result and visual evidence |
+| --- | --- |
+| KO calendar SESSION preapproval | Two Settings pages, three approval pages, real Allow; revision2 ALLOWED, action_count0. `prompt-ko-1.png` through `prompt-ko-3.png` show feature/provider/exact target, purpose/recipient, conversation access and distinct result retention. |
+| First task | Actual CE AUTHORIZE receipt, provider action and holder registration; action_count1. `task-complete-ko.png`, `task-first.log`. |
+| Close Settings and reopen | Selection/session survived the UI process gap of more than the 30-second session lease because the actor heartbeat continued; subsequent task reused the same artifact, action_count2. `settings-closed.png`, `reopened-ko.png`, `reuse.log`. |
+| Add device feature | Revision3 binds both choices (digest `27ee594b9facb55db22fb496b01422a1cfbad5434ab8fd1f1d95e2aa8525221c`); actual approval shows only the missing device condition, 1/1, across three KO pages. No action during preapproval; count remains2. `missing-device-ko-1.png` through `-3.png`, `missing-device.log`. |
+| Calendar plus device task | Existing calendar artifact reuse then fresh device AUTHORIZE/start; exactly two effects, count4. `combined-review-1.png` through `-4.png`, `combined.log`. Effects are sequential, not an atomic multi-provider transaction. |
+| Wider one-time calendar task denied | Actual next30 scope prompt and Deny; no wider action, count4 and saved revision3 remain. Task-only selection does not change Settings. `expanded-prompt-1.png`, `expanded-denied-click.png`, `expanded-denied.log`. |
+| Already-authorized alternative | After unchecking task-only, explicit alternative uses the existing next7 artifact, without acquiring wider data; count5. `alternative-review-1.png` through `-3.png`, `alternative.log`. |
+| EN device-only 30-minute preapproval | Four Settings and five approval pages, real Allow; revision4, duration1800000, ALLOWED and count5. `timed-review-en-*.png`, `timed-prompt-en-1.png` through `-5.png`, `timed-confirmed.png`, `timed.log`. This does not claim a 30-minute target expiry wait. |
+| Clear all / close conversation | Empty selection saved as revision5 and ordinary task button disabled. Explicit conversation-close then holder buffer wipe/ACK: CLOSED, pending0, revision6, no artifact/session and count5. `clear-saved.png`, `closed-ack-confirmed.png`. |
+
+The main artifact `2e531f904c95bd9226ba3402dbb78240f0c78f86ae020963`, original
+receipt `0362f371dddabf8031538d1a1e3b0774969de824f95fbeb3`, and session
+`1962ba3d75eece5e295cfd87055beda3bbccf6fc674dc07c`/generation1 remain identical
+through all three reuse effects. The combined job is
+`feature-0d5dd8c6-2fe8-4ad7-a56c-a6d4dd12000b`, with reuse operation `.0` and
+device operation `.1`. The wider task was separately denied, not reinterpreted
+as the alternative. An earlier EN eight-page Settings review expired before
+save; it left selection/action state unchanged and is preserved separately
+from the successful KO save and later successful EN TIMED run.
+
+### Actual deselection gates and separate injected regressions
+
+Both experiments use the separately compiled test coordinator and exact test
+roles; the ordinary coordinator has no gate switch. The real UI removed the
+calendar choice, reviewed the empty selection and saved revision2→3 while the
+same coordinator/job was paused. Each gate directory contains screenshots and a
+`protected-evidence/` subdirectory with `ready/observed/release/terminal/audit.json`
+and `journal.jsonl`. Audit stdout is in the sibling files
+`emulator-build-29/gate-acquisition2-audit.log` and
+`emulator-build-29/gate-reuse-audit.log`.
+
+| Gate | Proof, identity and result |
+| --- | --- |
+| Acquisition, `gate-acquisition2/` | PID576626, job `feature-0c6ac4d0-3971-47ed-994f-5a67837e81b9`, operation `.0`, actual receipt `71e236bf5d283b967965935d44ff0be3bb54c79b9c27b06d`. Cancellation preceded release; audit found zero matching action events. No artifact was acquired. |
+| Reuse, `gate-reuse/` | PID577670, job `feature-87688740-97a0-4edd-9fea-a71eb5169ae7`, operation `.0`, actual successful reuse-data check for artifact `b1c04b2cc47fe5e9e33fbb231ed410e8a66776017cd5bc2b`, session `38b9fea733aac264e939ff26277ee5c5a2d62f37ed19f842`/generation1. This is an artifact-permit, not a newly issued acquisition receipt. Cancellation preceded release; zero matching reuse actions. |
+
+Reuse proof binds context SHA-256
+`ee337b6ac381f3c15a015e53a05803fd34633b503cabdebfcbf4b15235a2a84a`.
+Its baseline had one real acquisition action; the counter remained1 after
+blocked reuse. Before stopping or restoring the gate unit, the actual UI
+closed that conversation while coordinator/holder were alive: buffer wipe/ACK,
+CLOSED/pending0, revision4 and empty artifact/session are recorded in
+`gate-reuse-closed.log` and `gate-reuse/closed-confirmed.png`.
+Service termination alone is not used as cleanup evidence. The independent artifact analysis in `analysis-final-gates/` checks the same boot/invocation and marker/job bindings; acquisition and reuse releases preceded their deadlines by 2957ms and 975ms.
+
+The first acquisition experiment (`gate-acquisition/`) exceeded the unchanged
+30-second gate deadline during UI inspection. Its terminal was expired and
+release failed; retain it as a fail-safe failure, not a passing deselection
+gate. The second experiment passed without increasing the deadline.
+Native injected CAS/retry/restart-epoch, lost-reply dedup, expiry and live/retired
+late-completion tests are separately recorded in
+`/var/tmp/consent-artifacts/feature-native/coordinator-29.log` and the GBS test
+log. These validate bounded retention of already-started effects/errors and
+uncertain outcomes; they are not claims of an actual target late-reply injection
+or of rolling back an action that had already started.
+
+### Endpoint, wire and final restoration
+
+`feature-endpoint.log` and its protected evidence verify that both a direct
+fake server and a different PID1 socket renamed to the expected endpoint are
+rejected before any request byte. Exact29 negative TPK PID580603 used UID5001
+and the same `/usr/bin/dotnet-hydra-loader`, but its real SMACK label was
+`User::Pkg::org.tizen.consentui.negative`. `negative-probe.log` and
+`negative-daemon.log` pair native error results with both the coordinator's
+`ui-peer-rejected` and consentd's `role=rejected/no matching live trusted
+identity`; transport errors alone are not counted as authorization proof.
+
+The exact29 legacy `wire` scenario checks actual hello `approval_version=1`,
+fragmented/coalesced Parcel frames, bounded malformed-frame close and deadlines,
+24 accepted/4 rejected checker connections, and output-pressure close while a
+separate client remains responsive. `wire.log`/`wire-daemon.log` confirm the
+same daemon PID580802, quota rejection reason and output-limit/write-timeout
+reason, followed by integrity_check=ok/schema2. This does not claim malformed
+DB nonexecution or pending-transaction shutdown beyond those assertions.
+
+`feature-stop.log`, `setup-stop.log` and `cleanup.log` confirm feature, PoC and
+isolated service/socket inactivity, PID0, no overrides, ordinary PoC roles
+restored, no transient worker socket, and removal of all three owned gate
+FIFOs. Protected regular evidence and installed TPKs remain for review.
+The owned Aurum forward55051 and bootstrap were stopped. Production service
+and socket remain active under security_fw with default-deny roles; original
+DB/registry device/inodes `65026:128673`/`65026:128674`, owner402:402, are unchanged.
+
+The completed scope is isolated feature preapproval, missing-only approval,
+exact action/reuse fencing and UI/mock integration. Product Settings/argo,
+real provider/Installer lifecycle hooks and product role policy remain
+unintegrated. Full registry loss still requires explicit recovery/re-registration;
+bounded maintenance is not arbitrary ledger deletion. Abrupt power loss,
+actual filesystem-full/device-write failures and TV hardware remain outside
+this evidence; earlier storage/shutdown evidence retains its original build
+scope. No extra production authorization or UI capability was introduced.

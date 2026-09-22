@@ -23,6 +23,9 @@ extern "C" {
 /* Separate main executables select their local command set. This name is never
  * transmitted as an identity or role; consentd authenticates the executable. */
 int consent_mock_main(const char* role, int argc, char** argv);
+int consent_feature_argo_main(void);
+int consent_feature_worker_main(const char* role);
+int consent_feature_register_main(const char* generation);
 
 #ifdef __cplusplus
 }

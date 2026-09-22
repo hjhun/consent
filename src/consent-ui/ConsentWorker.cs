@@ -49,7 +49,7 @@ internal sealed class ConsentWorker
       Enqueue(api =>
       {
         // Never use a stale UI callback after a newer token was fetched.
-        if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanAllowOnce))
+        if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanApprove))
           throw new InvalidOperationException("Stale or unsupported UI choice");
         decisionAttempted = true;
         completed(api.Respond(snapshot, allow));
@@ -96,7 +96,9 @@ internal sealed class ConsentWorker
     }
     catch (Exception error)
     {
-      // Error text may contain library details, but never log prompt content.
+      // A racing approval can finish the request before a compact prompt is
+      // produced. Do not fabricate a display error or send another decision.
+      if (error is PromptFinished) { decisionAttempted = true; latest = null; }
       failed(error);
     }
     finally

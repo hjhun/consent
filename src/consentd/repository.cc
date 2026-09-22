@@ -17,6 +17,7 @@
 #include "consent.h"
 
 #include "common/localization.hh"
+#include "common/approval.hh"
 #include "common/registration.hh"
 
 #include <fcntl.h>
@@ -1230,11 +1231,18 @@ Message Repository::Impl::CheckConditions(const Peer& peer, const Message& reque
           "enforcement owner mismatch");
     std::string key = GrantKey(request, i, definition);
     Require(unique.insert(key).second, -EINVAL, "duplicate requirement");
-    Statement grant(db_, "SELECT id,mode FROM grants WHERE key=? AND revoked=0 "
+    Statement grant(db_, "SELECT id,mode,expires FROM grants WHERE key=? AND revoked=0 "
         "AND (expires=0 OR expires>?) AND remaining<>0 AND "
-        "(mode<>'SESSION' OR session=?) ORDER BY rowid DESC LIMIT 1");
+        "(mode<>'SESSION' OR session=?) ORDER BY rowid DESC");
     grant.Bind(1, key).Bind(2, Now()).Bind(3, Get(request, "session"));
-    if (grant.Row()) {
+    bool found = false;
+    while (grant.Row()) {
+      if (consent::approval::Covers(request, grant.Text(1), grant.Int(2), Now())) {
+        found = true;
+        break;
+      }
+    }
+    if (found) {
       grants->push_back(grant.Text(0));
       result[prefix + "decision"] = "ALLOWED";
       cacheable = cacheable && (grant.Text(1) == "PERSISTENT" ||
@@ -1256,7 +1264,7 @@ Message Repository::Impl::CheckConditions(const Peer& peer, const Message& reque
     result["session"] = Get(request, "session");
     result["generation"] = Get(request, "generation");
   }
-  result["cacheable"] = cacheable && !enforce && !required && !denied && cache_ttl > 0 ? "1" : "0";
+  result["cacheable"] = !request.count("approval_version") && cacheable && !enforce && !required && !denied && cache_ttl > 0 ? "1" : "0";
   result["cache_ttl_ms"] = std::to_string(std::max<int64_t>(cache_ttl, 0));
   return result;
 }
@@ -1287,8 +1295,15 @@ bool Repository::Impl::ReceiptValid(const std::string& receipt) {
   return true;
 }
 
-Message Repository::Impl::Evaluate(const Peer& peer, const Message& request,
+Message Repository::Impl::Evaluate(const Peer& peer, const Message& input,
     bool create) {
+  Message request = input;
+  for (const auto& field : request)
+    Require(field.first.empty() || field.first.front() != '_', -EINVAL,
+        "private approval metadata is not a caller field");
+  std::string approval_error;
+  const bool valid_approval = consent::approval::Validate(request, &approval_error);
+  Require(valid_approval, -EINVAL, approval_error.c_str());
   Require(create ? Role(peer, "argo") : (Role(peer, "checker") || Role(peer, "cm") ||
       Role(peer, "ce") || Role(peer, "holder")), -EACCES, "caller role denied");
   Context(peer, request);
@@ -1312,6 +1327,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& request,
     }
   }
   Message payload;
+  consent::approval::CopyContext(request, &payload);
   for (const char* key : {"subject", "profile", "session", "generation", "operation_id",
       "step_id", "client_request_id", "deadline_ms", "count"}) {
     auto field = request.find(key);
@@ -1321,7 +1337,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& request,
   for (int i = 0; i < Number(request, "count", 0, 0, 16); ++i) {
     std::string prefix = "r" + std::to_string(i) + ".";
     for (const char* key : {"definition", "scope", "operation", "purpose", "recipient",
-        "holder", "policy_version"}) {
+        "holder", "policy_version", "feature_id", "feature_revision"}) {
       auto field = request.find(prefix + key);
       if (field != request.end())
         payload.insert(*field);
@@ -1356,8 +1372,27 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& request,
       return {{"request_id", prior.Text(0)}, {"decision", prior.Text(1)}};
     }
   }
+  // A retry returned above before this private target is calculated. The
+  // caller digest/fingerprint never incorporates admission-clock values.
+  if (Get(request, "approval_version") == "1" &&
+      Get(request, "request_kind") == "PREAPPROVAL" && Get(request, "grant_mode") == "TIMED") {
+    request["_approval_deadline"] = std::to_string(Now() +
+        Integer(Get(request, "duration_ms"), 100, 3600000));
+    payload["_approval_deadline"] = Get(request, "_approval_deadline");
+  }
   std::vector<std::string> grants;
   Message result = CheckConditions(peer, request, &grants, authorize);
+  if (create && Get(request, "approval_version") == "1") {
+    for (int i = 0; i < Number(request, "count", 0, 1, 16); ++i) {
+      const auto row = "r" + std::to_string(i) + ".";
+      if (Get(result, row + "decision") != "CONSENT_REQUIRED")
+        continue;
+      const auto definition = Definition(Get(request, row + "definition"));
+      const auto allowed = "," + Get(definition, "modes") + ",";
+      Require(allowed.find("," + Get(request, "grant_mode") + ",") != std::string::npos,
+          -EACCES, "selected period is not permitted for a missing condition");
+    }
+  }
   if (authorize && Get(result, "decision") == "ALLOWED") {
     std::string receipt = Id();
     Statement insert(db_, "INSERT INTO authorizations VALUES(?,?,?,?,?,?,?,1)");
@@ -1435,7 +1470,12 @@ Message Repository::Impl::Result(const Peer& peer, const Message& request,
   result.erase("prompt_token");
   result.erase("ui_owner");
   result.erase("ui_instance");
-  result.erase("_prompt_locale");
+  for (auto field = result.begin(); field != result.end();) {
+    if (!field->first.empty() && field->first.front() == '_')
+      field = result.erase(field);
+    else
+      ++field;
+  }
   return result;
 }
 
@@ -1449,6 +1489,29 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
       -ETIMEDOUT, "request deadline expired");
   SessionState(peer, pending, true);
   auto count = Number(pending, "count", 0, 1, 16);
+  const bool selected = Get(pending, "approval_version") == "1";
+  Require(!request.count("approval_version") || Get(request, "approval_version") == "1",
+      selected && respond ? -EACCES : -EINVAL, "unsupported approval UI version");
+  std::vector<int> displayed_rows;
+  Message current;
+  if (selected) {
+    std::string error;
+    const bool valid_approval = consent::approval::Validate(pending, &error);
+    Require(valid_approval, -EINVAL, error.c_str());
+    Require(Get(request, "approval_version") == "1", respond ? -EACCES : -EINVAL,
+        "selected approval requires UI version 1 capability");
+    std::vector<std::string> grants;
+    current = CheckConditions(peer, pending, &grants, false);
+    for (int i = 0; i < count; ++i) {
+      std::string row = "r" + std::to_string(i) + ".decision";
+      if (respond ? Get(pending, "_prompt_row." + std::to_string(i)) == "1" :
+          Get(pending, row) != "ALLOWED" && Get(current, row) != "ALLOWED")
+        displayed_rows.push_back(i);
+    }
+  } else {
+    for (int i = 0; i < count; ++i)
+      displayed_rows.push_back(i);
+  }
   std::vector<Message> definitions;
   bool typed = false;
   for (int i = 0; i < count; ++i) {
@@ -1469,32 +1532,66 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     Require(Identifier(locale), -EINVAL, "locale required");
     Require(!typed || Get(request, "template_version") == "1", -EINVAL,
         "typed prompt requires template version 1 capability");
-    if (typed) {
+    if (typed)
       result["template_version"] = "1";
+    if (typed || selected)
       result["locale"] = locale;
+    if (selected) {
+      consent::approval::CopyContext(pending, &result);
+      result["total_count"] = std::to_string(count);
+      if (displayed_rows.empty()) {
+        // A concurrent approval can satisfy the last displayed requirement.
+        // Never mint a duplicate ONCE or show an empty approval screen.
+        std::string decision = Get(current, "decision") == "ALLOWED" ? "ALLOWED" : "INVALIDATED";
+        Message terminal = pending;
+        for (const auto* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
+          terminal.erase(field);
+        for (int i = 0; i < count; ++i) {
+          const auto key = "r" + std::to_string(i) + ".decision";
+          terminal[key] = Get(current, key);
+          terminal.erase("_prompt_row." + std::to_string(i));
+        }
+        Statement finish(db_, "UPDATE requests SET state=?,token='',payload=? WHERE id=?");
+        finish.Bind(1, decision).Bind(2, Pack(terminal)).Bind(3, Get(pending, "request_id")).Run();
+        Bump();
+        transaction.Commit();
+        return {{"decision", decision}, {"request_id", Get(pending, "request_id")}, {"cacheable", "0"}};
+      }
     }
     for (const char* key : {"request_id", "subject", "profile", "session", "generation", "count"})
       result[key] = Get(pending, key);
-    result["count"] = std::to_string(count);
-    for (int i = 0; i < count; ++i) {
-      std::string row = "r" + std::to_string(i) + ".";
+    result["count"] = std::to_string(displayed_rows.size());
+    for (size_t displayed_index = 0; displayed_index < displayed_rows.size(); ++displayed_index) {
+      int i = displayed_rows[displayed_index];
+      const std::string source_row = "r" + std::to_string(i) + ".";
+      std::string row = "r" + std::to_string(displayed_index) + ".";
       for (const char* key : {"definition", "scope", "operation", "purpose", "recipient",
           "holder", "policy_version", "text_revision"})
-        result[row + key] = Get(pending, row + key);
+        result[row + key] = Get(pending, source_row + key);
       auto& definition = definitions[i];
+      if (selected) {
+        result[row + "original_index"] = std::to_string(i);
+        for (const auto* key : {"feature_id", "feature_revision"})
+          result[row + key] = Get(pending, source_row + key);
+        result[row + "provider_package"] = Get(definition, "package");
+        result[row + "provider_app"] = Get(definition, "app");
+      }
       std::string selected;
       std::string error;
       if (!consent::localization::SelectLocale(definition, locale, &selected, &error))
         throw Failure(-EINVAL, error);
-      std::string prefix = "r" + std::to_string(i) + ".";
+      const std::string& prefix = row;
       result[prefix + "locale"] = selected;
       result[prefix + "title"] = Get(definition, "message." + selected + ".title");
       result[prefix + "body"] = Get(definition, "message." + selected + ".body");
       result[prefix + "modes"] = Get(definition, "modes");
       result[prefix + "level"] = Get(definition, "level");
       result[prefix + "retention_ms"] = Get(definition, "retention_ms", "0");
-      if (!consent::localization::AppendArguments(definition, pending, i, &result, &error))
+      Message arguments;
+      if (!consent::localization::AppendArguments(definition, pending, i, &arguments, &error))
         throw Failure(-EINVAL, error);
+      for (const auto& argument : arguments)
+        result[row + argument.first.substr(source_row.size())] = argument.second;
     }
     // Leave conservative space for envelope, snapshot and the new token.
     size_t response_bytes = 1024;
@@ -1502,7 +1599,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
       response_bytes += 10 + field.first.size() + field.second.size();
     Require(result.size() <= 240 && response_bytes <= consent::kMaxFrameSize,
         -E2BIG, "combined localized prompt exceeds frame budget");
-    for (int i = 0; i < count; ++i) {
+    for (size_t i = 0; i < displayed_rows.size(); ++i) {
       for (const char* field : {"title", "body"}) {
         std::string formatted;
         std::string error;
@@ -1514,8 +1611,14 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     Message displayed = pending;
     for (const char* field : {"request_id", "decision", "deadline", "prompt_token", "ui_owner", "ui_instance"})
       displayed.erase(field);
-    if (typed)
+    if (typed || selected)
       displayed["_prompt_locale"] = locale;
+    if (selected) {
+      for (int i = 0; i < count; ++i)
+        displayed.erase("_prompt_row." + std::to_string(i));
+      for (int i : displayed_rows)
+        displayed["_prompt_row." + std::to_string(i)] = "1";
+    }
     Statement update(db_, "UPDATE requests SET token=?,ui_owner=?,ui_instance=?,payload=? WHERE id=?");
     update.Bind(1, Hash(token)).Bind(2, peer.identity).Bind(3, peer.instance)
         .Bind(4, Pack(displayed)).Bind(5, Get(pending, "request_id")).Run();
@@ -1527,9 +1630,11 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
         Hash(Get(request, "prompt_token")) == Get(pending, "prompt_token") &&
         Get(pending, "ui_owner") == peer.identity && Get(pending, "ui_instance") == peer.instance,
         -EACCES, "prompt token or UI instance mismatch");
-    Require(!typed || (!Get(pending, "_prompt_locale").empty() &&
+    Require(!(typed || selected) || (!Get(pending, "_prompt_locale").empty() &&
         Get(request, "locale") == Get(pending, "_prompt_locale")), -EACCES,
         "prompt response locale mismatch");
+    Require(!selected || consent::approval::SameContext(pending, request), -EACCES,
+        "displayed selection or approval period mismatch");
     std::string decision = Get(request, "decision");
     Require(decision == "ALLOWED" || decision == "DENIED", -EINVAL,
         "invalid UI decision");
@@ -1540,15 +1645,18 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
           -EINVAL, "invalid grant mode");
       Require(mode != "SESSION" || !Get(pending, "session").empty(),
           -EINVAL, "SESSION grant requires active session");
-      for (int i = 0; i < count; ++i) {
+      const auto approval_time = Now();
+      for (int i : displayed_rows) {
+        // Check the displayed subset only. A hidden formerly satisfied row
+        // cannot silently be regranted; another approval must not add ONCE.
+        if (Get(pending, "r" + std::to_string(i) + ".decision") == "ALLOWED" ||
+            (selected && Get(current, "r" + std::to_string(i) + ".decision") == "ALLOWED"))
+          continue;
         auto& definition = definitions[i];
         std::string allowed = "," + Get(definition, "modes") + ",";
         Require(allowed.find("," + mode + ",") != std::string::npos,
             -EACCES, "grant mode is not permitted by policy");
-        // Existing conditions are not granted a second ONCE allowance.
-        if (Get(pending, "r" + std::to_string(i) + ".decision") == "ALLOWED")
-          continue;
-        int64_t expires = mode == "TIMED" ? Now() +
+        int64_t expires = mode == "TIMED" ? approval_time +
             Number(request, "duration_ms", 300000, 100, 3600000) : 0;
         Statement grant(db_, "INSERT INTO grants VALUES(?,?,?,?,?,?,?,?,?,?,0)");
         grant.Bind(1, Id()).Bind(2, GrantKey(pending, i, definition))
@@ -1566,7 +1674,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     if (decision == "ALLOWED" && Get(reevaluated, "decision") != "ALLOWED")
       decision = "INVALIDATED";
     if (decision == "DENIED") {
-      for (int i = 0; i < count; ++i) {
+      for (int i : displayed_rows) {
         std::string key = "r" + std::to_string(i) + ".decision";
         if (Get(pending, key) != "ALLOWED")
           reevaluated[key] = "DENIED";
@@ -1578,6 +1686,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     for (int i = 0; i < count; ++i) {
       std::string key = "r" + std::to_string(i) + ".decision";
       final_payload[key] = Get(reevaluated, key);
+      final_payload.erase("_prompt_row." + std::to_string(i));
     }
     if (decision == "INVALIDATED") {
       final_payload["reason"] = "authorization conditions changed while awaiting approval";
@@ -2027,7 +2136,9 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
       result = Data(peer, request);
     else if (method == "revoke")
       result = Revoke(peer, request);
-    else if (method != "snapshot" && method != "subscribe" && method != "hello")
+    else if (method == "hello")
+      result["approval_version"] = "1";
+    else if (method != "snapshot" && method != "subscribe")
       throw Failure(-ENOSYS, "unsupported method");
     // No successful reply can be published against a deleted/replaced handle.
     // Recovery changes epoch; this operation's old result becomes uncertain.

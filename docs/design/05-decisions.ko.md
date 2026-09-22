@@ -1,6 +1,6 @@
 # 설계 05: 구현 결정 기록
 
-날짜: 2026-09-20. 이 문서는 PO·아키텍트의 구현 지침이며 코드 완성이나 검증
+날짜: 2026-09-22. 이 문서는 PO·아키텍트의 구현 지침이며 코드 완성이나 검증
 완료를 뜻하지 않는다. `01-consent-framework.md`는 설계 제안으로 유지한다.
 실제 구현 상태와 검증 근거는 한·영 개발 및 아키텍처 가이드에 기록한다.
 
@@ -509,6 +509,126 @@ authorization과 artifact provenance 양쪽 모두 참조하지 않는 revoked g
 한다. maintenance batch에 그러한 reset을 묵시적으로 허용하지 않는다. 모든 영속
 재시도 기록을 잃으면 알 수 없는 과거 operation ID를 알아볼 수도 없으므로 새 승인을
 요구하고 결과가 불확실한 외부 실행은 별도로 재조정해야 한다.
+
+## D-16: 기능 선택, 부족한 승인과 대화 내 재사용
+
+TV의 기본 흐름은 기능을 선택하여 사전 승인하고, 현재 작업에 부족한 권한만 모아
+확인한 뒤 같은 대화에서 승인된 접근이나 허용된 결과를 재사용하는 것이다. 다음
+증분의 구현 계약이며 실행 근거는 가이드 07에 기록한다. 가이드 10은 연동 책임을
+설명한다.
+
+기능은 정확한 요구조건 집합을 사용자가 이해하는 단위로 묶은 것이며 포괄적인 새
+grant가 아니다. argo의 보호된 버전별 catalog가 선택한 기능 ID를 정의·명시적 정책
+버전·제공 앱·작업·범위·목적·수신자·holder로 확장한다. 불변 selection ID·revision과
+canonical digest를 요청에 결합한다. 이후 catalog에 추가한 항목은 이전 선택에
+합치지 않는다. 같은 요구조건은 중복 제거한 뒤 기존 16조건 상한을 적용한다.
+기능 이름은 제공 앱의 신원 증거가 아니다. 등록 정의의 검증된 package/app·설치
+세대를 사용하며 사람에게 보여줄 이름은 보호된 catalog에서 가져온다.
+
+기존의 정확한 GrantKey를 유지한다. 기능 ID·catalog revision·선택 metadata·요청
+허용 기간이 실제 권한 tuple을 대체해서는 안 된다. A·B를 가진 기능에 C를 추가해도
+변경 없는 A·B의 정확한 승인은 재사용할 수 있다. 제공 앱·작업·목적·수신자·holder·
+정책·범위가 달라지면 별도의 유효 승인이 필요하다. scope는 계속 정확히 비교하며
+임의 문자열 사이의 포함 관계를 추론하지 않는다. 이미 허용된 더 좁은 대안은 명시된
+실행 계획과 정확히 일치해야 한다.
+
+추가 계약은 `approval_version=1`, `request_kind=PREAPPROVAL|TASK`, `selection_id`,
+`selection_revision`, `selection_digest`, 공통 `grant_mode`와 TIMED일 때만 사용하는
+`duration_ms`이다. 각 요구조건은 기능 metadata와 명시적 policy version을 가진다.
+admission·canonical request fingerprint·저장 payload·prompt token·재시도까지
+검증하여 보존한다. 초기 UI는 ONCE·SESSION·TIMED를 지원하며 새 영구 승인
+바로가기는 제공하지 않는다. 한 배치 안에서 다른 기간을 혼합하지 않고 공통 기간을
+명확히 표시한다. 설정에는 SESSION과 30분 TIMED preset을 제공하며 ONCE는
+명시적인 작업 한정 선택에만 사용한다. 기존 재사용 grant 때문에 한 번의 선택이
+지속적인 기능 활성화로 변하지 않게 한다.
+
+PREAPPROVAL은 기존 승인이 선택한 기간을 충족하는지 검사한다. ONCE 하나가
+SESSION 선택을 충족하지 않는다. TIMED 보장 시점은 최초 admission 시각에 기간을
+더해 고정하며 refresh나 retry마다 뒤로 밀지 않는다. TASK는 정확한 권한이 현재
+유효한지 검사하고 부족한 항목에만 선택 기간의 승인을 발급한다. 따라서 기존 TIMED
+승인으로 작업이 가능하면 SESSION 추가 승인 때문에 다시 묻지 않는다. 응답의
+mode·기간은 표시한 요청과 일치해야 하며 새 TIMED 만료는 한 응답 시각을 기준으로
+계산한다. coverage 목표는 retry 중복 확인 뒤 서버 내부 값으로 저장하며 재계산한
+시각을 caller fingerprint에 넣지 않는다. admission·표시 projection·응답·최종 AND에
+모두 같은 kind별 coverage 판정을 적용한다. TIMED의 기존 범위 100~3,600,000ms를 유지한다.
+
+SESSION에는 실제 살아 있는 대화와 일치하는 generation이 필요하다. session 생성
+없이 SESSION 문구를 표시하는 것만으로 권한이 생기지 않는다. 기존 daemon
+heartbeat를 인증된 session controller용 C API로 공개한다. 기존 idle·최대 수명
+안에서 lease를 갱신하며 닫힌 session은 다시 열지 않는다. 팝업에는 session 역할을
+부여하지 않는다. TIMED 승인은 현재 대화 밖에서도 유효할 수 있으므로 대화 동안만
+허용한다고 표시하지 않는다. 접근 승인 기간은 등록된 결과 보유 기간 및
+artifact·session·holder 검사와 별개이다.
+
+원래의 전체 AND 요청을 보존한다. 새 표시 계약을 지원하는 UI에는 현재 부족한
+조건만 압축하여 제공하고 token에 결합된 snapshot에 원본 index를 보존한다.
+typed argument도 같은 행에 맞게 재배치한다. 그 token으로 실제 표시한 조건에만
+승인을 발급하고 다른 요청으로 이미 충족된 조건을 다시 채우지 않는다. 대기 중
+숨겨진 조건이 만료·철회·소비되어도 묵시적으로 승인하지 않는다. 최종 결정 전에
+원래 전체 집합을 다시 검사한다. A가 더 이상 충족되지 않으면 명시 승인한 B는
+남을 수 있지만 전체 작업 요청은 INVALIDATED가 되며, 기존의 비소비 최종 판정을
+유지한다. 부족한 조건이 없으면 승인 팝업 없이 끝낸다. 새 표시 capability가 없는
+이전 UI는 이 계약에 응답할 수 없다.
+
+새 계약의 요청은 항상 daemon에 도달한다. `approval_version`이 있는 요청은
+client cache 조회·저장에서 제외하고 `cacheable=0`을 반환한다. 잘못된 version도
+cache hit에 가려지면 안 된다. 보조 cache 결과만으로 새 선택의 기간·admission
+snapshot·재시도 신원을 확정할 수 없다. 기존 legacy cache 동작은 구분한다.
+송신 전에 server hello의 approval-v1 지원을 확인하여 알 수 없는 필드를 무시하는
+구 daemon으로 조용히 downgrade되지 않게 한다. 알 수 없는 version 및 opt-in version
+없이 승인 전용 필드를 넣은 요청은 거부한다. 실제 보호 작업에는 계속 authoritative
+AUTHORIZE가 필요하다.
+
+설정은 선택을 전달하는 client이며 승인 요청 역할이 아니다. 격리 PoC에서는 전용
+유계 bridge가 기능 ID·catalog revision·허용된 공통 기간 preset을 별도 인증된
+argo mock endpoint에 전달한다. argo만 보호 catalog를 읽고 selection revision을
+소유하며 공개 consent C API로 요청하여 request ID를 반환한다. 별도 PID1 systemd
+listener `consent-feature-poc.socket`과 `consent-feature-poc.service`를 사용하며
+경로는 `/opt/var/lib/consent-feature-runtime/argo.sock`이다. UI는 kernel 생성자
+UID·SMACK label·원래 bind address와 보호
+path/inode를 확인하고, server는 상속 listener와 실제 UI process/package 신원을
+검증한다. 실제 probe에서 앱 UID로 root peer의 proc executable·stat·status를 읽을
+수 없었으므로 UI capability를 추가하거나 양방향 실행파일 검증을 주장하지 않는다.
+caller가 주장한 role과 임의 requirement payload는 받지 않는다. 운영 consent
+endpoint와 통신을 분리하며 운영 role은 등록하지 않는다. 선택 명령에는 안정된 command ID와 예상 selection
+revision을 넣어 compare-and-swap으로 적용한다. 늦게 도착한 저장 명령이 해제한
+기능을 다시 켜면 안 된다. 변경 명령은 coordinator incarnation에도 결합하여 재시작으로
+메모리 명령 기록·revision counter가 초기화된 뒤 과거 명령이 새 작업으로 재실행되지
+않게 한다. 결과가 불확실한 submission과 ID를 보존해 같은 명령으로 재시도하며 답을
+잃었다고 자동으로 새 operation을 만들지 않는다. 작업 한정 선택은 task 신원과 제한된 수명에 결합한다.
+한 TPK의 두 화면은 같은 앱 신원이므로 app-control 인자와 재실행을 사용자 선택·
+승인으로 간주하지 않는다. PID1 listener credential은 보호 endpoint를 인증하며
+현재 argo process 자체가 PID1이라는 뜻이 아니다.
+
+비공개 argo-worker 연결은 대상 kernel의 socketpair probe가 System에서도 빈
+SO_PEERSEC label을 반환한 제약을 반영한다. 정확한 label 검사를 유지하기 위해
+보호된 feature runtime 디렉터리에 root 소유 0600 임시 Unix stream listener를
+만들고, 연결 양단의 신원을 생성한 부모 PID·UID/GID 0·System으로 검증한다. 이후
+pathname과 listener를 제거하고 연결된 FD만 child에 전달한다. 연결 준비를 유계로
+처리하고 실패 시 정리하며 worker의 부모 실행파일·starttime·생존 검사를 유지한다.
+UI bridge나 운영 endpoint의 인증 정책은 바꾸지 않는다.
+
+정확한 재사용 grant가 있더라도 선택하지 않은 기능은 비활성 상태를 유지한다.
+선택 해제·기간 만료·catalog 변경은 과거 선택으로 대기 중인 작업을 무효화한다.
+각 bridge 호출의 실제 UI process는 인증하되 확정한 선택은 안정된 앱·subject 신원에
+소유시켜 설정 process 종료 뒤에도 유지한다. PoC coordinator 자체를 재시작하면
+선택을 초기화할 수 있으며 그 재시작을 넘는 영속 설정 보존을 약속하지 않는다.
+각 provider 동작 전에 argo가 현재 불변 선택과 실행 계획을 확인하고 enforcement
+service는 실제 대상·효과에 AUTHORIZE를 수행한다. 선택 변경·catalog 교체·작업
+시작을 argo actor에서 직렬화한다. 비동기 AUTHORIZE 완료는 그 actor로 돌려보내고
+같은 실행 구간에서 현재 snapshot을 재확인한 직후 작업을 시작한다. 검사 후 잠금을
+풀고 다른 queue로 넘기기만 하는 방식은 충분하지 않다. 선택 해제로 이미 시작한
+작업을 되돌린다고 약속하지 않는다. 작업에 필요한 비활성 기능은
+그 작업에 한해 명시적으로 선택할 수 있으며 설정에서 영구 활성화하지 않는다.
+기능 선택 해제는 해당 기능의 실행을 막는 것이고, 다른 선택 기능과 공유하는 exact
+grant 전체를 revoke한다는 뜻은 아니다. 허용된 대안은 현재 선택과 정확한 승인에
+명시적으로 포함되어야 하며 거부된 원래 작업은 실행하지 않는다.
+
+GBS로 빌드한 TPK·실제 공개 C API·격리 mock service로 전체 흐름을 검증한다.
+필수 항목은 부족분만 표시, 불변 선택 뒤 catalog 항목 추가, 제공 앱·목적·수신자·
+범위 변경, 선택 해제, 기간 변조, 대기 중 철회·만료·ONCE 소비, ONCE 재충전 금지,
+재시도 충돌, 같은 대화 재사용과 종료, bridge 신원 거부, 거부된 원래 작업을 수행하지
+않는 허용 대안 실행이다. 운영 제품 연동과 emulator PoC 근거를 구분한다.
 
 ## 완료 전에 확인할 초기 검토 사항
 

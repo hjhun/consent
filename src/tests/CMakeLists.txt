@@ -75,3 +75,11 @@ IF(TARGET consent-installation-authority)
   INSTALL(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/image_authority_test.py"
     DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
 ENDIF()
+
+IF(CONSENT_BUILD_POC)
+  ADD_EXECUTABLE(feature-endpoint-fixture endpoint-fixture.c)
+  TARGET_COMPILE_DEFINITIONS(feature-endpoint-fixture PRIVATE
+    CONSENT_FIXTURE_SOCKET_PATH="/opt/var/lib/consent-feature-runtime/argo.sock")
+  INSTALL(TARGETS feature-endpoint-fixture
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+ENDIF()

@@ -39,6 +39,17 @@ extern "C" {
  *     100-300,000 ms (default 60,000); it is independent of the local wait.
  *     Only authenticated argo may request approval.
  *
+ * @details Feature selection opt-in uses approval_version=1, request_kind
+ *     PREAPPROVAL or TASK, selection_id/revision/digest, a common grant_mode,
+ *     and duration_ms only for TIMED. Every requirement includes feature_id,
+ *     feature_revision and explicit policy_version. See the protocol guide
+ *     for canonical selection digest encoding and period coverage. These
+ *     requests always go to consentd and require its advertised version 1
+ *     capability. Settings selection does not grant its UI an argo role.
+ *     The logical 16-row bound is additionally restricted by the combined
+ *     240-field/64 KiB prompt and rendered-text budgets; overflow fails with
+ *     CONSENT_ERROR_TOO_LARGE without implicit partial approval.
+ *
  * @remarks The client polls a pending request until a terminal result or its
  *     local timeout. Immediate and cached ALLOWED results are advisory;
  *     perform AUTHORIZE before protected execution.
@@ -63,7 +74,7 @@ extern "C" {
  * @retval #CONSENT_ERROR_PERMISSION_DENIED The authenticated caller lacks the
  *     required role or delegation.
  * @retval #CONSENT_ERROR_INVALID_OPERATION The handle is an offline
- *     registration handle.
+ *     registration handle or the daemon lacks the selected approval capability.
  * @retval #CONSENT_ERROR_WOULD_DEADLOCK The caller owns the callback context.
  * @retval #CONSENT_ERROR_TIMEOUT The local wait expired; remote work may still
  *     exist.

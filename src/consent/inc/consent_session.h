@@ -42,8 +42,8 @@ extern "C" {
  * @remarks Retain returned session, generation and resume_token. This creates
  *     a new session on each successful call; there is no operation-ID
  *     deduplication. Sessions are distinct from sockets and are not
- *     reactivated after daemon restart. The current C API has no heartbeat
- *     method; callers must respect the lease.
+ *     reactivated after daemon restart. Renew the lease with consent_session_heartbeat() before it expires;
+ *     heartbeat never extends idle or absolute lifetime.
  *
  * @remarks This is a synchronous operation with a 5,000 ms local wait. It does
  *     not wait for UI interaction or physical data deletion. The common
@@ -67,6 +67,31 @@ extern "C" {
  * @pre The caller must have the session role and delegated subject/profile.
  */
 CONSENT_API int consent_session_open(consent_client_h client,
+    const consent_params_t* params, consent_result_t** result);
+/**
+ * @brief Renews the lease of an owned active conversation.
+ * @since 0.1.0
+ * @details Set subject, profile, session and current generation. A successful
+ *     heartbeat replaces the lease deadline with now plus 30,000 ms. It never
+ *     extends idle or absolute lifetime, resumes a suspended session, or
+ *     restores approvals after restart. Only the authenticated session owner
+ *     process instance may call this operation.
+ * @remarks The local wait is bounded to 5,000 ms. The common threading and
+ *     ownership rules apply. No callback is invoked by this synchronous call.
+ * @param[in] client The live caller-owned online handle.
+ * @param[in] params Fields copied before return; the caller retains ownership.
+ * @param[out] result Owned result on success, NULL on error. Free with
+ *     consent_result_free().
+ * @return 0 on success, otherwise a negative #consent_error_e.
+ * @retval #CONSENT_ERROR_PERMISSION_DENIED Role, context or owner mismatch.
+ * @retval #CONSENT_ERROR_STALE Session generation mismatch.
+ * @retval #CONSENT_ERROR_SESSION_INACTIVE The session is not active.
+ * @retval #CONSENT_ERROR_SESSION_CLOSED The session has closed.
+ * @retval #CONSENT_ERROR_INVALID_OPERATION An offline registration handle.
+ * @retval #CONSENT_ERROR_TIMEOUT The bounded local wait expired.
+ * @pre The caller has the session role and owns the active session instance.
+ */
+CONSENT_API int consent_session_heartbeat(consent_client_h client,
     const consent_params_t* params, consent_result_t** result);
 /**
  * @brief Suspends or closes an owned active session.

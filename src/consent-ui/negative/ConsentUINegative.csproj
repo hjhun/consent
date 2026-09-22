@@ -25,6 +25,9 @@ limitations under the License.
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Tizen.NET" Version="$(TizenNetVersion)" />
+    <Compile Include="../FeatureDisplay.cs" Link="FeatureDisplay.cs" />
+    <Compile Include="../FeatureSettings.cs" Link="FeatureSettings.cs" />
+    <Compile Include="../FeatureApi.cs" Link="FeatureApi.cs" />
     <Compile Include="../NativeApi.cs" Link="NativeApi.cs" />
     <Compile Include="../PromptSnapshot.cs" Link="PromptSnapshot.cs" />
   </ItemGroup>

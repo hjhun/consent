@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 #include "mock_runtime.h"
+#include <string.h>
 
 int main(int argc, char** argv) {
+  if (argc == 2 && !strcmp(argv[1], "feature-worker"))
+    return consent_feature_worker_main("cm");
   return consent_mock_main("cm", argc, argv);
 }

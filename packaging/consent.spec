@@ -150,6 +150,12 @@ fi
 %pre poc
 if [ "$1" -gt 1 ] && [ -d /run/systemd/system ] &&
    [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+  for feature_unit in consent-feature-poc.socket consent-feature-poc.service; do
+    feature_load=$(systemctl show -p LoadState --value "$feature_unit") || exit 1
+    if [ "$feature_load" != not-found ]; then
+      systemctl stop "$feature_unit" || exit 1
+    fi
+  done
   systemctl stop consent-poc-register.service consentd-poc.socket consentd-poc.service || exit 1
 fi
 
@@ -164,6 +170,12 @@ fi
 %preun poc
 if [ "$1" -eq 0 ] && [ -d /run/systemd/system ] &&
    [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+  for feature_unit in consent-feature-poc.socket consent-feature-poc.service; do
+    feature_load=$(systemctl show -p LoadState --value "$feature_unit") || exit 1
+    if [ "$feature_load" != not-found ]; then
+      systemctl stop "$feature_unit" || exit 1
+    fi
+  done
   systemctl stop consent-poc-register.service consentd-poc.socket consentd-poc.service || exit 1
 fi
 
@@ -215,10 +227,13 @@ fi
 %manifest %{name}.manifest
 %license LICENSE
 %{_libdir}/libconsent-poc.so*
+%{_libdir}/libconsent-feature-poc.so*
 %{_libexecdir}/consent/poc
 %{_datadir}/consent/poc
 %{_unitdir}/consentd-poc.service
 %{_unitdir}/consentd-poc.socket
+%{_unitdir}/consent-feature-poc.service
+%{_unitdir}/consent-feature-poc.socket
 %{_unitdir}/consent-poc-register.service
 %{_unitdir}/multi-user.target.wants/consent-poc-register.service
 %dir %{_sysconfdir}/consent-poc

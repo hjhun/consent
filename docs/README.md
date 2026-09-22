@@ -13,7 +13,8 @@ preserved in Korean.
 3. Follow **Guides 03–06** for installation generations, offline registration,
    protocol generation, and the external Installer integration contract.
 4. Check **Guide 07** before making verification claims. Use **Guide 08** for the
-   interactive Consent UI proof of concept and **Guide 09** for storage maintenance.
+   interactive Consent UI proof of concept, **Guide 09** for storage maintenance,
+   and **Guide 10** for feature selection and task approval.
 5. For framework changes, read **Design 01** and **Design 05**, then the relevant
    protocol or storage design. The proposal, adopted decisions, and executable
    evidence have distinct scopes.
@@ -31,6 +32,7 @@ preserved in Korean.
 | 07 | Exact build/emulator evidence, tested snapshots, and remaining limits | [Verification](guides/07-verification.en.md) | [검증 기록](guides/07-verification.ko.md) |
 | 08 | Interactive Consent UI, isolated participants and TPK workflow | [Consent UI PoC](guides/08-consent-ui-poc.en.md) | [Consent UI PoC](guides/08-consent-ui-poc.ko.md) |
 | 09 | Receipt-preserving compaction and registry-loss recovery boundaries | [Storage maintenance](guides/09-storage-maintenance.en.md) | [저장소 관리](guides/09-storage-maintenance.ko.md) |
+| 10 | Feature selection, missing-only approval and conversation reuse | [Feature approval](guides/10-feature-approval.en.md) | [기능 승인](guides/10-feature-approval.ko.md) |
 
 ## Design documents
 
@@ -50,8 +52,8 @@ source alone does not establish successful target execution: the verification
 guides record the evidence for each snapshot and preserve earlier results.
 
 Product role identities, the Installer transaction hook, and a production
-approval UI remain integration work. The planned UI PoC is intended to exercise
-the public API with an isolated test identity; it does not enroll a product UI or
+approval UI remain integration work. The UI PoC exercises the public API with
+an isolated test identity; it does not enroll a product UI or
 replace platform approval policy. Offline registration stages definitions only;
 startup import still validates the installed package/app and protected generation.
 

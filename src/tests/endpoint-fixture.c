@@ -25,9 +25,13 @@
 #include <string.h>
 #include <poll.h>
 
+#ifndef CONSENT_FIXTURE_SOCKET_PATH
+#define CONSENT_FIXTURE_SOCKET_PATH "/run/.consentd.sock"
+#endif
+
 /* Development-emulator fixture. Never removes an existing socket. */
 int main(int argc, char** argv) {
-  const char* path = "/run/.consentd.sock";
+  const char* path = CONSENT_FIXTURE_SOCKET_PATH;
   struct sockaddr_un address = { .sun_family = AF_UNIX };
   int fd;
   if (argc != 2) return 2;

@@ -75,7 +75,10 @@ INSTALL(DIRECTORY docs/ DESTINATION "${CMAKE_INSTALL_DOCDIR}/docs"
 
 IF(CONSENT_BUILD_POC)
   CONFIGURE_FILE(packaging/consentd-poc.service.in consentd-poc.service @ONLY)
+  CONFIGURE_FILE(packaging/consent-feature-poc.service.in consent-feature-poc.service @ONLY)
   INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/consentd-poc.service"
+    "${CMAKE_CURRENT_BINARY_DIR}/consent-feature-poc.service"
+    packaging/consent-feature-poc.socket
     packaging/consentd-poc.socket packaging/consent-poc-register.service
     DESTINATION "${UNITDIR}")
   INSTALL(FILES packaging/consent-poc-roles.conf

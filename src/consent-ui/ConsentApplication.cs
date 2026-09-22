@@ -26,6 +26,18 @@ internal sealed class ConsentApplication : NUIApplication
 {
   private SynchronizationContext? ui;
   private ConsentWorker? worker;
+  private readonly List<ConsentWorker> retiredWorkers = new();
+  private FeatureWorker? featureWorker;
+  private FeatureSettingsView? settings;
+  private FeatureStatus? activeFeatureRequest;
+  private string completedFeatureRequest = "";
+  private FeatureReview? settingsReview;
+  private FeatureSubmission? pendingSubmission;
+  private bool featurePolling;
+  private bool featureBusy;
+  private bool recoveringFeatureRevision;
+  private long lastFeaturePoll;
+  private readonly Stopwatch featureClock = Stopwatch.StartNew();
   private Tizen.NUI.Timer? timer;
   private View? root;
   private View? card;
@@ -87,14 +99,171 @@ internal sealed class ConsentApplication : NUIApplication
         return new LaunchRequest(control.Operation, id, requestedLocale);
       });
       if (launch is null) return;
-      requestId = launch.RequestId!;
       locale = launch.Locale!;
-      lifetime.Restart();
-      UpdateLabels();
-      worker = new ConsentWorker(error => PostUi(() => Fail(error)));
-      Refresh();
+      if (launch.Settings) BeginSettings();
+      else BeginPrompt(launch.RequestId!);
     }
     catch (Exception error) { Fail(error); }
+  }
+
+  private void BeginPrompt(string id)
+  {
+    requestId = id;
+    review.Clear();
+    busy = false;
+    lifetime.Restart();
+    settings?.Hide();
+    card!.Show();
+    UpdateLabels();
+    worker = new ConsentWorker(error => PostUi(() => Fail(error)));
+    timer?.Start();
+    Refresh();
+  }
+
+  private void BeginSettings()
+  {
+    featureWorker = new FeatureWorker(error => PostUi(() => FeatureFailed(error)));
+    LoadSettings();
+  }
+
+  private void LoadSettings()
+  {
+    if (featureWorker is null) { Close(); return; }
+    featureBusy = true;
+    settings?.SetBusy(true);
+    if (!featureWorker.Catalog(catalog => PostUi(() =>
+    {
+      if (settings is not null) { root!.Remove(settings); settings.Dispose(); }
+      settings = new FeatureSettingsView(new FeatureSelection(catalog), Korean, SubmitFeatures, Close, Fail);
+      settings.SetBusy(true);
+      root!.Add(settings);
+      card!.Hide();
+      Resize();
+      PollFeatures();
+    }))) Close();
+  }
+
+  private void SubmitFeatures(bool task)
+  {
+    if (closing || featureBusy || settings is null || featureWorker is null) return;
+    locale = settings.Korean ? "ko-KR" : "en-US";
+    if (pendingSubmission is not null)
+    {
+      // The explicit retry control keeps the complete old command and epoch.
+      ExecuteSubmission();
+      return;
+    }
+    if (task && settings.Executing) return;
+    if (task && settings.Selection.TaskId == "conversation-close")
+    {
+      pendingSubmission = new FeatureSubmission(settings.Selection, true, settings.TaskOnly);
+      ExecuteSubmission();
+      return;
+    }
+    if (!task && !settings.Selection.Ready) return;
+    featurePolling = false;
+    settingsReview = new FeatureReview(settings.Selection, Korean, task, settings.TaskOnly, settings.Executing);
+    settings.Hide(); card!.Show(); lifetime.Restart();
+    body!.Text = settingsReview.Pages[0]; EnsureTextFits();
+    UpdateLabels(); UpdateButtons();
+  }
+
+  private void ExecuteSubmission()
+  {
+    if (pendingSubmission is null || featureWorker is null || settings is null) return;
+    featureBusy = true;
+    featurePolling = true;
+    lifetime.Restart();
+    settings.SetBusy(true);
+    var submitted = pendingSubmission;
+    if (!featureWorker.Submit(submitted, status => PostUi(() =>
+    {
+      if (!submitted.IsTask && (submitted.Ids.Length == 0 || submitted.SaveOnly)) featurePolling = false;
+      pendingSubmission = null;
+      ApplyFeatureStatus(status);
+    }))) FeatureFailed(new InvalidOperationException("Feature queue is full"));
+  }
+
+  private void PollFeatures()
+  {
+    if (closing || featureWorker is null) return;
+    featureBusy = true;
+    settings?.SetBusy(true);
+    if (!featureWorker.Status(status => PostUi(() => ApplyFeatureStatus(status))))
+      FeatureFailed(new InvalidOperationException("Feature queue is full"));
+  }
+
+  private void ApplyFeatureStatus(FeatureStatus status)
+  {
+    if (settings is null) throw new InvalidOperationException("Missing feature settings");
+    if (status.CoordinatorEpoch != settings.Selection.Catalog.CoordinatorEpoch ||
+        status.CatalogRevision != settings.Selection.Catalog.Revision)
+    {
+      // A restart invalidates old command readiness even if revision restarts at 1.
+      pendingSubmission = null; featurePolling = false;
+      if (recoveringFeatureRevision) { Close(); return; }
+      recoveringFeatureRevision = true; LoadSettings(); return;
+    }
+    settings.Selection.Reconcile(status, recoveringFeatureRevision);
+    settings.SetExecuting(status.ExecutionPending);
+    featureBusy = false;
+    lastFeaturePoll = featureClock.ElapsedMilliseconds;
+    settings.SetStatus(recoveringFeatureRevision ? "INVALIDATED" : status.CleanupComplete ? "CLEANED" :
+        status.CleanupState.Length != 0 && status.Decision == "PENDING" ? "CLEANUP" :
+        status.ExecutionPending ? "EXECUTING" : status.Decision);
+    recoveringFeatureRevision = false;
+    if (featurePolling && status.Decision == "PENDING" && status.RequestId.Length != 0 &&
+        status.RequestId != completedFeatureRequest)
+    {
+      activeFeatureRequest = status;
+      featurePolling = false;
+      BeginPrompt(status.RequestId);
+    }
+    else
+    {
+      featurePolling = status.ExecutionPending || (featurePolling && status.Decision is "IDLE" or "PENDING");
+      settings.SetBusy(featurePolling && !status.ExecutionPending);
+    }
+  }
+
+  private void FeatureFailed(Exception error)
+  {
+    ConsentWorker.LogStatus("feature", error);
+    if (recoveringFeatureRevision) { recoveringFeatureRevision = false; Close(); return; }
+    featureBusy = false;
+    featurePolling = false;
+    if (settings is null) { Close(); return; }
+    if (error is NativeFailure { Status: -116 or -17 or -22 or -13 })
+    {
+      // Definite rejection is reconciled read-only. No new command is generated.
+      pendingSubmission = null;
+      recoveringFeatureRevision = true;
+      LoadSettings();
+    }
+    else if (pendingSubmission is not null)
+      settings.SetUncertain();
+    else settings.SetStatus("ERROR");
+  }
+
+  private void FinishPrompt(string decision)
+  {
+    if (settings is null) { Close(); return; }
+    if (worker is not null)
+    {
+      worker.Stop();
+      retiredWorkers.Add(worker);
+      worker = null;
+    }
+    completedFeatureRequest = requestId;
+    review.Clear();
+    activeFeatureRequest = null;
+    card!.Hide();
+    settings.Show();
+    settings.SetStatus(decision);
+    busy = false;
+    featurePolling = true;
+    timer?.Start();
+    PollFeatures();
   }
 
   private void PostUi(Action action) => ui?.Post(_ =>
@@ -120,6 +289,8 @@ internal sealed class ConsentApplication : NUIApplication
     // Construct/validate pages before publishing the token to the controls.
     // Same text refreshes preserve review progress, new content resets it.
     phase = UiPhase.PromptDisplay;
+    if (activeFeatureRequest is not null && !activeFeatureRequest.Matches(fresh))
+      throw new InvalidOperationException("Feature prompt binding mismatch");
     body!.Text = fresh.Pages[review.PageFor(fresh)];
     EnsureTextFits();
     review.Install(fresh);
@@ -175,8 +346,19 @@ internal sealed class ConsentApplication : NUIApplication
 
   private void Choose(bool approved)
   {
+    if (settingsReview is not null)
+    {
+      if (closing || busy || (approved && !settingsReview.CanApply)) return;
+      if (approved && lifetime.ElapsedMilliseconds < 60000)
+        pendingSubmission = settingsReview.Submission;
+      settingsReview = null;
+      card!.Hide(); settings!.Show(); UpdateButtons();
+      if (pendingSubmission is not null) ExecuteSubmission();
+      else featurePolling = settings.Executing;
+      return;
+    }
     if (closing || busy || worker is null || snapshot is null) return;
-    if (approved && (!snapshot.CanAllowOnce || reviewed != snapshot.Pages.Count)) return;
+    if (approved && (!snapshot.CanApprove || reviewed != snapshot.Pages.Count)) return;
     if (lifetime.ElapsedMilliseconds >= 60000) { Close(); return; }
     busy = true;
     timer?.Stop();
@@ -186,20 +368,35 @@ internal sealed class ConsentApplication : NUIApplication
     if (!worker.Respond(displayed, approved, decision => PostUi(() =>
     {
       Console.WriteLine($"ConsentUI response decision={decision}");
-      Close();
+      FinishPrompt(decision);
     }))) Close();
   }
 
   private bool Tick(object? sender, Tizen.NUI.Timer.TickEventArgs args)
   {
     if (closing) return false;
-    if (lifetime.ElapsedMilliseconds >= 60000) { Close(); return false; }
+    if (settingsReview is not null && lifetime.ElapsedMilliseconds >= 60000) { Choose(false); return true; }
+    if (featurePolling && !featureBusy && lifetime.ElapsedMilliseconds >= 60000)
+      FeatureFailed(new NativeFailure(-110));
+    if (worker is not null && lifetime.ElapsedMilliseconds >= 60000) { Close(); return false; }
     if (worker is not null && !busy && lifetime.ElapsedMilliseconds - lastRefresh >= 500) Refresh();
+    if (worker is null && featurePolling && !featureBusy && featureClock.ElapsedMilliseconds - lastFeaturePoll >= 250)
+      PollFeatures();
+    for (int i = retiredWorkers.Count - 1; i >= 0; --i)
+      if (retiredWorkers[i].Join(0)) retiredWorkers.RemoveAt(i);
+    if (retiredWorkers.Count >= 16) { Close(); return false; }
     return true;
   }
 
   private void MovePage(int offset)
   {
+    if (settingsReview is not null)
+    {
+      if (closing || busy) return;
+      settingsReview.Move(offset);
+      body!.Text = settingsReview.Pages[settingsReview.Page]; EnsureTextFits();
+      UpdateLabels(); UpdateButtons(); return;
+    }
     if (closing || busy || snapshot is null) return;
     int target = page + offset;
     if (target < 0 || target >= snapshot.Pages.Count) return;
@@ -289,11 +486,25 @@ internal sealed class ConsentApplication : NUIApplication
     language!.Text = Korean ? "English" : "한국어";
     previous!.Text = Korean ? "이전" : "Previous";
     next!.Text = Korean ? "다음" : "Next";
+    if (settingsReview is not null)
+    {
+      deny!.Text = Korean ? "돌아가기" : "Back";
+      allow!.Text = settingsReview.Submission.SaveOnly ? (Korean ? "변경한 설정 저장" : "Save changed settings") :
+          settingsReview.Submission.IsTask ? (Korean ? "검토한 작업 요청" : "Request reviewed task") :
+          Korean ? "저장하고 승인 검토" : "Save and review approval";
+      notice.Text = settingsReview.Submission.IsTask ? (Korean ? "작업의 전체 범위와 기간을 확인하세요. 필요한 경우 별도 동의 화면이 열립니다." :
+          "Review the complete task scope and period. Missing approvals open a separate consent screen.") :
+          Korean ? "설정 내용을 모두 확인하세요. 저장만으로 접근이 허용되지는 않습니다." :
+          "Review the complete settings. Saving alone does not authorize access.";
+      pageLabel!.Text = $"{settingsReview.Page + 1} / {settingsReview.Pages.Count}";
+      return;
+    }
     deny!.Text = Korean ? "거절" : "Deny";
-    allow!.Text = Korean ? "이번 한 번 허용" : "Allow once";
+    allow!.Text = snapshot?.VersionedApproval == true ? (Korean ? "표시한 기간 허용" : "Allow as displayed") :
+        Korean ? "이번 한 번 허용" : "Allow once";
     notice.Text = snapshot is null ? (Korean ? "동의 요청을 확인하는 중…" : "Checking the request…") :
-        !snapshot.CanAllowOnce ? (Korean ? "이 요청은 일회 허용을 지원하지 않습니다. 거절만 가능합니다." :
-          "This request does not support a one-time grant. Only denial is available.") :
+        !snapshot.CanApprove ? (Korean ? "이 요청의 승인 기간을 지원하지 않습니다. 거절만 가능합니다." :
+          "This approval period is unsupported. Only denial is available.") :
         Korean ? "모든 페이지를 확인한 후 선택하세요. 닫거나 60초가 지나면 허용되지 않습니다." :
           "Review every page before choosing. Closing or waiting 60 seconds does not approve.";
     pageLabel!.Text = snapshot is null ? "" : $"{page + 1} / {snapshot.Pages.Count}";
@@ -302,8 +513,17 @@ internal sealed class ConsentApplication : NUIApplication
   private void UpdateButtons()
   {
     if (allow is null) return;
+    if (settingsReview is not null)
+    {
+      bool available = !closing && !busy;
+      SetEnabled(allow, available && settingsReview.CanApply); SetEnabled(deny!, available);
+      SetEnabled(language!, false);
+      SetEnabled(previous!, available && settingsReview.Page > 0);
+      SetEnabled(next!, available && settingsReview.Page + 1 < settingsReview.Pages.Count);
+      return;
+    }
     bool ready = !closing && !busy && snapshot is not null;
-    SetEnabled(allow, ready && snapshot!.CanAllowOnce && reviewed == snapshot.Pages.Count);
+    SetEnabled(allow, ready && snapshot!.CanApprove && reviewed == snapshot.Pages.Count);
     SetEnabled(deny!, ready);
     SetEnabled(language!, ready);
     SetEnabled(previous!, ready && page > 0);
@@ -329,16 +549,23 @@ internal sealed class ConsentApplication : NUIApplication
     if (scale <= 0) return;
     card.Scale = new Vector3(scale, scale, 1);
     card.Position = new Position((size.Width - 824 * scale) / 2, (size.Height - 624 * scale) / 2);
+    if (settings is not null)
+    {
+      settings.Scale = new Vector3(scale, scale, 1);
+      settings.Position = new Position((size.Width - 824 * scale) / 2, (size.Height - 624 * scale) / 2);
+    }
   }
 
   private void OnResize(object? sender, EventArgs args) => Resize();
   private void OnKey(object? sender, Window.KeyEventArgs args)
   {
-    if (args.Key.State == Key.StateType.Down && args.Key.KeyPressedName is "XF86Back" or "Escape") Close();
+    if (args.Key.State == Key.StateType.Down && args.Key.KeyPressedName is "XF86Back" or "Escape")
+    { if (settingsReview is not null) Choose(false); else Close(); }
   }
 
   private void Fail(Exception error)
   {
+    if (error is PromptFinished finished) { FinishPrompt(finished.Decision); return; }
     ConsentWorker.LogStatus($"failure phase={phase}", error);
     Close();
   }
@@ -350,12 +577,13 @@ internal sealed class ConsentApplication : NUIApplication
     timer?.Stop();
     UpdateButtons();
     worker?.Stop();
+    featureWorker?.Stop();
     Exit();
   }
 
   protected override void OnPause()
   {
-    if (worker is not null) Close();
+    if (worker is not null || featureWorker is not null) Close();
     base.OnPause();
   }
 
@@ -363,6 +591,7 @@ internal sealed class ConsentApplication : NUIApplication
   {
     closing = true;
     worker?.Stop();
+    featureWorker?.Stop();
     timer?.Stop();
     timer?.Dispose();
     timer = null;
@@ -378,6 +607,9 @@ internal sealed class ConsentApplication : NUIApplication
     finally
     {
       app.worker?.Stop();
+      app.featureWorker?.Stop();
+      foreach (var retired in app.retiredWorkers) { retired.Stop(); retired.Join(12000); }
+      app.featureWorker?.Join(12000);
       // This runs after NUI has returned, never blocks its event dispatcher.
       if (app.worker is not null && !app.worker.Join(12000))
         Console.Error.WriteLine("ConsentUI native shutdown did not complete within 12 seconds");

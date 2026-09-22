@@ -29,6 +29,11 @@ int consent_session_open(consent_client_h client, const consent_params_t* params
   return Guard([&]() { return Call(client, "session_open", params, 5000, result); });
 }
 
+int consent_session_heartbeat(consent_client_h client, const consent_params_t* params,
+    consent_result_t** result) {
+  return Guard([&]() { return Call(client, "session_heartbeat", params, 5000, result); });
+}
+
 int consent_session_suspend(consent_client_h client, const consent_params_t* params,
     consent_result_t** result) {
   return Guard([&]() { return Call(client, "session_suspend", params, 5000, result); });

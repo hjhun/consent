@@ -64,6 +64,7 @@ pid_t test_parent = 0;
 constexpr const char* kEndpoint = "/tmp/consent-test/consent.sock";
 std::atomic<unsigned> requests{0};
 std::atomic<bool> stop{false};
+std::atomic<bool> approval_capability{true};
 
 bool ReadAll(int fd, void* data, size_t size) {
   auto* bytes = static_cast<uint8_t*>(data);
@@ -122,6 +123,8 @@ void Serve(int listener) {
     consent::Message reply{{"v", "1"}, {"method", "reply"}, {"id", consent::Get(input, "id")},
         {"status", "0"}, {"epoch", "test-epoch"},
         {"revision", std::to_string(reply_revision)}, {"decision", "ALLOWED"}};
+    if (method == "hello" && approval_capability)
+      reply["approval_version"] = "1";
     if (method == "request") {
       ++requests;
       if (!consent::Get(input, "session").empty()) {
@@ -183,6 +186,94 @@ void DispatchUntil(Callback* callback) {
     g_usleep(1000);
   }
   CHECK(callback->count == 1);
+}
+
+void ApprovalAdmission(int listener, bool capability) {
+  approval_capability = capability;
+  std::thread server(Serve, listener);
+  consent_client_h client = nullptr;
+  CHECK(!consent_client_create(&client));
+  consent_params_t* params = nullptr;
+  CHECK(!consent_params_create(&params));
+  CHECK(!consent_params_set(params, "scenario", "cache"));
+  consent_result_t* result = nullptr;
+  CHECK(!consent_request(client, params, 2000, &result));
+  consent_result_free(result);
+  CHECK(!consent_request(client, params, 2000, &result));
+  const char* cached_source = consent_result_get(result, "source");
+  CHECK(cached_source && !strcmp(cached_source, "CACHE"));
+  consent_result_free(result);
+  CHECK(!consent_params_set(params, "approval_version", "1"));
+  unsigned before = requests;
+  for (unsigned index = 0; index < 2; ++index) {
+    result = nullptr;
+    int status = consent_request(client, params, 2000, &result);
+    if (capability) {
+      CHECK(!status && result && requests == before + index + 1);
+      const char* source = consent_result_get(result, "source");
+      CHECK(source && !strcmp(source, "DAEMON"));
+      consent_result_free(result);
+    } else {
+      CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !result && requests == before);
+    }
+  }
+  Callback callback;
+  consent_async_id_t operation = 99;
+  int status = consent_request_async(client, params, Result, &callback, &operation);
+  if (capability) {
+    CHECK(!status && operation);
+    callback.returned = true;
+    DispatchUntil(&callback);
+    CHECK(!callback.status && requests == before + 3);
+  } else {
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation && !callback.count);
+  }
+  result = nullptr;
+  status = consent_check(client, params, 2000, &result);
+  if (capability) {
+    CHECK(!status && result && consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
+    consent_result_free(result);
+  } else {
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !result);
+  }
+  Callback check_callback;
+  operation = 99;
+  status = consent_check_async(client, params, Result, &check_callback, &operation);
+  if (capability) {
+    CHECK(!status && operation);
+    check_callback.returned = true;
+    DispatchUntil(&check_callback);
+    CHECK(!check_callback.status && check_callback.decision == CONSENT_DECISION_ALLOWED);
+  } else {
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation && !check_callback.count);
+  }
+  CHECK(!consent_params_set(params, "approval_version", "01"));
+  result = nullptr;
+  CHECK(consent_request(client, params, 2000, &result) == CONSENT_ERROR_INVALID_PARAMETER && !result);
+  Callback invalid;
+  operation = 99;
+  CHECK(consent_request_async(client, params, Result, &invalid, &operation) ==
+      CONSENT_ERROR_INVALID_PARAMETER && !operation && !invalid.count);
+  CHECK(consent_check(client, params, 2000, &result) == CONSENT_ERROR_INVALID_PARAMETER && !result);
+  CHECK(consent_check_async(client, params, Result, &invalid, &operation) ==
+      CONSENT_ERROR_INVALID_PARAMETER && !operation && !invalid.count);
+  // Rejected async admissions must not leave a callback queued on the dispatcher.
+  callback.returned = true;
+  check_callback.returned = true;
+  invalid.returned = true;
+  for (unsigned iteration = 0; iteration < 32; ++iteration) {
+    if (!g_main_context_iteration(nullptr, FALSE))
+      break;
+  }
+  CHECK(callback.count == (capability ? 1U : 0U));
+  CHECK(check_callback.count == (capability ? 1U : 0U) && !invalid.count);
+  CHECK(requests == before + (capability ? 3U : 0U));
+  consent_params_free(params);
+  CHECK(!consent_client_destroy(client));
+  server.join();
+  approval_capability = true;
+  printf("PASS selected approval %s: SYNC/ASYNC request/check admission and cache isolation\n",
+      capability ? "capable daemon" : "old daemon rejection");
 }
 
 void EndpointPolicy() {
@@ -295,6 +386,8 @@ int main(int argc, char** argv) {
   strcpy(address.sun_path, kEndpoint);
   CHECK(!bind(listener, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)));
   CHECK(!listen(listener, 4));
+  ApprovalAdmission(listener, false);
+  ApprovalAdmission(listener, true);
   std::thread server(Serve, listener);
   consent_client_h client = nullptr;
   CHECK(!consent_client_create(&client));

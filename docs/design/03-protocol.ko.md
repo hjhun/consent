@@ -259,3 +259,60 @@ Host sanitizer는 fork와 LeakSanitizer를 나눠 실행합니다.
 LeakSanitizer와 multithreaded fork를 함께 켜면 host child의 새 client 생성에서
 hang이 관측됐습니다. 일반 GBS 시험은 fork를 포함하며 --skip-fork는 시험 프로그램
 옵션일 뿐 라이브러리 설정이 아닙니다.
+
+## 기능 선택 승인 version 1
+
+hello 응답은 `approval_version=1` 지원을 알립니다. 새 client는 이를 알리지
+않은 daemon에 opt-in 호출을 송신하지 않습니다. approval_version 필드가 있으면
+잘못된 값이어도 request cache 조회/저장을 하지 않으며 daemon도 cacheable=0을
+반환합니다. 기존 요청의 cache 계약은 유지합니다.
+
+요청/check는 approval_version=1, request_kind=PREAPPROVAL|TASK,
+selection_id/selection_revision/selection_digest, 배치 공통
+ grant_mode=ONCE|SESSION|TIMED를 전달합니다. duration_ms는 TIMED일 때만
+100–3,600,000입니다. 각 rN에는 feature_id/feature_revision과 literal 정의에서도
+명시 policy_version이 필요합니다. 식별자는 ASCII 영숫자/밑줄/하이픈/점 1–128자,
+revision은 선행0 없는 양의 int64 십진수입니다. SESSION에는 활성 session/generation이
+필수이며 v1은 행별로 다른 기간을 선택하지 않습니다. 기능 metadata는 wildcard
+권한 key가 아닙니다.
+
+PREAPPROVAL은 선택 기간의 충족을 검사합니다. 유효한 grant는 ONCE를,
+PERSISTENT는 모든 기간을 충족합니다. SESSION은 같은 session의 승인이어야 하며
+TIMED는 최초 admission 시각+duration 이상의 만료시각이 필요합니다. 이 목표는
+중복 처리 후 한 번 저장하는 서버 private 값이고 caller fingerprint와 분리합니다.
+새 TIMED 승인은 단일 응답 시각부터 duration 뒤 만료됩니다. TASK는 현재 유효한
+정확 일치 grant를 먼저 재사용하고 부족한 조건만 선택 기간으로 발급합니다.
+범위 부분집합 추론이나 provider 대체는 하지 않습니다.
+
+selection_digest는 approval_version/request_kind/selection_id/selection_revision/
+grant_mode, 존재하는 경우 duration_ms, subject/profile/session/generation/count와
+각 rN.definition/policy_version/scope/operation/purpose/recipient/holder/feature_id/
+feature_revision 문자열 map의 SHA-256입니다. 없는 session/generation 및 행 값은
+빈 문자열로 넣습니다. selection_digest와 transport/operation/step/request/deadline/
+private 필드는 제외합니다. key를 ASCII byte 순으로 정렬하고
+`consent-selection-v1\n` UTF-8 bytes(LF로 끝남) 뒤에 각 항목을
+`key의UTF8byte길이:key문자열value의UTF8byte길이:value문자열` 형식으로 이어 붙입니다.
+길이는 canonical 십진수이며 항목 사이 구분자는 없습니다. 결과는 소문자 64자리 hex입니다.
+operation fingerprint는 별도로 안정 ID와 원래 요청 문맥을 결합하므로 같은 ID의
+선택 변경은 CONFLICT입니다.
+
+예: version1/PREAPPROVAL/settings-1/revision1/TIMED/1800000/owner/default,
+빈 session/generation, count1, 위 행 순서의 calendar.read/1/30/read/answer/local/
+holder/calendar/1은 `112eebdb4fcd0b7f0a3bebeb488d95be216259cfcaf36d0cd4da26382b9c9bdf`입니다.
+
+UI는 typed template 지원과 함께 approval_version=1을 명시합니다. 저장된 전체 AND는
+유지하면서 prompt는 부족 행만 compact count, 전체 total_count, rN.original_index로
+보냅니다. provider package/app은 검증된 정의에서 가져옵니다. token은 표시된 원래
+index/선택 문맥/기간/locale에 결합되고 respond는 동일 문맥을 돌려줘야 합니다.
+숨겨진 기존 조건을 재발급하거나 다른 요청이 이미 승인한 ONCE를 중복 발급하지
+않습니다. 최종 AND도 동일 coverage로 평가합니다. 다른 요청이 표시 대상을 모두
+충족하면 get_prompt는 token 없는 정상 terminal ALLOWED/INVALIDATED를 반환하며
+UI는 DENIED를 보내지 않고 닫습니다. 공개 request result에서 `_` prefix private
+필드는 제거합니다. 구 UI capability, malformed 입력 또는 render 예산 실패는 기존
+token을 바꾸지 않습니다.
+
+16개는 논리적 조건 상한이며 모든 16행 prompt가 표시된다는 보장이 아닙니다.
+전체 prompt에는 240필드/64KiB와 개별 render 예산을 더 엄격하게 적용합니다.
+짧은 literal v1은 11개까지 표시되고 부족 조건 12/16개는 필드 예산을 초과합니다.
+명시 E2BIG를 token 갱신 전에 반환하며 부분 승인·묵시 분할은 하지 않습니다.
+PoC catalog는 선택 전체가 예산 안에 들어오도록 제한합니다.

@@ -61,6 +61,16 @@ internal sealed class NegativeApplication : NUIApplication
       result = $"OBSERVED stage={stage} status={error.Status} requires-daemon-rejection-evidence";
     }
     catch (Exception error) { result = $"FAIL {error.GetType().Name}"; }
+    string feature;
+    try
+    {
+      new FeatureApi().Catalog();
+      feature = "FAIL feature_status=0 unexpected catalog success";
+    }
+    catch (NativeFailure error)
+    { feature = $"OBSERVED feature_status={error.Status} requires-argo-rejection-evidence"; }
+    catch (Exception error) { feature = $"FAIL feature_exception={error.GetType().Name}"; }
+    result = $"pid={Environment.ProcessId} {result} {feature}";
     try { File.WriteAllText(output, result + "\n"); }
     catch (Exception error) { Console.Error.WriteLine($"ConsentUI negative output {error.GetType().Name}"); }
     Console.WriteLine($"ConsentUI negative pid={Environment.ProcessId} {result}");

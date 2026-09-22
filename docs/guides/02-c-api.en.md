@@ -1,6 +1,6 @@
 # Guide 02: Public C API
 
-The `consent` library exposes 41 C functions. Include `<consent.h>` or a feature
+The `consent` library exposes 42 C functions. Include `<consent.h>` or a feature
 header and link with `pkg-config consent`. The headers document parameters,
 ownership, callback rules and errors in the style of Tizen Device and Application
 Manager APIs. `@since 0.1.0` denotes this framework's version; it does not claim a
@@ -343,8 +343,12 @@ session and current generation; resume also needs the token and the same owner
 process instance. Suspend of CONNECTION_BOUND closes it; resumable suspend
 increments generation and blocks use. Resume rotates generation/token and starts
 a 30000 ms lease without extending the original idle/maximum deadlines. The
-current public C API has no heartbeat method. State queries and ordinary checks
-do not renew the lease. Daemon restart does not reactivate old sessions.
+session owner can call `consent_session_heartbeat` with subject/profile/session/generation
+before lease expiry. It sets a 30,000 ms lease without extending idle or absolute
+lifetime. The synchronous wait is bounded to 5,000 ms, the caller owns inputs,
+and the result is freed with `consent_result_free`. State queries and ordinary
+checks do not renew the lease. Wrong owner, stale generation, inactive/closed
+session or an offline handle is rejected. Daemon restart does not reactivate old sessions.
 Returned deadline/expiry values use daemon monotonic milliseconds, not UTC dates.
 
 | Data operation | Required schema and behavior |
@@ -390,3 +394,14 @@ The header descriptions follow local references
 `app-manager/include/app_context.h` and `app-manager/doc/appfw_app_manager_doc.h`.
 The contracts above come from this repository's client, wrappers and daemon;
 external platform version/privilege annotations were deliberately not copied.
+
+## Feature selection requests
+
+Use the opt-in fields and canonical digest in the [protocol guide](../design/03-protocol.en.md#feature-selection-approval-version-1).
+Only argo calls request, including settings selection. PREAPPROVAL checks the
+chosen period; TASK reuses valid exact grants and asks only for missing ones.
+Opt-in calls bypass cache and require daemon hello capability. A batch has one
+common period and at most 16 logical requirements, but the combined 240-field /
+64 KiB prompt and rendered-text limits can reject it earlier with E2BIG. Do not
+silently split a selected batch or treat a partial result as approval. See the
+[feature workflow](10-feature-approval.en.md) for the isolated settings flow.

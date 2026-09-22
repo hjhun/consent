@@ -300,3 +300,71 @@ and `ASAN_OPTIONS=detect_leaks=1 client-test --skip-fork` for leak checking.
 LeakSanitizer enabled during the multithreaded fork stress hung inside the
 child's fresh client creation on the host. The normal GBS test includes fork;
 `--skip-fork` is a test-executable option only, not a library configuration.
+
+## Feature selection approval version 1
+
+The `hello` reply advertises `approval_version=1`. A new client refuses to
+send an opt-in call to a daemon that did not advertise this capability. Merely
+having an `approval_version` field also disables request cache lookup and
+storage, including malformed versions. The daemon returns `cacheable=0` for
+these evaluations. Legacy requests keep their existing behavior.
+
+An opt-in request/check carries `approval_version=1`,
+`request_kind=PREAPPROVAL|TASK`, `selection_id`, `selection_revision`,
+`selection_digest`, a common `grant_mode=ONCE|SESSION|TIMED`, and `duration_ms`
+only for TIMED (100–3,600,000). Every row includes `feature_id`,
+`feature_revision` and explicit `policy_version`, including literal definitions.
+Identifiers are 1–128 ASCII letters/digits/`_`/`-`/`.`; revisions are positive
+canonical decimal int64 values. Version 1 chooses one period for the entire
+batch, not independent row periods. SESSION requires an active session and its
+current generation. Feature metadata never becomes a wildcard grant key.
+
+PREAPPROVAL checks that existing grants cover the selected period: any usable
+grant covers ONCE, PERSISTENT covers any period, SESSION requires the same
+session, and TIMED must expire no earlier than the server's fixed admission
+instant plus duration. That target is stored only after deduplication and is
+not part of the caller fingerprint. Newly approved TIMED grants expire duration
+after the single response instant. TASK uses any currently valid exact grant
+first, granting the selected period only for missing conditions. Scope matching
+remains exact; no subset inference or provider substitution occurs.
+
+For the selection digest, form a sorted string map with the following keys:
+`approval_version`, `request_kind`, `selection_id`, `selection_revision`,
+`grant_mode`, optional `duration_ms`, `subject`, `profile`, `session`,
+`generation`, `count`; then each `rN.definition`, `rN.policy_version`,
+`rN.scope`, `rN.operation`, `rN.purpose`, `rN.recipient`, `rN.holder`,
+`rN.feature_id`, `rN.feature_revision`, for N from 0 to count-1. Absent session,
+generation and row values encode as empty strings. Exclude `selection_digest`
+and all transport, operation, step, request, deadline and private fields.
+Sort keys by ASCII byte order. Start with UTF-8 bytes `consent-selection-v1\n`
+(the last byte is LF); append each key/value as decimal **UTF-8 byte length**,
+colon, bytes, decimal value byte length, colon, bytes. There is no separator
+between entries. SHA-256 is encoded as 64 lowercase hexadecimal characters.
+The complete operation fingerprint separately binds stable IDs and the original
+request context; a changed selection under an existing ID is a conflict.
+
+Digest example: approval version 1, PREAPPROVAL, settings-1/revision1,
+TIMED/1800000, owner/default, empty session/generation, count1, and r0 values
+`calendar.read`, `1`, `30`, `read`, `answer`, `local`, `holder`, `calendar`, `1`
+in the row-field order above produce `112eebdb4fcd0b7f0a3bebeb488d95be216259cfcaf36d0cd4da26382b9c9bdf`.
+
+A UI sends `approval_version=1` alongside its typed-template capability.
+The prompt retains the complete stored AND but returns only missing rows with
+compact `count`, `total_count`, and `rN.original_index`. Provider package/app
+come from the trusted definition. The token records exactly those original
+indices, the selected period and selection context, plus locale. Respond must
+echo that context unchanged. A formerly satisfied hidden condition is never
+silently regranted, and concurrent approval of a displayed condition does not
+create another ONCE grant. The whole AND is reevaluated with the same coverage
+rule. If another request satisfies all displayed rows, get_prompt returns a
+normal terminal `ALLOWED` or `INVALIDATED` result without a token; the UI closes
+without issuing DENIED. Private fields beginning with `_` never appear in
+public request-result responses. Old UI capability, malformed input or failed
+render budget checks cannot replace the current token.
+
+The 16-row limit is logical, not a promise that every 16-row prompt fits.
+Combined prompts still have a stricter 240-field / 64 KiB budget and bounded
+rendered text. Short literal v1 prompts fit up to 11 rows; 12 or 16 missing
+rows exceed the field budget. Failure is explicit E2BIG before token mutation;
+there is no partial approval or implicit splitting. The PoC catalog keeps its
+complete selected vector within these bounds.

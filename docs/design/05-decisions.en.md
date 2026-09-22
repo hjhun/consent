@@ -1,6 +1,6 @@
 # Design 05: Implementation decisions
 
-Date: 2026-09-20. These are PO/architect decisions for implementation, not claims
+Date: 2026-09-22. These are PO/architect decisions for implementation, not claims
 of completed code or validation. `01-consent-framework.md` remains the design
 proposal. Record actual implementation and evidence in the paired developer and
 architecture guides.
@@ -578,6 +578,147 @@ generations, and retain the cleanup-unknown boundary. No such reset is authorize
 implicitly by the maintenance batch. Losing all durable retry records also loses
 the ability to recognize unknown historical operation IDs; new approval is
 required and an uncertain external execution must still be reconciled.
+
+## D-16: Feature selection, missing approvals and conversation reuse
+
+The TV interaction is: select features to preapprove, review the permissions
+still missing for the current task together, then reuse approved access or
+permitted results in the same conversation. This is the implementation contract
+for a new increment; executed evidence belongs in Guide 07. Guide 10 explains
+the integration responsibilities.
+
+A feature is a user-facing grouping of an exact requirement vector, not a new
+wildcard grant. A protected, versioned argo catalog expands selected feature IDs
+into definitions, explicit policy versions, provider identities, operations,
+scopes, purposes, recipients and holders. Bind the immutable selection ID,
+revision and canonical digest to each request. Later catalog additions do not
+join an earlier selection. Deduplicate identical requirements before applying
+the existing maximum of 16 conditions. Feature labels do not establish provider
+identity: use the registered definition's verified package/app and installation
+generation, with protected catalog labels for human-readable names.
+
+Keep the existing exact GrantKey. Feature IDs, catalog revisions, selection
+metadata and requested grant periods must not replace its enforcement tuple.
+Adding C to a feature containing A and B must not invalidate the reusable exact
+approvals for unchanged A and B. A different provider, operation, purpose,
+recipient, holder, policy or scope requires its own valid approval. Scope remains
+exact equality; do not infer inclusion between arbitrary strings. An already
+approved, narrower alternative must match an explicit authorized plan.
+
+Use an additive `approval_version=1` request contract with
+`request_kind=PREAPPROVAL|TASK`, `selection_id`, `selection_revision`,
+`selection_digest`, a common `grant_mode`, and `duration_ms` only for TIMED.
+Requirement rows carry feature metadata and explicit policy versions. Validate
+and preserve these fields through admission, canonical request fingerprints,
+stored payloads, prompt tokens and retries. The initial UI supports ONCE,
+SESSION and TIMED, not a new persistent-approval shortcut. Mixed periods in one
+batch are not supported: show the common period explicitly. Settings offers
+SESSION and a 30-minute TIMED preset; reserve ONCE for an explicit task-only
+selection so a reusable older grant cannot turn a one-time preference into
+ongoing feature activation.
+
+PREAPPROVAL checks whether an existing grant covers the selected period; an ONCE
+grant cannot satisfy a SESSION selection. Anchor a requested TIMED coverage
+horizon at the first admission plus the duration, not each refresh or retry.
+TASK checks whether the exact permission is valid now and issues the selected
+period only for missing rows. Thus an existing TIMED approval can serve a task
+without an unnecessary SESSION approval. Bind response mode/duration to the
+displayed request; calculate new TIMED grants from one response timestamp.
+Store the coverage horizon privately after retry deduplication; do not add a
+recomputed timestamp to the caller fingerprint. Apply the same kind-aware
+coverage predicate at admission, projection, response and final AND evaluation.
+Preserve the current TIMED range of 100 through 3,600,000 milliseconds.
+
+SESSION requires a live conversation and matching generation. Setting a SESSION
+label without creating that session does not create authority. Expose the
+existing daemon heartbeat as a documented C API for authenticated session
+controllers; it renews the lease within existing idle and maximum deadlines,
+never reopens a closed session. The popup receives no session-controller role.
+TIMED approvals can remain valid outside the current conversation and must not
+be described as conversation-only. Access approval duration is separate from
+registered result retention and the artifact/session/holder checks.
+
+Preserve the complete original AND request. For capable UIs, compact only the
+currently missing conditions for display and retain their original indices in
+the token-bound snapshot. Remap typed arguments consistently. Issue grants only
+for conditions actually displayed under that token; do not refill a condition
+already satisfied by another request. An initially hidden condition that expires,
+is revoked or is consumed while waiting must not be silently approved. Recheck
+the entire original vector before returning the final decision. If A is no
+longer satisfied, newly approved B may remain approved while the task request
+becomes INVALIDATED, matching the existing non-consuming final evaluation.
+When nothing is missing, finish without an approval popup. An old UI without the
+new display capability cannot respond to this contract.
+
+Opt-in requests always reach the daemon. Exclude requests containing
+`approval_version` from client cache lookup and insertion, and return
+`cacheable=0`; even an invalid version must not be hidden by a cache hit.
+Advisory local cache results cannot establish a new selection's period,
+admission snapshot or retry identity. Existing legacy cache behavior remains
+separate. Negotiate approval-v1 support in the server hello before sending these
+requests; a legacy daemon that ignores unknown fields must not silently downgrade
+them. Reject unknown versions and approval-only fields without an opt-in version.
+Actual protected actions still require authoritative AUTHORIZE.
+
+Settings is a selection client, not an approval-request role. In the isolated
+PoC, a private bounded bridge sends feature IDs, catalog revision and a permitted
+period preset to a separately authenticated argo mock endpoint. Argo alone
+loads the protected catalog, owns selection revisions, creates the request
+through the public consent C API, and returns the request identifier. Use a
+separate PID1-created systemd listener, `consent-feature-poc.socket`, at
+`/opt/var/lib/consent-feature-runtime/argo.sock`, with `consent-feature-poc.service`. The UI verifies its kernel creator UID,
+SMACK label, original bound address and protected path/inode; the server validates
+the inherited listener and the UI's exact process/package identity. A target
+probe showed that the app UID cannot inspect a root peer's proc executable, stat
+or status. Do not add UI capabilities or claim bidirectional executable checks.
+Reject caller-supplied roles and arbitrary requirement payloads. Keep this
+transport separate from the production consent endpoint and enroll no production
+role.
+Selection commands also carry a stable command ID and expected selection revision
+for compare-and-swap; delayed saves must not re-enable a removed feature. Also
+bind mutations to the coordinator incarnation. An old command cannot be replayed
+as new work after a restart clears the in-memory command ledger and revision
+counter. Preserve uncertain submissions and their IDs for same-command retries;
+never turn a lost response into an automatic new operation. Bind
+task-only selections to a task identity and bounded lifetime. The two screens in
+one TPK have the same application identity: app-control arguments and relaunches
+are not user selection or approval. PID1 listener credentials authenticate the
+protected endpoint, not a claim that PID1 is the running argo process.
+
+For private argo-to-worker connections, the target kernel's socketpair probe
+returned an empty SO_PEERSEC label even under System. Keep exact label checks:
+use a transient root-owned 0600 Unix stream listener in the protected feature
+runtime directory, validate both connected peers as the creating parent PID,
+UID/GID 0 and System, then remove the pathname and close the listener before
+passing a connected FD to the child. Bound connection setup and clean up on
+failure. Retain the parent's executable, start-time and liveness checks in the
+worker. This does not change the UI bridge or production endpoint policy.
+
+An unselected feature remains inactive even if an exact reusable grant exists.
+Selection removal, expiration and catalog changes invalidate obsolete pending
+selection work. Authenticate the live UI process on each bridge call, but retain
+an accepted selection under its stable application/subject identity after the
+Settings process exits. The PoC coordinator may clear selection state on its own
+restart; do not promise durable Settings preferences across that restart. Before each provider action, argo verifies the current immutable
+selection and execution plan; the enforcement service performs AUTHORIZE for
+the actual target and effects. Serialize selection updates, catalog changes and
+action admission in the argo actor. Return asynchronous AUTHORIZE completions to
+that actor and recheck the current snapshot immediately before starting an action
+in the same serialized turn. A check followed by an unlocked queue handoff is
+insufficient. Deselecting does not undo an action that already started. A task may explicitly select an otherwise inactive
+feature for that task without enabling it permanently in Settings. Deselecting
+a feature stops that feature's execution; it is not a global revocation of an
+exact grant shared by other selected features. A permitted alternative must be
+explicitly covered by the current selection and exact approvals and must not
+execute the denied original operation.
+
+Validate the whole flow with the GBS-built TPK, real public C API and isolated
+mock services. Required cases include missing-only display, immutable catalog
+addition, changed provider/purpose/recipient/scope, selection removal, period
+mutation, pending revocation/expiry/ONCE consumption, no ONCE refill, retry
+conflicts, same-conversation reuse and session end, bridge identity rejection,
+and a permitted alternative that leaves the denied action unexecuted. Keep
+production integration and emulator PoC evidence distinct.
 
 ## Initial review findings to verify before completion
 

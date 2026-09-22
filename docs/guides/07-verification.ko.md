@@ -924,3 +924,238 @@ DB/registry device65026·inode128673/128674·owner402:402·mode0600이 유지됐
 PO가 정리한 mock C wrapper5개/INI18개의 끝 빈줄 제거는 고정26 이후 변경입니다.
 EOF 정리는 token/동작을 바꾸지 않으며 다른 구현 소스는 검증된26 내용입니다.
 이 최종 문서/공백 정리는 보존된26 RPM이나 hash를 변경하지 않습니다.
+
+## Build27: 기능 사전승인 통합, target 흐름 미완료
+
+GBS는 base `5f3364d604d1f8bfe3fd2da06fdc227ea8a0b71e`에서
+tree `db578048661ddb23c003de04386fd1838039e801`을 내보냈습니다.207 source
+blob 전체가 `/var/tmp/consent-artifacts/gbs-build-27/consent-0.1.0.tar.gz`와
+일치하며 SHA-256은
+`943f72ef9e731b2d3ae026ae121ce18e62f340f3becd6dcc2787e0acf02688e0`입니다.
+`snapshot.json`의 기존 GBS 명령으로 RPM5개, CTest16 PASS/루트전용4 SKIP,
+managed5그룹 PASS를 확인했습니다. TPK2개는 GBS 내부 컴파일 결과이며 RPM에서
+추출한 payload와 build 출력이 일치합니다. positive SHA-256은
+`5011726c97ccc79d1f05c6599d724eb8361e975905ed53168483c46e4540fb2f`,
+negative는 `5f185fe5f19d2e392d7bc0f4d944985967c24624a875a01ce67af92925cb0005`입니다.
+`public-installed-abi.log`는 설치된 기능별 헤더10개의 독립 C11/C++17 컴파일,
+pkg-config, `consent_session_heartbeat`를 포함한 정확히42개 C export/reference를
+검증합니다. 이 SDK 검증은 target-devel 설치 증거가 아닙니다.
+
+선택 emulator-26101에 정확한27 runtime/daemon/tests/PoC RPM transaction 및
+positive TPK 등록이 성공했습니다. base-common은0.4.82를 유지했고 production
+DB/registry inode128673/128674와402:402/0600 소유권을 보존했습니다.
+`emulator-build-27/feature-units.log`에서 설치된 repository feature17개 시나리오,
+actor fixture/backlog deadline, 공개 C ABI 실행파일이 통과했습니다. actor
+completion/retry 주입은 실제 앱 동작과 구분하는 보조 증거입니다.
+`endpoint-trial.log`와 `endpoint-evidence`는 직접 위조 서버 및 다른 PID1 socket
+rename에 대해 실제 bridge -EACCES/NULL, 요청 byte 미송신, fixture 정상 종료 및
+feature unit 복원을 확인합니다.
+
+실제 설정 화면과 영문 검토4페이지는
+`/var/tmp/consent-artifacts/emulator-build-27/feature-trial/`에 있습니다. 선택한
+정확한 항목, 접근 승인 기간, 별도 보관 기간을 표시했습니다. checkbox glyph가
+target font에서 부적절하게 표시되어 다음 snapshot에서 고칩니다. 최초
+PREAPPROVAL은 -38로 중단됐습니다. Repository의 시험용 hello에는 있었으나
+server의 실제 직접 hello 응답에 `approval_version`이 빠져 있었습니다. client는
+미지원 capability를 정상적으로 거부했으며 승인 흐름 완료가 아닌 실제 통합
+실패입니다. `ui-pid-logs.log`와 `first-preapproval-failure.log`에 보존했고 다음
+snapshot에서 실제 hello 응답 및 actual-wire assertion을 보강합니다.
+
+읽기 전용 실행 리뷰에서도 holder reuse가 actor의 최종 선택 검증 없이 조회와
+동작을 한 호출에서 수행하고, 취소한 job의 늦은 실제 결과가 버려지는 점을
+발견했습니다. 따라서 build27은 **기능 최종 수용이 아닙니다**. 다음 증분에서
+재사용 조회/시작을 분리하고 유계 retired completion 증거 및 실제 target reuse
+gate를 검증합니다.27 feature 서비스/socket은 중지하고 원 PoC 역할을 복원했으며
+(`post-trial-state.log`) production은 active를 유지했습니다. 범위가 지정된 Aurum
+session은 다음 증분에서 계속 사용합니다. PO Guide10 재현 명령 보강은27 export
+후 문서 변경입니다.
+
+
+## 빌드 28: 사전승인 성공, worker 시작 실패로 작업 실행 차단
+
+고정 소스는 `2e6126f026a0a65fa94235511c2322e948b2b92b`, archive SHA-256은
+`cf13b1e750af5790e260dea115b945f1e9865222317341230b6f7f993086a314`이다.
+207개 source blob이 archive와 일치한다. `/var/tmp/consent-artifacts/gbs-build-28/`에
+5개 RPM, GBS에서 컴파일한 TPK 2개, build metadata와 로그를 보존했다.
+GBS CTest 16개 PASS/4개 root 전용 SKIP, managed 5개 그룹 PASS이다.
+SDK installed-tree의 독립 C11/C++17 헤더 10개, pkg-config, 공개 C 심볼 42개도
+통과했다. emulator에 matching devel 패키지를 설치했다는 의미는 아니다.
+
+정확한 runtime/daemon/tests/PoC RPM을 `emulator-26101`에 정상 의존성으로
+설치했다. production DB/registry device/inode `65026:128673` / `65026:128674`,
+소유자402:402를 보존했고 capi-base-common은0.4.82-1을 유지했다.
+positive TPK SHA-256은 `bf9a1a13bd10aef3f1c878f04bf1334b14812bf5529fd08cca9643453760aa9e`,
+negative TPK는 `b3079d1cddd4b89da98ffee675ac947387a02aaa9b02da1eaf84acd00c299d29`이며
+둘 다 RPM payload와 일치한다. target `feature-units.log`에는 repository 기능
+17개 그룹, mock 시험4개 그룹 및 public C API 시험 PASS가 있다.
+
+실제 EN Settings 4페이지, 승인5페이지를 모두 검토하고 **Allow as displayed**
+버튼을 눌러 SESSION PREAPPROVAL의 ALLOWED/action_count=0을 확인했다.
+화면과 양쪽 journal은 `/var/tmp/consent-artifacts/emulator-build-28/feature-en/`에
+있다. 빌드27의 실제 hello capability 누락은 해소됐다. 이후 calendar-summary는
+제공 앱 동작이나 CE daemon 연결 전에 실패했다. `first-task-failure.log`와
+`feature-en/task-result.png`를 실패로 보존하며 기능 실행·재사용 성공으로 세지 않는다.
+
+읽기 전용 프로세스 근거에서 CE child의 exit1을 확인했다. coordinator와 같은
+root/System/capability/NNP 문맥의 격리 probe에서 socketpair SO_PEERCRED는
+실제 부모 PID지만 SO_PEERSEC는 NUL 한 바이트였다(`pair-probe.log`). 따라서
+필수 System label 검사가 정상적으로 채널을 거부했다. 보호된 임시 pathname의
+connect/accept probe에서는 양쪽 모두 실제 부모PID/UID0와 System+NUL을
+반환했다(`connect-probe.log`). 해당 임시 socket은 제거했다. 인증을 완화하지
+않고 후속 소스/빌드로 transport를 수정한 뒤 실행과 gate를 검증해야 한다.
+주입형 native actor 시험은 이 커널 SMACK 차이를 검증하지 않는다.
+
+`feature-stop.log`와 `post-trial-state.log`에서 feature service/socket 중지,
+override 없음, 원 PoC roles 복원, production daemon active를 확인했다.
+취득 artifact가 없으며 holder cleanup ACK 근거는 아니다. Aurum은 후속 빌드
+검증을 위해 이 작업이 계속 소유한다. Guide08의 serial 변수는 archive 이후
+문서 정정으로 `CONSENT_SERIAL`로 통일했다.
+
+## Build 29: 선택 기능 사전승인과 실제 작업 실행
+
+완료된 기능 증분은 `5f3364d` 기반 frozen tree
+`4400b206b611a881cbf10217a042c53fa0f4e503`(소스 207개)을 사용합니다.
+archive SHA-256은
+`aad23f34306a29e8d2d189bcfb4d9f2a099d5c85d11aeaf79debd76074b90542`입니다.
+산출물은 `/var/tmp/consent-artifacts/gbs-build-29/`와
+`/var/tmp/consent-artifacts/emulator-build-29/`에 보존했습니다. 최종 Guide07/08
+검증 기록 및 PO의 Guide10 도입부·재현 절차 정리는 archive 이후 문서입니다.
+이 빌드 이후 시험 소스, RPM, TPK는 변경하지 않았습니다.
+
+GBS 빌드 root 안에서 native 구현과 두 .NET TPK를 컴파일했습니다.
+CTest 20개 중 16개 PASS, root 전용 4개 명시적 SKIP이며 managed 시험 5그룹은
+모두 PASS입니다. SDK installed-tree 감사는 공개 헤더 10개의 독립 C11/C++17,
+중복·역순 include, pkg-config 및 `consent_session_heartbeat()`를 포함한 정확한
+42개 C export/reference를 통과했습니다. 선택 emulator에서는 패키징된 repository
+feature 시험 17그룹과 공개 C API 시험 2그룹을 통과했습니다
+(`root-regressions.log`). 같은 로그의 앞선 잘못된 실행파일 경로 시도는 실패로
+보존했습니다. 패키징된 명시적 `--worker-channel` 시험은 실제 System SMACK,
+CAP_SYS_PTRACE, NNP에서 양단 kernel 신원, 연결 Parcel 교환, 잘못된 parent 거부,
+일시 stat 실패 재시도 및 자기 node 정리를 통과했습니다(`worker-channel.log`).
+빈 label 허용이나 인증 완화 없이 build28의 socketpair 시작 실패를 해결했습니다.
+
+RPM 5개와 TPK 2개를 보존했습니다. target에는 runtime/daemon/tests/PoC RPM
+4개를 정상 의존성 transaction으로 설치했으며 capi-base-common은 0.4.82-1을
+유지합니다. 일치하는 0.4.82 devel을 구하지 못했으므로 SDK 헤더/pkg-config 결과를
+target devel 설치로 표시하지 않습니다. positive TPK는
+`gbs-build-29/org.tizen.consentui-0.1.0.tpk`, SHA-256은
+`f2bce18e1df11d7d598d7101a1c39ff215350cfe5d8aa93ac764fe84df001647`입니다.
+negative TPK SHA-256은
+`117811b4fd74edf646edb94f70aeceb06c3776e4ec7b81a25ffc5164a91d102a`입니다.
+`installed-hashes.log`에서 설치 ELF/TPK/DLL 59개와 정확한 RPM/TPK payload의
+일치 및 설치 라이브러리의 공개 C 심볼 42개 조회를 확인했습니다. 기대 해시와
+재현 감사 프로그램도 같은 폴더에 있습니다.
+
+이번 증분의 빌드 및 시나리오 시작 명령은 다음과 같습니다. 재현 시 Guide08의 일치하는 RPM 설치·명시적 PoC setup과 새 artifact 폴더가 필요하며, 보존한 완료 run을 덮어쓰지 마세요.
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite \
+  /home/hjhun/samba/workspace/consent
+python3 scripts/emulator-feature-flow.py --serial emulator-26101 \
+  --artifact-dir /var/tmp/consent-artifacts/emulator-build-29/feature-main \
+  start --locale ko-KR
+# Target: matching uploaded frozen29 script; isolated endpoint/state only.
+systemd-run --wait --pipe -p SmackProcessLabel=System \
+  /bin/sh /tmp/consent-scenario-29.sh wire
+```
+
+### 실제 설정·승인·실행
+
+대상은 1920×1080 Public Common Emulator(`emulator-26101`,
+`calendar-resolution-p5`)이며 TV 하드웨어 수용 결과가 아닙니다. Aurum으로 실제
+앱 버튼을 조작하고 입력 후 screenshot을 확인했습니다. API 승인 응답은 주입하지
+않았습니다. 유계 private bridge, 실제 libconsent/daemon 및 격리 mock provider/holder를
+사용했습니다. `feature-main/*.png`, 단계별 로그와 `analysis-final-main/`이 근거입니다.
+후자는 gate 시험·재시작 전 main coordinator 원문을 보존하며 재현 가능한 범위
+검사 25개를 포함합니다. 원문 journal SHA-256은
+`645d09c1baf580e9df075aedc77768330442473cfd75b75405b32c0f9ddcb354`입니다.
+
+아래 main 흐름은 모두 coordinator PID568853, epoch
+`selection-6255879d-c90d-426a-8406-f43ea8758e82`에 속합니다. 최초 calendar 선택은
+revision2, digest
+`9d801e44597b421bb63f57fbdb18c8a4daf731b3b8dbf9a548f4b8a5330b9b94`입니다.
+
+| 실제 동작 | 관측 결과와 화면 근거 |
+| --- | --- |
+| KO calendar SESSION 사전승인 | 설정 2페이지·승인 3페이지 후 실제 허용. revision2 ALLOWED, action_count0. `prompt-ko-1.png`~`prompt-ko-3.png`에서 기능/제공앱/정확한 대상, 목적/수신자, 대화 접근기간과 별도 결과 보관기간 표시를 확인했습니다. |
+| 첫 작업 | 실제 CE AUTHORIZE receipt, provider action, holder 등록으로 action_count1. `task-complete-ko.png`, `task-first.log`. |
+| 설정 닫기·재실행 | UI process가 30초 session lease보다 오래 닫혀 있어도 actor heartbeat가 대화/선택을 유지했습니다. 후속 작업은 같은 artifact를 재사용하여 action_count2. `settings-closed.png`, `reopened-ko.png`, `reuse.log`. |
+| 기기 기능 추가 | revision3에 두 선택을 결합(digest `27ee594b9facb55db22fb496b01422a1cfbad5434ab8fd1f1d95e2aa8525221c`). 실제 승인에는 부족한 기기 조건만 1/1로 KO 3페이지에 표시. 사전승인 중 실행 없이 count2 유지. `missing-device-ko-1.png`~`-3.png`, `missing-device.log`. |
+| 일정+기기 작업 | 기존 calendar artifact 재사용 후 신규 기기 AUTHORIZE/start. 정확히 두 효과로 count4. `combined-review-1.png`~`-4.png`, `combined.log`. 여러 provider 효과는 순차적이며 원자적 transaction이 아닙니다. |
+| 넓은 일회 일정 작업 거부 | 실제 next30 범위 popup에서 거부. 넓은 범위 실행 없이 count4와 저장 revision3 유지. task-only는 설정을 바꾸지 않습니다. `expanded-prompt-1.png`, `expanded-denied-click.png`, `expanded-denied.log`. |
+| 이미 허용된 대안 | task-only 체크 해제 후 명시적 대안은 기존 next7 artifact만 사용하며 넓은 데이터를 취득하지 않음. count5. `alternative-review-1.png`~`-3.png`, `alternative.log`. |
+| EN 기기만 30분 사전승인 | 설정 4페이지·승인 5페이지 후 실제 허용. revision4, duration1800000, ALLOWED, count5. `timed-review-en-*.png`, `timed-prompt-en-1.png`~`-5.png`, `timed-confirmed.png`, `timed.log`. target에서 30분을 기다린 만료 시험은 아닙니다. |
+| 전체 해제·대화 종료 | 빈 선택을 revision5로 저장하고 일반 작업 버튼 비활성화. 명시적 conversation-close 후 holder buffer wipe/ACK: CLOSED, pending0, revision6, artifact/session 비움, count5. `clear-saved.png`, `closed-ack-confirmed.png`. |
+
+main artifact `2e531f904c95bd9226ba3402dbb78240f0c78f86ae020963`, 원래 receipt
+`0362f371dddabf8031538d1a1e3b0774969de824f95fbeb3`, session
+`1962ba3d75eece5e295cfd87055beda3bbccf6fc674dc07c`/generation1은 세 재사용 효과
+전체에서 동일합니다. 복합 job은 `feature-0d5dd8c6-2fe8-4ad7-a56c-a6d4dd12000b`이며
+`.0`은 재사용, `.1`은 기기 작업입니다. 넓은 요청은 별도로 거부했으며 대안으로
+재해석하지 않았습니다. 앞선 EN 8페이지 설정 검토는 저장 전에 만료되어 선택/실행
+상태를 바꾸지 않았습니다. 이를 성공한 KO 저장 및 이후 EN TIMED 승인과 분리해
+보존했습니다.
+
+### 실제 해제 gate와 별도 주입 회귀
+
+두 시험은 별도 컴파일한 test coordinator와 정확한 test 역할을 사용하며 일반
+coordinator에는 gate switch가 없습니다. 같은 coordinator/job이 멈춘 동안 실제
+UI에서 calendar 체크 해제→빈 선택 검토→저장을 수행해 revision2→3으로 바뀌었습니다.
+각 gate 폴더에는 screenshot을, 그 아래 `protected-evidence/`에는
+`ready/observed/release/terminal/audit.json`과 `journal.jsonl`을 보존했습니다.
+audit stdout은 별도 상위 경로 `emulator-build-29/gate-acquisition2-audit.log`와
+`emulator-build-29/gate-reuse-audit.log`에 있습니다.
+
+| Gate | 근거·신원·결과 |
+| --- | --- |
+| 취득, `gate-acquisition2/` | PID576626, job `feature-0c6ac4d0-3971-47ed-994f-5a67837e81b9`, operation `.0`, 실제 receipt `71e236bf5d283b967965935d44ff0be3bb54c79b9c27b06d`. 취소 후 release했으며 해당 action event는 0건. artifact 취득도 없음. |
+| 재사용, `gate-reuse/` | PID577670, job `feature-87688740-97a0-4edd-9fea-a71eb5169ae7`, operation `.0`. artifact `b1c04b2cc47fe5e9e33fbb231ed410e8a66776017cd5bc2b`, session `38b9fea733aac264e939ff26277ee5c5a2d62f37ed19f842`/generation1의 실제 reuse-data 검사 성공. 신규 취득 receipt가 아닌 artifact-permit 근거입니다. 취소 후 release, 해당 재사용 action 0건. |
+
+재사용 근거는 context SHA-256
+`ee337b6ac381f3c15a015e53a05803fd34633b503cabdebfcbf4b15235a2a84a`에도 결합됩니다.
+기준 상태에는 실제 취득 action 1건이 있었고 재사용 차단 뒤에도 count1을 유지합니다.
+gate unit 중지/원복 전에 살아 있는 coordinator/holder에서 실제 UI 대화 종료를
+수행했습니다. buffer wipe/ACK, CLOSED/pending0, revision4, artifact/session 비움은
+`gate-reuse-closed.log`와 `gate-reuse/closed-confirmed.png`에 기록했습니다.
+서비스 종료 자체를 데이터 정리 근거로 사용하지 않습니다. `analysis-final-gates/`의 독립 근거 분석은 같은 boot/invocation 및 marker/job 결합을 검사하며, 취득·재사용 release는 각각 기한 2957ms·975ms 전에 완료됐습니다.
+
+첫 취득 시험(`gate-acquisition/`)은 UI 확인 중 기존 30초 gate 기한을 넘겨
+terminal expired/release 실패했습니다. 이를 해제 gate 성공으로 세지 않고 fail-safe
+실패로 보존합니다. 두 번째 시험은 기한을 늘리지 않고 통과했습니다.
+Native의 CAS/retry/restart epoch, 응답 유실 dedup, 만료 및 live/retired 지연 완료
+주입 회귀는 `/var/tmp/consent-artifacts/feature-native/coordinator-29.log`와
+GBS 시험 로그로 분리합니다. 이미 시작된 효과/오류 및 불확실 결과의 유계 보존을
+검증하지만 실제 target 지연 응답 주입이나 시작된 작업의 rollback 주장은 아닙니다.
+
+### Endpoint·wire·최종 복원
+
+`feature-endpoint.log`와 보호된 근거 파일은 직접 bind한 가짜 서버 및 이름만 바꾼
+다른 PID1 소켓을 요청 byte 송신 전에 거부했음을 확인합니다. exact29 negative TPK
+PID580603은 UID5001과 같은 `/usr/bin/dotnet-hydra-loader`를 사용하지만 실제 label은
+`User::Pkg::org.tizen.consentui.negative`입니다. `negative-probe.log`,
+`negative-daemon.log`는 native 오류와 coordinator `ui-peer-rejected`, consentd
+`role=rejected/no matching live trusted identity`를 같은 PID로 연결합니다.
+transport 오류만으로 인증 거부를 입증했다고 보지 않습니다.
+
+exact29 기존 `wire` 시나리오는 실제 hello `approval_version=1`, 분할/합친 Parcel,
+malformed frame 유계 종료와 기한, checker 연결 24개 허용/4개 거부 및 별도 client
+응답을 유지한 output pressure 종료를 검사합니다. `wire.log`/`wire-daemon.log`에서
+같은 daemon PID580802, quota 거부 이유, output-limit/write-timeout 이유 및
+integrity_check=ok/schema2를 확인했습니다. 이 assertion 범위를 넘는 malformed
+DB 미실행 또는 pending transaction shutdown 증거로 확대하지 않습니다.
+
+`feature-stop.log`, `setup-stop.log`, `cleanup.log`는 feature/PoC/isolated 서비스와
+소켓 inactive, PID0, override 없음, 일반 PoC 역할 복원, 임시 worker 소켓 없음,
+소유 gate FIFO 3개 제거를 확인합니다. 보호된 일반 증거 파일과 설치 TPK는 검토용으로
+유지했습니다. 소유 Aurum forward55051/bootstrap도 종료했습니다. production
+서비스/소켓은 security_fw와 default-deny 역할로 active이며, 기존 DB/registry의
+device/inode `65026:128673`/`65026:128674`, 소유자402:402를 유지했습니다.
+
+완료 범위는 격리된 기능 사전승인·부족분 승인·정확한 실행/재사용 차단 경계와 UI/mock
+연동입니다. 제품 Settings/argo, 실제 provider/Installer lifecycle hook 및 제품
+역할 정책은 미연동입니다. registry 전체 유실은 여전히 명시적 복구/재등록이 필요하며
+유계 maintenance는 임의 ledger 삭제가 아닙니다. 강제 전원 차단, 실제 filesystem-full/
+device-write 실패 및 TV 하드웨어는 이 근거에 포함하지 않습니다. 이전 storage/shutdown
+검증은 원래 build 범위를 유지합니다. production 권한이나 UI capability는 늘리지
+않았습니다.
