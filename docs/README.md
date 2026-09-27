@@ -24,7 +24,7 @@ preserved in Korean.
 | No. | Read this for | English | 한국어 |
 | --- | --- | --- | --- |
 | 01 | SDK setup, packages, deployment, and development workflow | [Development](guides/01-development.en.md) | [개발 가이드](guides/01-development.ko.md) |
-| 02 | Public C API examples, ownership, and asynchronous callbacks | [C API](guides/02-c-api.en.md) | [C API](guides/02-c-api.ko.md) |
+| 02 | All 42 public C functions, terminology, role flow, C examples, ownership and callbacks | [C API](guides/02-c-api.en.md) | [C API 설명·사용법](guides/02-c-api.ko.md) |
 | 03 | Protected installation generations and provisioning tool | [Installation authority](guides/03-installation-authority.en.md) | [설치 authority](guides/03-installation-authority.ko.md) |
 | 04 | Root image registration, staged definitions, and startup reconciliation | [Offline registration](guides/04-offline-registration.en.md) | [Offline 등록](guides/04-offline-registration.ko.md) |
 | 05 | Bounded Parcel IDL and deterministic compiler | [IDL](guides/05-idl.en.md) | [IDL](guides/05-idl.ko.md) |
