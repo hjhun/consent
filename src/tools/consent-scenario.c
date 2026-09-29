@@ -172,6 +172,60 @@ static void check(const char* scope, consent_decision_e decision) {
   consent_params_free(p);
 }
 
+static void sync_timeout(void) {
+  consent_params_t* request = query("sync-timeout-scope", NULL, NULL);
+  char id[128];
+  snprintf(id, sizeof(id), "%s-request-%u", phase, ++serial);
+  set(request, "client_request_id", id);
+  set(request, "operation_id", id);
+  set(request, "deadline_ms", "30000");
+  consent_result_t* result = NULL;
+  gint64 started = g_get_monotonic_time();
+  int status = consent_request(client, request, 2000, &result);
+  CHECK(status == CONSENT_ERROR_TIMEOUT && result == NULL);
+  CHECK(g_get_monotonic_time() - started < 10000000);
+  printf("A19 client_id=%s local=TIMEOUT result=NULL\n", id);
+
+  consent_client_h second = NULL;
+  CALL(consent_client_create(&second));
+  consent_params_t* lookup = params();
+  set(lookup, "client_request_id", id);
+  CALL(consent_get_request_result(second, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_PENDING);
+  puts("A19 remote=PENDING");
+  consent_result_free(result);
+  result = NULL;
+
+  set(lookup, "client_request_id", "unrelated-request-id");
+  CHECK(consent_get_request_result(second, lookup, &result) ==
+        CONSENT_ERROR_NOT_FOUND);
+  CHECK(result == NULL);
+  set(lookup, "client_request_id", id);
+  set(lookup, "subject", "foreign.subject");
+  CHECK(consent_get_request_result(second, lookup, &result) ==
+        CONSENT_ERROR_PERMISSION_DENIED);
+  CHECK(result == NULL);
+  set(lookup, "subject", "demo.subject");
+  set(lookup, "profile", "foreign.profile");
+  CHECK(consent_get_request_result(second, lookup, &result) ==
+        CONSENT_ERROR_PERMISSION_DENIED);
+  CHECK(result == NULL);
+  set(lookup, "profile", "demo.profile");
+  CHECK(g_get_monotonic_time() - started < 20000000);
+
+  CALL(consent_cancel_request(second, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_CANCELLED);
+  consent_result_free(result);
+  result = NULL;
+  CALL(consent_get_request_result(second, lookup, &result));
+  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_CANCELLED);
+  consent_result_free(result);
+  consent_params_free(lookup);
+  consent_params_free(request);
+  CALL(consent_client_destroy(second));
+  puts("PASS sync local TIMEOUT, remote PENDING lookup and CANCELLED");
+}
+
 struct race_gate {
   GMutex mutex;
   GCond condition;
@@ -651,6 +705,7 @@ int main(int argc, char** argv) {
     fprintf(
         stderr,
         "Usage: %s basic|cleanup-pages|persistent|recovered|races|"
+        "sync-timeout|"
         "holder-seed|holder-reconcile|reinstalled|ui-reevaluate|"
         "shutdown-seed|shutdown-revoke|shutdown-result GENERATION [SCOPE]\n",
         argv[0]);
@@ -729,6 +784,12 @@ int main(int argc, char** argv) {
   if (!strcmp(argv[1], "races")) {
     define("demo.app", "demo.read", phase, argv[2]);
     races();
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
+    return 0;
+  }
+  if (!strcmp(argv[1], "sync-timeout")) {
+    sync_timeout();
     CALL(consent_client_destroy(ui));
     CALL(consent_client_destroy(client));
     return 0;

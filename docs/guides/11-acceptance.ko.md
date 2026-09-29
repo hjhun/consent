@@ -1,15 +1,15 @@
 # 11. CEP 19.2 수용 기준 감사
 
 이 표는 [Design 01의 63개 수용 기준](../design/01-consent-framework.md)을
-Build43 Release11과 번호가 다른 Build45–48 추가 근거에 대응합니다.
+Build43 Release11과 번호가 다른 Build45–49 추가 근거에 대응합니다.
 `Target`은 지정한 framework 동작을 emulator의 격리·패키지 fixture에서
 실행했거나, build 전용 기준을 해당 행의 GBS에서 실행했다는 뜻입니다.
 제품 통합을 뜻하지 않습니다. `Partial`은 범위가 좁거나 실패 조건 시험이
 남았고, `Product`는 실제 제품 participant 또는 신뢰할 producer가 없다는
 뜻입니다. 번호별
-로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46,48}`에 있습니다.
-추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build48
-재실행으로 소급하지 않습니다. 현재 집계는 Target22, Partial34,
+로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46,48,49}`에 있습니다.
+추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build49
+재실행으로 소급하지 않습니다. 현재 집계는 Target23, Partial33,
 Product7입니다.
 
 | ID | 범위 | 근거 또는 남은 경계 |
@@ -32,7 +32,7 @@ Product7입니다.
 | A-16 | Partial | PoC의 stale policy 응답; production UI 없음. |
 | A-17 | Product | Installer lifecycle hook·완전한 desired ledger 없음. |
 | A-18 | Partial | Kill/주입 storage·정상 reboot; 갑작스러운 전원 종료 없음. |
-| A-19 | Partial | Timeout 코드는 있으나 packaged 조회·취소 근거 부족. |
+| A-19 | Target | Build49 설치 격리 C API: 로컬 TIMEOUT/NULL과 새 ID 원격 PENDING 조회, 범위 오류 조회, 취소·최종 CANCELLED; target 4회. |
 | A-20 | Target | Callback 재진입/Close owner fixture. |
 | A-21 | Partial | Framework session/permit; 제품 holder 없음. |
 | A-22 | Partial | Framework ONCE/SESSION; 제품 holder 없음. |

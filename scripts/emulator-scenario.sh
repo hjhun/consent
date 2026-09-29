@@ -244,6 +244,9 @@ case "$phase" in
   races)
     "$scenario" races "$(cat "$control/generation")"
     ;;
+  sync-timeout)
+    "$scenario" sync-timeout "$(cat "$control/generation")"
+    ;;
   wire)
     systemctl start consentd-isolated.service
     daemon_pid=$(systemctl show consentd-isolated.service -p MainPID --value)

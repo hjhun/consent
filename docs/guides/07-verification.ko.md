@@ -1710,3 +1710,34 @@ Build48 소스·GBS·기기 로그는
 `/var/tmp/consent-artifacts/gbs-build-48`에 있습니다. 생산
 desired-definition 공급원, registry 전손 복구, 실제 holder 삭제, 외부
 제품 adapter는 열린 과제입니다.
+
+## Build49 동기 대기 만료와 원격 조회 (2026-09-30)
+
+Build49 Release17은 240개 파일을 동결했습니다(archive SHA256 `30ebf7aa`).
+상관 검사 시점에 GBS export·작업 트리와 모두 같았습니다. GBS 종료값 0,
+CTest28 중 24 PASS와 root 전용 4 SKIP입니다. 새 `sync-timeout` phase는
+설치 emulator C API 시험이며 GBS CTest 항목은 아닙니다. 같은 release의
+RPM 5개는 내부 transaction 종료값 0으로 업그레이드됐습니다. 설치 regular
+file 155개 중 154개 hash가 일치하고 차이는 보존된 POC
+`%config(noreplace)` roles 파일뿐입니다. ABI versioned symbol은 42개,
+GTest/GMock 의존성은 `consent-tests`에만 남았습니다.
+
+이 phase는 새 subject/profile/client_request_id와 operation_id, 원격
+요청 기한 30초, 로컬 동기 대기 2초를 사용했습니다. `consent_request()`는
+정확히 TIMEOUT과 NULL result를 반환했습니다. 두 번째 인증된 handle은
+같은 subject·profile·client_request_id로 원격 PENDING을 조회했습니다.
+TIMEOUT과 새 ID의 PENDING을 함께 확인해야 원격 작업의 존재가 증명됩니다.
+TIMEOUT만으로는 전송 전 만료를 배제할 수 없습니다. 잘못된 ID·subject·
+profile 조회는 음수 상태와 NULL result였고, 원래 범위의 조회는 요청을
+취소한 뒤 최종 CANCELLED를 반환했습니다. 서로 다른 ID로 target 4회를
+실행해 모두 내부 service 종료값 0과
+`PASS emulator phase=sync-timeout`을 확인했습니다. UI 응답은 넣지
+않았습니다.
+
+설치 client·I/O·owner·public API·repository 시험도 종료값 0이었습니다.
+별도 wire/storage 대표 회귀의 첫 명령은 shell phase 인수 오류로 실패했고
+`scenario-regression.log`에 실패 명령 시도로 보존했습니다. 수정된
+`*-attempt2.log`에서는 wire·stopped-delete·running-delete·DB-shutdown이
+phase PASS와 내부 종료값 0을 보였습니다. 이는 Release17 시험입니다.
+Build48의 정상 재부팅 결과는 별도 이전 근거로 유지합니다. 소스·GBS·RPM·
+기기 로그는 `/var/tmp/consent-artifacts/gbs-build-49`에 있습니다.

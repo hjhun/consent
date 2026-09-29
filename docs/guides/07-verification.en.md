@@ -1824,3 +1824,35 @@ Build48 source, GBS and device logs are under
 `/var/tmp/consent-artifacts/gbs-build-48`. Production desired-definition
 source, complete registry recovery, physical holder deletion and external
 product adapters remain open.
+
+## Build49 synchronous timeout and remote lookup (2026-09-30)
+
+Build49 Release17 froze 240 files (archive SHA256 `30ebf7aa`); all matched
+the GBS export and working tree at correlation time. GBS exit0 ran CTest28:
+24 PASS, four explicit root SKIP. The new `sync-timeout` phase is an
+installed emulator C API test, not a GBS CTest case. Five matching RPMs
+upgraded with internal transaction exit0. Installed hashes matched 154/155
+regular files; the sole difference was the preserved POC
+`%config(noreplace)` roles file. ABI remained 42 versioned symbols, and
+GTest/GMock dependencies remained confined to `consent-tests`.
+
+The phase used a fresh caller-known subject/profile/client_request_id and
+operation_id, a 30s remote request deadline and a 2s local synchronous wait.
+`consent_request()` returned exact TIMEOUT with a NULL result. A second
+authenticated handle then found that same request PENDING by subject,
+profile and client_request_id. The paired TIMEOUT and fresh-ID PENDING
+observations establish that remote work existed; TIMEOUT alone would also
+be possible before transmission. Wrong ID, subject and profile lookups
+returned negative status with NULL results. The original scoped lookup
+cancelled the request and then returned terminal CANCELLED. Four target
+runs used distinct IDs and each ended with internal service exit0 and
+`PASS emulator phase=sync-timeout`. No UI response was injected.
+
+Packaged client, I/O, owner, public API and repository tests also exited0.
+The first command for the separate wire/storage representative rerun had a
+shell phase-argument error and remains in `scenario-regression.log` as a
+failed command attempt. Corrected `*-attempt2.log` commands passed wire,
+stopped-delete, running-delete and DB-shutdown with phase PASS and internal
+exit0. These are Release17 checks; Build48's orderly reboot result remains
+a separate earlier result. Source, GBS, RPM and target logs are under
+`/var/tmp/consent-artifacts/gbs-build-49`.

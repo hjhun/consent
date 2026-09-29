@@ -1,16 +1,16 @@
 # 11. CEP 19.2 acceptance audit
 
 This audit maps every proposed [Design 01 acceptance item](../design/01-consent-framework.md)
-to Build43 Release11 evidence and the numbered Build45–48 supplements.
+to Build43 Release11 evidence and the numbered Build45–49 supplements.
 `Target` means the named framework behavior ran in emulator isolated/package
 fixtures, or a build-only criterion ran in GBS as identified in its row.
 It does not imply external product integration. `Partial` means a narrower
 behavior ran or a failure mode remains untested. `Product` means the required
 real participant or trusted producer is absent. The numbered logs are under
-`/var/tmp/consent-artifacts/gbs-build-{43,45,46,48}`. Each row names the
-later build when it changes the evidence; prior results are not a Build48
+`/var/tmp/consent-artifacts/gbs-build-{43,45,46,48,49}`. Each row names the
+later build when it changes the evidence; prior results are not a Build49
 rerun. A proposed criterion is not itself a test. Current counts are
-Target22, Partial34 and Product7.
+Target23, Partial33 and Product7.
 
 | ID | Scope | Evidence or remaining boundary |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ Target22, Partial34 and Product7.
 | A-16 | Partial | PoC stale policy response; production UI absent. |
 | A-17 | Product | Installer lifecycle hook and complete desired ledger absent. |
 | A-18 | Partial | Kill/injected storage and orderly reboot; no abrupt power loss. |
-| A-19 | Partial | Timeout code exists; exact packaged lookup/cancel proof pending. |
+| A-19 | Target | Build49 isolated installed C API: local TIMEOUT/NULL plus fresh-ID remote PENDING lookup, scoped negative lookups, cancel and terminal CANCELLED; four target runs. |
 | A-20 | Target | Client callback reentry/Close owner fixtures. |
 | A-21 | Partial | Framework session/permit tests; product holder absent. |
 | A-22 | Partial | Framework ONCE/SESSION tests; product holder absent. |
