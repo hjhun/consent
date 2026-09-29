@@ -1854,5 +1854,20 @@ shell phase-argument error and remains in `scenario-regression.log` as a
 failed command attempt. Corrected `*-attempt2.log` commands passed wire,
 stopped-delete, running-delete and DB-shutdown with phase PASS and internal
 exit0. These are Release17 checks; Build48's orderly reboot result remains
-a separate earlier result. Source, GBS, RPM and target logs are under
+a separate earlier result.
+
+For a Release17 orderly reboot, the three existing isolated stores were
+hashed and moved to distinct Build49 archive paths. A fresh `basic` seeded
+approval and `persistent` passed before reboot. The device does not support
+the direct `sdb reboot` command; that failed command remains logged. The
+subsequent `sdb shell reboot` exited0 and changed boot ID from
+`126c815c-8314-4d86-9f09-f3f44eb0d1f8` to
+`cf76e1bb-8a96-4b66-a9dc-7a123c0b1313`. All five Release17 RPMs remained
+installed. DB, registry and receipt inode and SHA256 values matched across
+reboot, while production consentd restarted active/success with PID2564.
+After restoring root SDB mode and repushing the same script hash,
+`persistent` passed with isolated DB integrity `ok`, schema2 and internal
+exit0. This is an orderly emulator reboot, not abrupt power-loss evidence.
+
+Source, GBS, RPM and target logs are under
 `/var/tmp/consent-artifacts/gbs-build-49`.

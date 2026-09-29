@@ -1739,5 +1739,19 @@ profile 조회는 음수 상태와 NULL result였고, 원래 범위의 조회는
 `scenario-regression.log`에 실패 명령 시도로 보존했습니다. 수정된
 `*-attempt2.log`에서는 wire·stopped-delete·running-delete·DB-shutdown이
 phase PASS와 내부 종료값 0을 보였습니다. 이는 Release17 시험입니다.
-Build48의 정상 재부팅 결과는 별도 이전 근거로 유지합니다. 소스·GBS·RPM·
-기기 로그는 `/var/tmp/consent-artifacts/gbs-build-49`에 있습니다.
+Build48의 정상 재부팅 결과는 별도 이전 근거로 유지합니다.
+
+Release17 정상 재부팅 시험에서는 기존 격리 store 세 곳의 hash를 기록하고
+Build49 고유 archive 경로로 옮겼습니다. 새 `basic`으로 승인을 만든 뒤
+재부팅 전 `persistent`가 통과했습니다. 기기는 직접 `sdb reboot` 명령을
+지원하지 않아 그 실패 명령도 보존했습니다. 이어진 `sdb shell reboot`는
+종료값 0이고 boot ID는 `126c815c-8314-4d86-9f09-f3f44eb0d1f8`에서
+`cf76e1bb-8a96-4b66-a9dc-7a123c0b1313`으로 바뀌었습니다. Release17
+RPM 5개가 유지됐고 격리 DB·registry·receipt의 inode와 SHA256이 전후
+일치했습니다. 생산 consentd는 새 PID2564로 active/success였습니다.
+SDB root mode를 다시 켜고 같은 script hash를 재전송한 뒤 `persistent`가
+격리 DB integrity `ok`, schema2와 내부 종료값 0으로 통과했습니다. 이는
+emulator 정상 재부팅 근거이며 돌연 전원 상실 근거는 아닙니다.
+
+소스·GBS·RPM·기기 로그는
+`/var/tmp/consent-artifacts/gbs-build-49`에 있습니다.
