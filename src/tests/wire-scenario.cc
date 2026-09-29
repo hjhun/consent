@@ -230,6 +230,20 @@ void Framing() {
 }
 
 void Malformed() {
+  auto valid = Connection::Frame(2);
+  auto version = valid;
+  Require(version.size() >= 8 && version[4] == 0 && version[5] == 0 &&
+              version[6] == 0 && version[7] == 1,
+          "version field missing");
+  version[4] = 0;
+  version[5] = 0;
+  version[6] = 0;
+  version[7] = 2;
+  Require(version.size() == valid.size() &&
+              std::equal(version.begin(), version.begin() + 4, valid.begin()) &&
+              std::equal(version.begin() + 8, version.end(), valid.begin() + 8),
+          "version fixture changed other bytes");
+  Rejected("unsupported-version", version);
   Rejected("zero-size", {0, 0, 0, 0});
   Rejected("oversize-65537", {0, 1, 0, 1});
   auto frame = Connection::Frame(2);

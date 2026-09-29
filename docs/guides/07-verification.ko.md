@@ -1540,3 +1540,45 @@ Build43 근거 파일은 `source-correlation.json`, `gbs-success-log.txt`,
 `reboot-after-root.log`, `reboot-integrity-daemon.log`,
 `reboot-persistent-{before,after}.log`입니다. 각 실행 로그의 내부
 service/script 결과를 확인하며 SDB exit만으로 PASS를 판단하지 않습니다.
+
+## Build44 실패와 Build45 activation/version 시험 (2026-09-30)
+
+Build44 Release12는 보존된 실패 시도입니다. Activation fixture가
+`LISTEN_FDS=0`과 `LISTEN_PID`를 함께 설정해 `sd_listen_fds(1)`가 실제
+FD 없음의 0 대신 `-EINVAL`을 반환했습니다. GBS `%check` 27개 중 한 개가
+실패했고 Build44 RPM은 설치하거나 PASS로 기록하지 않았습니다. 수정된
+fixture는 FD 없음에서 두 환경변수를 모두 제거합니다.
+
+Build45 Release13 archive SHA256은 `98fad5b9`로 시작합니다. 239파일은
+correlation 당시 GBS export와 worktree에 모두 일치했습니다. GBS exit0,
+CTest27은 23 PASS/root4 명시적 SKIP/0 FAIL입니다. Matching5 RPM upgrade의
+내부 결과와 SDB exit가 모두 0입니다. 설치된 test-only activation binary는
+별도 `/tmp` endpoint를 사용하며 production listener를 열지 않습니다.
+Packaged harness는 FD 없음, 정확한 test path의 잘못된 socket type, 다른
+path의 stream socket, FD 두 개를 모두 거부했습니다. Target DLOG에는
+`CONSENTD` PID9814–9817의 `count=0`, `endpoint`, `endpoint`, `count=2`가
+있습니다. Child exit1과 정확한 로그는 bootstrap 전 음성 admission을
+증명합니다. Parent FD identity는 유지됐지만 child의 명시적 close syscall은
+추적하지 않았으므로 A-51의 FD leak 조항은 Partial입니다.
+
+설치된 isolated wire scenario는 native Parcel frame의 envelope version
+offset4..7만 1에서 2로 바꿨습니다. Frame 길이와 다른 byte가 같음을
+확인하고 인증된 hello 뒤 전송해 bounded close를 관측했으며 다음 연결의
+정상 hello와 같은 epoch를 확인했습니다. Script는 동일 daemon MainPID9973과
+phase/service exit0을 확인했습니다. 이는 unsupported-version 거부 근거이나
+early allocation 및 A-62의 모든 malformed-input 조항까지 증명하지 않아
+A-62는 Partial입니다.
+
+Production socket·DB·registry·bootstrap receipt는 fixture 전후 device/inode,
+owner, mode, size가 일치했고 세 일반 파일의 SHA256도 같았습니다.
+설치 RPM metadata regular155개
+중 154개 hash가 맞고 나머지 POC roles 설정은 `%config(noreplace)`입니다.
+Installed public ABI는 versioned symbol42개로 유지됐습니다. GTest/GMock
+runtime 의존성은 `consent-tests`에만 있으며 devel/tests는 Release13과
+결합됩니다. 근거는 `/var/tmp/consent-artifacts/gbs-build-{44,45}` 아래
+Build45 `source-correlation.json`, `LastTest.log`, `rpm-upgrade-actual.log`,
+`activation-device-attempt1.log`, `activation-dlog-after.log`,
+`wire-device-attempt1.log`, `production-{before,after}-fixtures.log`,
+`installed-hash-audit.json`, `rpm-requires-audit.json`,
+`installed-abi-symbols.log`입니다. Production policy·wire decoder·ABI·
+security flag는 변경하지 않았습니다.

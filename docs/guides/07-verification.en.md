@@ -1646,3 +1646,46 @@ Build43 evidence files: `source-correlation.json`, `gbs-success-log.txt`,
 `reboot-after-root.log`, `reboot-integrity-daemon.log`, and
 `reboot-persistent-{before,after}.log`. Each execution log carries an
 internal service/script result; SDB exit alone is not used as PASS.
+
+## Build44 failure and Build45 activation/version tests (2026-09-30)
+
+Build44 Release12 is a retained failed attempt. Its activation fixture set
+`LISTEN_FDS=0` with `LISTEN_PID`, which made `sd_listen_fds(1)` return
+`-EINVAL` instead of exercising absent activation. GBS `%check` failed one
+of 27 tests; no Build44 RPM was installed or called a pass. The corrected
+fixture removes both environment variables in the no-FD case.
+
+Build45 Release13 archive SHA256 starts `98fad5b9`. All 239 files match the
+GBS export and worktree at correlation time. GBS exit0 reports CTest27:
+23 PASS, four explicit root SKIP and zero FAIL. The matching five-RPM
+upgrade returned internal and SDB exit0. The installed test-only activation
+binary has a separate `/tmp` endpoint and never opens a production listener.
+Its packaged harness passed absent FD, wrong socket type at the exact test
+path, stream socket at a wrong path, and two FDs. Target DLOG records
+`CONSENTD` PIDs9814–9817 with `count=0`, `endpoint`, `endpoint`, `count=2`.
+The child exit1 and exact log prove negative admission before bootstrap;
+parent FD identity stayed intact. No explicit child close syscall was traced,
+so A-51 remains Partial for the FD leak clause.
+
+The installed isolated wire scenario changed only native Parcel envelope
+version bytes at frame offsets4..7 from 1 to 2. It checked identical frame
+length and other bytes, sent it after authenticated hello, observed bounded
+connection close, then established another healthy hello with the same epoch.
+The script confirmed the same daemon MainPID9973 and phase/service exit0.
+This proves unsupported-version rejection; it does not prove early allocation
+behavior or every A-62 malformed-input clause, so A-62 remains Partial.
+
+The production socket, DB, registry and bootstrap receipt had identical
+device/inode, ownership, mode and size before and after these fixtures.
+The three regular files also retained their SHA256 hashes.
+Installed RPM metadata lists 155 regular files: 154 hashes match and only
+the preserved `%config(noreplace)` POC roles file differs. The installed
+public ABI still has 42 versioned symbols. GTest/GMock runtime requirements
+appear only in `consent-tests`; devel/tests require matching Release13.
+Evidence is in `/var/tmp/consent-artifacts/gbs-build-{44,45}`, particularly
+Build45 `source-correlation.json`, `LastTest.log`,
+`rpm-upgrade-actual.log`, `activation-device-attempt1.log`,
+`activation-dlog-after.log`, `wire-device-attempt1.log`,
+`production-{before,after}-fixtures.log`, `installed-hash-audit.json`,
+`rpm-requires-audit.json` and `installed-abi-symbols.log`. These tests
+change no production policy, wire decoder, ABI or security flag.

@@ -61,7 +61,7 @@ is historical, not a Build43 rerun. A proposed criterion is not itself a test.
 | A-48 | Partial | Rejected roles seen; explicit SO_PEERCRED failure injection pending. |
 | A-49 | Partial | Bounds/fault fixtures; sustained overload measurements pending. |
 | A-50 | Target | Socket activation and READY in matching service. |
-| A-51 | Partial | Validation code exists; four activation-negative target cases absent. |
+| A-51 | Partial | Build45 four target rejections pass; explicit child FD close untraced. |
 | A-52 | Target | Repeated service start with socket unit, Build43 100/100. |
 | A-53 | Partial | Reentry/cache interleavings pass; full lock/no-wait invariant unproved. |
 | A-54 | Target | Cache-only caller-context delivery, after-return test. |
@@ -72,7 +72,7 @@ is historical, not a Build43 rerun. A proposed criterion is not itself a test.
 | A-59 | Target | Kernel PID/UID/GID and disconnect reason in target log. |
 | A-60 | Partial | Retry metadata; deadline-expired holder ACK/product holder absent. |
 | A-61 | Target | Generated parcel exchanges in installed API/wire fixtures. |
-| A-62 | Partial | Target size/count/trailing/EOF and local NUL; version case absent. |
+| A-62 | Partial | Build45 target version/size/count/trailing/EOF; early allocation and target NUL proof absent. |
 | A-63 | Partial | GBS generator determinism/schema/license; edited-IDL rebuild absent. |
 
 The unnumbered release gate is still open: no root-authenticated complete

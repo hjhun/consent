@@ -156,6 +156,40 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/main.cc")
     INSTALL(TARGETS consentd-bootstrap-test
             RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
     )
+    SET(ACTIVATION_ROOT "/tmp/consent-activation-test-12")
+    SET(ACTIVATION_INSTALLATIONS
+        "/opt/var/lib/consent-activation-authority/installations.conf"
+    )
+    ADD_EXECUTABLE(consentd-activation-test ${CONSENTD_SOURCES})
+    TARGET_INCLUDE_DIRECTORIES(
+      consentd-activation-test PRIVATE "${PROJECT_SOURCE_DIR}/src"
+                                       "${PROJECT_SOURCE_DIR}/src/consent/inc"
+    )
+    TARGET_LINK_LIBRARIES(
+      consentd-activation-test
+      PRIVATE consent-common consent-storage PkgConfig::GLIB
+              PkgConfig::SQLITE PkgConfig::SYSTEMD Threads::Threads
+    )
+    TARGET_COMPILE_DEFINITIONS(
+      consentd-activation-test
+      PRIVATE
+        CONSENT_TEST_BUILD
+        CONSENT_LOG_TAG="CONSENTD"
+        CONSENT_SOCKET_PATH="${ACTIVATION_ROOT}/consent.sock"
+        CONSENT_STATE_DIR="/opt/var/lib/consent-activation-test"
+        CONSENT_AUTHORITY_DIR="/opt/var/lib/consent-activation-authority"
+        CONSENT_ROLE_CONFIG="${CONSENT_ROLE_CONFIG}"
+        CONSENT_INSTALLATIONS="${ACTIVATION_INSTALLATIONS}"
+        CONSENT_SERVICE_UNIT="consentd-activation-test.service"
+    )
+    SET_PROPERTY(
+      TARGET consentd-activation-test
+      APPEND_STRING
+      PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie"
+    )
+    INSTALL(TARGETS consentd-activation-test
+            RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
+    )
   ENDIF()
 ELSE()
   MESSAGE(STATUS "consentd: implementation sources are not present yet")

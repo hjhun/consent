@@ -112,6 +112,19 @@ ADD_TEST(NAME idl-codegen-test
 )
 SET_TESTS_PROPERTIES(idl-codegen-test PROPERTIES TIMEOUT 30)
 
+IF(TARGET consentd-activation-test)
+  ADD_TEST(
+    NAME activation-negative-test
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/activation_negative_test.py"
+            "$<TARGET_FILE:consentd-activation-test>"
+  )
+  SET_TESTS_PROPERTIES(activation-negative-test PROPERTIES TIMEOUT 30)
+  INSTALL(PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/activation_negative_test.py"
+          DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
+  )
+ENDIF()
+
 SET(PUBLIC_HEADER_INCLUDE_ARGS)
 FOREACH(INCLUDE_DIR IN LISTS CAPI_BASE_COMMON_INCLUDE_DIRS)
   LIST(APPEND PUBLIC_HEADER_INCLUDE_ARGS --include "${INCLUDE_DIR}")

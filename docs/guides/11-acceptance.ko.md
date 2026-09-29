@@ -60,7 +60,7 @@ emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통
 | A-48 | Partial | 역할 거부 확인; SO_PEERCRED 실패 주입 부족. |
 | A-49 | Partial | Bounds/fault fixture; 지속 과부하 수치 부족. |
 | A-50 | Target | Matching service의 socket activation·READY. |
-| A-51 | Partial | 검증 코드는 있으나 activation-negative 네 target 실행 없음. |
+| A-51 | Partial | Build45 target 네 거부 통과; child FD 명시 close는 미추적. |
 | A-52 | Target | Socket unit과 Build43 service 재시작 100/100. |
 | A-53 | Partial | 재진입/cache 일부 interleaving 통과; 전체 lock/no-wait 불변식 미증명. |
 | A-54 | Target | Cache-only caller context·반환 후 전달 시험. |
@@ -71,7 +71,7 @@ emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통
 | A-59 | Target | Target log의 kernel PID/UID/GID·종료 이유. |
 | A-60 | Partial | Retry metadata; ACK 기한초과·제품 holder 없음. |
 | A-61 | Target | 설치 API/wire에서 생성 parcel 교환. |
-| A-62 | Partial | Target 크기/개수/trailing/EOF와 local NUL; version 부족. |
+| A-62 | Partial | Build45 target version/크기/개수/trailing/EOF; early allocation·target NUL 미증명. |
 | A-63 | Partial | GBS generator 결정성/schema/license; IDL 수정 재빌드 없음. |
 
 번호 밖 release gate도 열려 있습니다. Root 인증된 완전한 최신
