@@ -1283,3 +1283,146 @@ handle 성능 전후 비교, registry-loss helper 설계/구현, final storage/r
 감사는 아직 완료가 아닙니다. 성능 fixture의 실패 setup 로그를 성공 baseline으로
 취급하지 않습니다. 외부 제품 identity/provider 연결은 실제 공급원이 필요한
 범위를 별도로 유지합니다.
+
+## GIO 전 Build32 저장소 도구 baseline
+
+저장소 성능 도구와 추출 helper는 보존된 seventh prototype과 소스가 다릅니다.
+권위 있는 비교 baseline은 별도 파일
+`/var/tmp/consent-artifacts/performance-build32-tool2/baseline-first.log`이며
+exit 0, 전체 19.218 s입니다. Build32 격리 static client archive와 packaged
+`consentd-test` 조합으로 production shared-library variant 수치가 아닙니다.
+동일 디렉터리의 `compile-command.json`, `prepare.log`에 compile argv와
+seed/binary hash가 있습니다.
+
+API별 warmup 100, 측정 n=1000입니다. QUERY/AUTHORIZE/CHECK/D16은 daemon을
+통해 ALLOWED를 반환하며 이번 legacy sync/async는 CACHE 1000입니다.
+D16 approval_version=1은 cacheable=0을 유지합니다. Acceptance와 callback
+latency, API interval 역수와 실제 measured wall throughput을 각각 구분합니다.
+Idle context switch 79/2 s는 측정 client와 보조 UI handle 두 I/O thread를
+포함하는 process-wide proxy입니다.
+
+`scripts/emulator-performance.sh`는 매 unique attempt 전에
+`/opt/var/lib/consent-perf-template-build32-tool2`의 격리 DB/registry/authority/
+control을 복원하고 종료 시 base runtime roles를 복원합니다. `--capture`는
+fresh basic 준비 후 새 seed만 생성하며 기존 seed를 덮어쓰지 않습니다.
+전후 비교는 동일 tool/helper source, 명시적 gcc/g++ flags, seed, actor path와
+측정 조건을 사용하며 비교하는 archives와 daemon만 바뀝니다. CMake-built 도구의
+flags가 자동으로 동일하다고 간주하지 않습니다. Seventh prototype과 실패 attempt는
+별도 근거로 유지합니다. 이 역사적 checkpoint 당시 Build33 GBS/device와
+GIO 후 측정은 미완료였으며 완료 결과는 아래 Build33 section에 기록합니다.
+
+## Build33 GIO 검증과 성능 후속 증분
+
+Frozen tree `0b5c8ed5847c32b64c9462d47b76f73e64999136`, Release4는
+`/var/tmp/consent-artifacts/gbs-build-33`에 보존됩니다. GBS exit0이며 CTest25는
+21 PASS, root 전용4 SKIP, 0 FAIL(17.20 s)입니다. 세 GTest/GMock library는
+consent-tests만 의존합니다. `emulator-build-33`에는 정상 matching5 RPM upgrade와
+installed client/IO4/owner3/signal/ownership13/cleanup10/publicAPI, 실제 root4의
+service exit0 근거가 있습니다. Regular file은147중146 match이며 유일한 POC
+roles.conf 차이는 `%config(noreplace)` 보존입니다. Versioned ABI symbol42 유지.
+
+최초 basic은 기존 control generation의 fresh guard에서 실패했으며
+`scenario-basic.log`는 실패 근거로 보존합니다. 이전 격리 디렉터리를 보존한 뒤
+`scenario-basic-second.log`에서 phase PASS/service0를 확인했습니다. Cleanup97,
+wire, partial shutdown, accepted DB drain도 각각 phase PASS/service0입니다.
+Actual command JSON은 SDB transport exit와 systemd service exit를 구분합니다.
+Default-deny 최초 expect-107은 hello OUTCOME_UNKNOWN 때문에 실패했습니다.
+두 번째 installed-library probe PID3562808/UID0는 두 constructor에서 -107과
+UNKNOWN을 반환하고 handle은 둘 다NULL입니다. Daemon instance2/3의 동일PID/UID
+no matching trusted identity 거부를 결합합니다. 이는 인증 거부에 따른 연결/hello
+실패이며 PERMISSION_DENIED 정책 응답 근거가 아닙니다. 실제 DLOG PID3560012의
+literal100%/source/tag/level과 shutdown PID3560555 출력은 global clear 없이 보존.
+
+정확한 tool2 Build32→Build33 비교와 두 번째 post trial은
+`performance-build33-tool2`에 있습니다. Source/helper/flags/seed/actor path는
+새 Build32 baseline과 같습니다. 별도 `performance-controlled-build33`은 동일
+Build33 daemon에 두 client를 교차 실행했습니다. CPU1.72/1.66→2.37/2.08s,
+RSS5148–5240→7816–7988KiB, idle process context switch79/80→1/1(2s)입니다.
+네 trial 모두 ALLOWED와 CACHE/DAEMON 집계를 확인하고 PASS했습니다. Controlled
+daemon 범위는 원 full-package baseline과 구분합니다. 반복된 CPU/QUERY 비용 때문에
+immediate nonblocking write 후속 설계를 승인받았으나 유일한 원인으로 확정하지
+않습니다. 이 역사적 checkpoint 당시 Build34/Release5 시험과 성능 비교는
+미완료였으며 완료 결과는 아래 Build34 section에 기록합니다.
+
+Build34 후속 native 근거는 SDK header/host GLib 보조 시험이며
+`/var/tmp/consent-artifacts/native-increment34`에 있습니다. 최초 owner는
+4 PASS/1 FAIL로 30000-byte 단일 값이 I/O 전에 거부됐습니다. 실패 로그/명령/binary를
+보존했습니다. 수정 fixture는 frame마다 제한 내4000-byte 값8개를 사용합니다.
+두 번째 owner5 PASS는 실제 partial WOULD_BLOCK과 두 frame 순서/완전복원을
+확인하며 기존 client 회귀도 PASS입니다. 성공한 두 번째 argv/env/exit는 별도 파일.
+이 checkpoint에서 후속 GBS와 target 검증은 아직 미완료입니다.
+
+## Build34 immediate-write 근거
+
+Release5 frozen tree `0b4dc11144511bf55b63b82a7d95a4535dfa2dbf`는
+`gbs-build-34`에 보존됩니다. GBS0, CTest21 PASS/root4 SKIP/0 FAIL(16.64 s).
+`emulator-build-34`에는 정상5 RPM upgrade, client/IO4/owner5/signal/ownership13/
+cleanup10/publicAPI/root4 service0와 fresh basic/cleanup97/wire/partial shutdown/
+DB drain의 phase PASS/service0가 있습니다. Regular146/147 match에서 유일한
+POC config는 이전과 같은 보존 항목이며 symlink9/9, ABI42도 일치합니다.
+Default-deny PID3566797/UID0는 두 UNKNOWN/NULL handle과 동일PID daemon role
+거부를 결합합니다. 실제 DLOG ownership PID3565699 literal100%, shutdown
+PID3566335를 journal 근거와 결합해 보존합니다.
+
+`performance-build34-tool2`의 exact-tool full-package trial은 새 archives
+3b9ee069/c5a85e13, daemon5bf9fc06, 실제 pull한 actor b2bbefb1을 사용합니다.
+CPU1.91/1.88s, RSS7936/7880KiB, idle proxy1/1은 이전 Build33 package pair와
+구분합니다. 별도 `performance-controlled-write34`는 같은 Build34 daemon에
+before33/after34 client를 실행하며 CPU2.15/2.16→1.89/2.23s입니다. 모든 trial은
+ALLOWED/source 집계와 PASS를 확인했지만 혼재된 결과로 CPU 개선을 일률적으로
+주장하거나 유일한 원인을 확정하지 않습니다. Immediate nonblocking write가
+output을 비우면 readiness source를 만들지 않으며 partial I/O 계약은 유지됩니다.
+
+다음 승인 증분은 이미 완료된 cache hit의 I/O wake만 생략하고 caller-context
+delivery와 noncache wake를 유지합니다. 이 증분의 native/GBS/installed/성능
+검증은 아직 미완료입니다.
+
+Build35 cache-only wake native는 owner6(cache hit/miss context readiness 대조와
+원격 byte 없음 포함), 기존 client 모두 PASS입니다. 정확한 성공 argv/env/exit는
+`native-increment35`에 있으며 SDK-header/host-GLib 보조 결과로 분류합니다.
+Release6 GBS/device와 동일도구 성능은 아직 미완료입니다. Focused GIO checkpoint
+뒤에는 별도80열 checkpoint, 검토된 registry-loss helper, authoritative final-source
+storage/reboot/CEP 감사 순서로 진행하며 추측성 최적화를 추가하지 않습니다.
+
+## Build35 cache-only wake 검증 (2026-09-30)
+
+Release6 frozen tree `07d663838c306aa2eda89727e7e90ffe6d98e2f6`는
+`/var/tmp/consent-artifacts/gbs-build-35`에 보존합니다. GBS exit0이며
+CTest25는21 PASS/root4 명시적 SKIP/0 FAIL(16.98 s)입니다. Test library 의존성은
+tests RPM에만 있습니다. GBS 종료 후 한영 문서 보완은 이 frozen source snapshot
+밖의 변경입니다.
+
+`emulator-build-35`에는 정상 matching5 RPM transaction 및 실제 client/IO4/
+owner6/signal/ownership13/cleanup10/publicAPI/root4 service exit0가 있습니다.
+Fresh basic/cache/cleanup97/wire/partial-I/O shutdown/accepted DB drain은 각각
+phase PASS/service0입니다. Installed regular146/147 match에서 유일한 보존 POC
+설정은 `%config(noreplace)`입니다. Symlink9/9, versioned ABI42, security_fw
+UID402/storage700/DB600을 유지합니다. Default-deny actor PID3574606/UID0는
+두 constructor에서 UNKNOWN/NULL을 반환하고 daemon instance1/2의 동일PID/UID
+거부를 결합합니다. 인증 거부 후 connection/hello 실패 근거입니다. DLOG ownership
+PID3572539의 literal100%/source/tag/level, shutdown PID3574521과 isolated
+journal을 전역 clear 없이 대조합니다.
+
+`performance-build35-tool2`의 exact-tool full-package 두 trial은 actor
+`eea4147c`, daemon `75ae7a17`, 동일 source/helper/script/compile flags와
+immutable seed를 사용합니다. 모두9 metrics/n1000/warm100/ALLOWED, legacy
+CACHE1000 및 CHECK/D16 DAEMON1000으로 PASS입니다. CPU1.99/1.88s,
+RSS8020/7812KiB, idle proxy1/1은 Build34 대비 일률적 개선 근거가 아닙니다.
+격리 static client archive variant이며 production shared-library 수치가 아닙니다.
+
+| 작업 | 현재 근거 | 남은 작업 |
+| --- | --- | --- |
+| 내부 cleanup/ownership/DLOG/GIO | Build30/32/35 범위별 target 근거 | 별도 mechanical80열 checkpoint |
+| Registry 전손 helper | Guide09 제안과 read-only source 조사 | 구체 trusted-source/marker/lifecycle 설계 검토, 구현과 시험 |
+| 외부 제품 통합 | 실제 source 및 installed package 조사 | Installer lifecycle 및 인증 role/provider/history/model adapter |
+| 최종 검증 | 위 증분별 근거 | authoritative final-source storage 중단/삭제/reboot 및 CEP A-01–A-63 감사 |
+
+앞선 pending 문장은 당시 역사적 checkpoint 상태입니다. Build35 증분으로
+남은 작업을 완료했다고 주장하지 않습니다.
+
+별도 `performance-controlled-cache35`는 동일 Build35 daemon(`75ae7a17`)에
+before34/after35 client를 각각 두 번 교차 실행합니다. 모두9 metrics와 동일
+seed/source 집계 조건으로 PASS입니다. CPU2.16/2.17→2.11/2.15s,
+RSS7816/7884→7912/7896KiB는 작은 편차이며 광범위한 성능 개선 주장은 하지 않습니다.
+이번 변경의 cache-only I/O wake 생략은 owner6으로 검증했습니다. 추가 추측성
+최적화 대신 남은 구현과 최종 감사로 진행합니다.

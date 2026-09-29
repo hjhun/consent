@@ -36,6 +36,7 @@ class Client final {
       uint64_t* operation);
   int Detach(uint64_t operation);
  private:
+  friend class ClientTestPeer;
   struct State;
   std::shared_ptr<State> state_;
 };

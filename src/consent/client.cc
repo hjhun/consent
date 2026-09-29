@@ -16,15 +16,15 @@
 #include "client.hh"
 
 #include "endpoint.hh"
+#include "io_context.hh"
+#include "common/resource.hh"
 
-#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <poll.h>
 
 #include <algorithm>
 #include <atomic>
@@ -199,41 +199,177 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     gint64 last_used = 0;
   };
 
+  class CallbackDelivery final {
+    friend struct State;
+    friend class Client;
+    friend class ClientTestPeer;
+
+   public:
+    explicit CallbackDelivery(GMainContext* context)
+        : pid_(getpid()),
+          context_(context ? g_main_context_ref(context)
+                           : g_main_context_ref_thread_default()) {}
+    ~CallbackDelivery() {
+      if (pid_ != getpid()) {
+        // Raw source slots have no implicit GLib deleter in a fork child.
+        context_ = nullptr;
+        return;
+      }
+      Cancel();
+      g_main_context_unref(context_);
+    }
+    void Cancel() noexcept {
+      if (pid_ != getpid()) return;
+      std::map<uint64_t, GSource*> sources;
+      sources.swap(sources_);
+      for (const auto& entry : sources) {
+        g_source_destroy(entry.second);
+        g_source_unref(entry.second);
+      }
+    }
+
+   private:
+    pid_t pid_;
+    GMainContext* context_;
+    std::map<uint64_t, GSource*> sources_;
+  };
+
+  class SocketTransport final {
+    friend struct State;
+    friend class Client;
+    friend class ClientTestPeer;
+
+   public:
+    SocketTransport() : pid_(getpid()) {}
+    ~SocketTransport() {
+      if (pid_ != getpid()) {
+        // Never unref an inherited GSocket/source. Close our fd copy once;
+        // clearing the slot prevents a later deleter from closing a reused fd.
+        Abandon();
+        return;
+      }
+      Close();
+      if (socket_) g_object_unref(socket_);
+    }
+    bool Adopt(int fd) {
+      consent::Descriptor guard(fd);
+      GError* error = nullptr;
+      socket_ = g_socket_new_from_fd(fd, &error);
+      g_clear_error(&error);
+      if (!socket_) return false;
+      fd_ = guard.Release();
+      g_socket_set_blocking(socket_, FALSE);
+      return true;
+    }
+    int Connect(IoContext& io) {
+      GSocketAddress* address = g_unix_socket_address_new(CONSENT_SOCKET_PATH);
+      GError* error = nullptr;
+      bool connected = g_socket_connect(socket_, address, nullptr, &error);
+      g_object_unref(address);
+      bool pending = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_PENDING) ||
+                     g_error_matches(error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK);
+      g_clear_error(&error);
+      if (!connected && pending) {
+        if (!io.Wait(socket_, 2000)) return CONSENT_ERROR_TIMEOUT;
+        connected = g_socket_check_connect_result(socket_, &error);
+        g_clear_error(&error);
+      }
+      return connected ? 0 : CONSENT_ERROR_DISCONNECTED;
+    }
+    void ArmRead(GMainContext* context, GSourceFunc callback, void* data) {
+      read_ = g_socket_create_source(
+          socket_, static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP),
+          nullptr);
+      g_source_set_callback(read_, callback, data, nullptr);
+      g_source_attach(read_, context);
+    }
+    void ArmWrite(GMainContext* context, GSourceFunc callback, void* data) {
+      if (output_.empty()) {
+        Destroy(write_);
+      } else if (!write_) {
+        write_ = g_socket_create_source(
+            socket_, static_cast<GIOCondition>(G_IO_OUT | G_IO_ERR | G_IO_HUP),
+            nullptr);
+        g_source_set_callback(write_, callback, data, nullptr);
+        g_source_attach(write_, context);
+      }
+    }
+    gssize Read(void* buffer, size_t size) {
+      GError* error = nullptr;
+      auto count = g_socket_receive(socket_, static_cast<char*>(buffer), size,
+                                    nullptr, &error);
+      would_block_ = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK);
+      g_clear_error(&error);
+      return count;
+    }
+    gssize Write(const void* buffer, size_t size) {
+      GError* error = nullptr;
+      auto count = g_socket_send(socket_, static_cast<const char*>(buffer),
+                                 size, nullptr, &error);
+      would_block_ = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK);
+      g_clear_error(&error);
+      return count;
+    }
+    void Close() noexcept {
+      if (pid_ != getpid()) return;
+      Destroy(read_);
+      Destroy(write_);
+      if (socket_) g_socket_close(socket_, nullptr);
+      fd_ = -1;
+      wire_.clear();
+      output_.clear();
+      input_.clear();
+      output_bytes_ = 0;
+    }
+
+   private:
+    void Abandon() noexcept {
+      if (fd_ >= 0) close(fd_);
+      fd_ = -1;
+      socket_ = nullptr;
+      read_ = nullptr;
+      write_ = nullptr;
+    }
+    static void Destroy(GSource*& source) noexcept {
+      if (!source) return;
+      g_source_destroy(source);
+      g_source_unref(source);
+      source = nullptr;
+    }
+    pid_t pid_;
+    GSocket* socket_ = nullptr;
+    int fd_ = -1;
+    GSource* read_ = nullptr;
+    GSource* write_ = nullptr;
+    bool would_block_ = false;
+    std::map<std::string, std::shared_ptr<Operation>> wire_;
+    std::deque<Output> output_;
+    std::vector<uint8_t> input_;
+    size_t output_bytes_ = 0;
+    gint64 partial_since_ = 0;
+  };
+
   explicit State(GMainContext* context)
-      : context_(context ? g_main_context_ref(context) :
-          g_main_context_ref_thread_default()), owner_(g_thread_self()), pid_(getpid()) {
+      : owner_(g_thread_self()),
+        pid_(getpid()),
+        delivery_(context),
+        io_([this] { Pump(); }, [this] { transport_.Close(); }) {
     g_mutex_init(&mutex_);
     g_cond_init(&condition_);
   }
   ~State() {
-    // Source destroy-notify may run in a fork child without a live public
-    // handle. Close only our inherited fd copies; never clear inherited GLib
-    // contexts, conditions or mutexes there.
-    if (pid_ != getpid()) {
-      if (socket_ >= 0)
-        close(socket_);
-      if (wake_ >= 0)
-        close(wake_);
-      return;
-    }
-    if (socket_ >= 0)
-      close(socket_);
-    if (wake_ >= 0)
-      close(wake_);
-    g_main_context_unref(context_);
+    // Each member owner checks its own PID; returning here alone would not
+    // suppress automatic C++ member destructors in a fork child.
+    if (pid_ != getpid()) return;
+    io_.Stop();
+    io_.Join();
+    delivery_.Cancel();
     g_cond_clear(&condition_);
     g_mutex_clear(&mutex_);
-    if (counted_)
-      ReleaseClient(pid_);
+    if (counted_) ReleaseClient(pid_);
   }
 
-  void Wake() {
-    uint64_t one = 1;
-    if (wake_ >= 0) {
-      ssize_t ignored = write(wake_, &one, sizeof(one));
-      (void)ignored;
-    }
-  }
+  void Wake() noexcept { io_.Wake(); }
 
   static gboolean Dispatch(gpointer data) noexcept {
     auto* delivery = static_cast<Delivery*>(data);
@@ -248,10 +384,10 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     GSource* source = nullptr;
     {
       Lock lock(state->mutex_);
-      auto it = state->sources_.find(operation->local_id);
-      if (it != state->sources_.end()) {
+      auto it = state->delivery_.sources_.find(operation->local_id);
+      if (it != state->delivery_.sources_.end()) {
         source = it->second;
-        state->sources_.erase(it);
+        state->delivery_.sources_.erase(it);
       }
       state->operations_.erase(operation->local_id);
       if (!state->closed_ && !operation->detached) {
@@ -291,9 +427,9 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       operations_.erase(operation->local_id);
       return;
     }
-    auto source = sources_.find(operation->local_id);
-    if (source != sources_.end())
-      g_source_attach(source->second, context_);
+    auto source = delivery_.sources_.find(operation->local_id);
+    if (source != delivery_.sources_.end())
+      g_source_attach(source->second, delivery_.context_);
   }
 
   int Admit(Message message, unsigned timeout, bool asynchronous,
@@ -322,6 +458,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       });
     }
     Message cached;
+    bool cached_hit = false;
     {
       Lock lock(mutex_);
       if (closed_ || disconnected_)
@@ -345,21 +482,36 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
           cached.erase("id");
         }
       }
+      // Resolve a cache hit before publishing it to the I/O snapshot. A wake
+      // already in progress must never turn this local result into a request.
+      if (!cached.empty()) {
+        cached_hit = true;
+        operation->result = std::move(cached);
+        operation->done = true;
+      }
       operation->local_id = next_local_++;
       operations_.emplace(operation->local_id, operation);
       try {
         if (source)
-          sources_.emplace(operation->local_id, source.get());
+          delivery_.sources_.emplace(operation->local_id, source.get());
       } catch (...) {
         operations_.erase(operation->local_id);
         throw;
       }
-      source.release();
+      auto* admitted_source = source.release();
+      if (operation->done) {
+        if (admitted_source)
+          g_source_attach(admitted_source, delivery_.context_);
+        else
+          operations_.erase(operation->local_id);
+      }
     }
     *output = operation;
-    if (!cached.empty())
-      Complete(operation, 0, std::move(cached));
-    Wake();
+#ifdef CONSENT_CLIENT_OWNER_TEST
+    // Unit executable only; independent of endpoint/authentication fixtures.
+    if (admission_observer_) admission_observer_(admission_observer_data_);
+#endif
+    if (!cached_hit) Wake();
     return 0;
   }
 
@@ -383,13 +535,13 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       Complete(operation, CONSENT_ERROR_INVALID_PARAMETER);
       return;
     }
-    if (output_bytes_ + frame.size() > kMaxOutputBytes) {
+    if (transport_.output_bytes_ + frame.size() > kMaxOutputBytes) {
       Complete(operation, CONSENT_ERROR_BUSY);
       return;
     }
-    wire_[id] = operation;
-    output_bytes_ += frame.size();
-    output_.push_back({std::move(frame), 0, operation});
+    transport_.wire_[id] = operation;
+    transport_.output_bytes_ += frame.size();
+    transport_.output_.push_back({std::move(frame), 0, operation});
     operation->inflight = true;
   }
 
@@ -408,11 +560,11 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       Invalidate(message);
       return true;
     }
-    auto it = wire_.find(Get(message, "id"));
-    if (it == wire_.end())
+    auto it = transport_.wire_.find(Get(message, "id"));
+    if (it == transport_.wire_.end())
       return true;  // Locally timed-out/detached operations can reply late.
     auto operation = it->second;
-    wire_.erase(it);
+    transport_.wire_.erase(it);
     operation->inflight = false;
     int64_t status = CONSENT_ERROR_PROTOCOL;
     if (!ParseNumber(Get(message, "status"), &status) || status > 0 || status < INT_MIN)
@@ -510,35 +662,34 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     size_t received = 0;
     uint8_t bytes[8192];
     while (true) {
-      ssize_t count = recv(socket_, bytes, sizeof(bytes), 0);
+      gssize count = transport_.Read(bytes, sizeof(bytes));
       if (count == 0)
         return false;
       if (count < 0) {
-        if (errno == EINTR)
-          continue;
-        return errno == EAGAIN || errno == EWOULDBLOCK;
+        return transport_.would_block_;
       }
       received += static_cast<size_t>(count);
-      input_.insert(input_.end(), bytes, bytes + count);
-      while (input_.size() >= 4) {
-        uint32_t size = FrameSize(input_.data());
+      transport_.input_.insert(transport_.input_.end(), bytes, bytes + count);
+      while (transport_.input_.size() >= 4) {
+        uint32_t size = FrameSize(transport_.input_.data());
         if (!size || size > kMaxFrameSize) {
           read_error_ = CONSENT_ERROR_PROTOCOL;
           return false;
         }
-        if (input_.size() < size + 4)
-          break;
+        if (transport_.input_.size() < size + 4) break;
         Message message;
-        if (!Decode(input_.data() + 4, size, &message) || !Receive(std::move(message))) {
+        if (!Decode(transport_.input_.data() + 4, size, &message) ||
+            !Receive(std::move(message))) {
           read_error_ = CONSENT_ERROR_PROTOCOL;
           return false;
         }
-        input_.erase(input_.begin(), input_.begin() + size + 4);
+        transport_.input_.erase(transport_.input_.begin(),
+                                transport_.input_.begin() + size + 4);
       }
-      if (input_.empty())
-        partial_since_ = 0;
-      else if (!partial_since_)
-        partial_since_ = g_get_monotonic_time();
+      if (transport_.input_.empty())
+        transport_.partial_since_ = 0;
+      else if (!transport_.partial_since_)
+        transport_.partial_since_ = g_get_monotonic_time();
       // Yield to local deadlines/shutdown even if the peer keeps streaming.
       if (received >= kMaxFrameSize)
         return true;
@@ -546,113 +697,137 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   }
 
   bool Write() {
-    while (!output_.empty()) {
-      auto& current = output_.front();
+    while (!transport_.output_.empty()) {
+      auto& current = transport_.output_.front();
       {
         Lock lock(mutex_);
         if (!current.offset && (current.operation->done || current.operation->detached)) {
-          output_bytes_ -= current.frame.size();
-          output_.pop_front();
+          transport_.output_bytes_ -= current.frame.size();
+          transport_.output_.pop_front();
           continue;
         }
         // Mark before attempting a nonblocking write: a concurrent local
         // timeout must conservatively report an uncertain remote outcome.
         current.operation->sent = true;
       }
-      ssize_t count = send(socket_, current.frame.data() + current.offset,
-          current.frame.size() - current.offset, MSG_NOSIGNAL);
+      gssize count = transport_.Write(current.frame.data() + current.offset,
+                                      current.frame.size() - current.offset);
       if (count < 0) {
-        if (errno == EINTR)
-          continue;
-        return errno == EAGAIN || errno == EWOULDBLOCK;
+        return transport_.would_block_;
       }
       if (count == 0)
         return false;
       current.offset += count;
-      output_bytes_ -= count;
+      transport_.output_bytes_ -= count;
       if (current.offset == current.frame.size())
-        output_.pop_front();
+        transport_.output_.pop_front();
     }
     return true;
   }
 
-  void Run() noexcept {
+  static gboolean Ready(GSocket*, GIOCondition condition,
+                        gpointer data) noexcept {
+    auto* self = static_cast<State*>(data);
+    if (self->pid_ != getpid()) return G_SOURCE_REMOVE;
     try {
-      for (;;) {
-        std::vector<std::shared_ptr<Operation>> pending;
-        {
-          Lock lock(mutex_);
-          if (closed_)
-            break;
-          for (const auto& entry : operations_) {
-            if (!entry.second->done && !entry.second->detached)
-              pending.push_back(entry.second);
-          }
-        }
-        gint64 now = g_get_monotonic_time();
-        for (const auto& operation : pending) {
-          if (operation->deadline <= now)
-            Complete(operation, operation->sent && !operation->accepted ?
-                CONSENT_ERROR_OUTCOME_UNKNOWN : CONSENT_ERROR_TIMEOUT);
-          else if (!operation->inflight && operation->next_poll <= now)
-            Queue(operation);
-        }
-        for (auto it = wire_.begin(); it != wire_.end();) {
-          bool done;
-          {
-            Lock lock(mutex_);
-            done = it->second->done || it->second->detached;
-          }
-          if (done)
-            it = wire_.erase(it);
-          else
-            ++it;
-        }
-        if (partial_since_ && now - partial_since_ > 5000000) {
-          Fail(CONSENT_ERROR_PROTOCOL);
-          break;
-        }
-        struct pollfd fds[2] = {{socket_, static_cast<short>(POLLIN |
-            (output_.empty() ? 0 : POLLOUT)), 0}, {wake_, POLLIN, 0}};
-        int result = poll(fds, 2, 50);
-        if (result < 0 && errno == EINTR)
-          continue;
-        if (result < 0) {
-          Fail(CONSENT_ERROR_DISCONNECTED);
-          break;
-        }
-        if (fds[1].revents & POLLIN) {
-          uint64_t value;
-          ssize_t ignored = read(wake_, &value, sizeof(value));
-          (void)ignored;
-        }
-        if ((fds[0].revents & POLLIN) && !Read()) {
-          Fail(read_error_);
-          break;
-        }
-        if ((fds[0].revents & POLLOUT) && !Write()) {
-          Fail(CONSENT_ERROR_DISCONNECTED);
-          break;
-        }
-        if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-          Fail(CONSENT_ERROR_DISCONNECTED);
-          break;
-        }
+      if ((condition & G_IO_IN) && !self->Read()) {
+        self->Fail(self->read_error_);
+        self->io_.Stop();
+        return G_SOURCE_REMOVE;
       }
+      if ((condition & G_IO_OUT) && !self->Write()) {
+        self->Fail(CONSENT_ERROR_DISCONNECTED);
+        self->io_.Stop();
+        return G_SOURCE_REMOVE;
+      }
+      if (condition & (G_IO_ERR | G_IO_HUP | G_IO_NVAL)) {
+        self->Fail(CONSENT_ERROR_DISCONNECTED);
+        self->io_.Stop();
+        return G_SOURCE_REMOVE;
+      }
+      self->Pump();
     } catch (...) {
-      try { Fail(CONSENT_ERROR_OUT_OF_MEMORY); } catch (...) {}
+      try {
+        self->Fail(CONSENT_ERROR_OUT_OF_MEMORY);
+      } catch (...) {
+      }
+      self->io_.Stop();
+      return G_SOURCE_REMOVE;
     }
-    shutdown(socket_, SHUT_RDWR);  // Accepted client socket, never listener.
+    return G_SOURCE_CONTINUE;
   }
 
-  GMainContext* context_;
+  void Pump() noexcept {
+    try {
+      std::vector<std::shared_ptr<Operation>> pending;
+      {
+        Lock lock(mutex_);
+        if (closed_ || disconnected_) {
+          io_.Stop();
+          return;
+        }
+        for (const auto& entry : operations_) {
+          if (!entry.second->done && !entry.second->detached)
+            pending.push_back(entry.second);
+        }
+      }
+      gint64 now = g_get_monotonic_time();
+      gint64 next = -1;
+      for (const auto& operation : pending) {
+        if (operation->deadline <= now) {
+          Complete(operation, operation->sent && !operation->accepted
+                                  ? CONSENT_ERROR_OUTCOME_UNKNOWN
+                                  : CONSENT_ERROR_TIMEOUT);
+          continue;
+        }
+        if (!operation->inflight && operation->next_poll <= now)
+          Queue(operation);
+        auto deadline = operation->deadline;
+        if (!operation->inflight)
+          deadline = std::min(deadline, operation->next_poll);
+        next = next < 0 ? deadline : std::min(next, deadline);
+      }
+      for (auto it = transport_.wire_.begin(); it != transport_.wire_.end();) {
+        bool done;
+        {
+          Lock lock(mutex_);
+          done = it->second->done || it->second->detached;
+        }
+        if (done)
+          it = transport_.wire_.erase(it);
+        else
+          ++it;
+      }
+      if (transport_.partial_since_) {
+        auto deadline = transport_.partial_since_ + 5000000;
+        if (now >= deadline) {
+          Fail(CONSENT_ERROR_PROTOCOL);
+          io_.Stop();
+          return;
+        }
+        next = next < 0 ? deadline : std::min(next, deadline);
+      }
+      // Usually the local socket is writable immediately. Avoid allocating a
+      // readiness source and another dispatch unless nonblocking I/O stalls.
+      if (!Write()) {
+        Fail(CONSENT_ERROR_DISCONNECTED);
+        io_.Stop();
+        return;
+      }
+      transport_.ArmWrite(io_.Get(), G_SOURCE_FUNC(Ready), this);
+      // A single scheduler owns operation, result-poll and framing deadlines.
+      // Idle connections leave this source disarmed, without periodic ticks.
+      io_.Deadline(next);
+    } catch (...) {
+      try { Fail(CONSENT_ERROR_OUT_OF_MEMORY); } catch (...) {}
+      io_.Stop();
+    }
+  }
+
   GThread* owner_;
   pid_t pid_;
   GMutex mutex_;
   GCond condition_;
-  GThread* thread_ = nullptr;
-  int socket_ = -1;
-  int wake_ = -1;
   bool counted_ = false;
   bool closed_ = false;
   bool disconnected_ = false;
@@ -663,14 +838,14 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   std::string epoch_;
   int64_t revision_ = -1;
   std::map<uint64_t, std::shared_ptr<Operation>> operations_;
-  std::map<uint64_t, GSource*> sources_;
   std::map<std::string, CacheEntry> cache_;
-  // Below is exclusively owned by the I/O thread.
-  std::map<std::string, std::shared_ptr<Operation>> wire_;
-  std::deque<Output> output_;
-  std::vector<uint8_t> input_;
-  size_t output_bytes_ = 0;
-  gint64 partial_since_ = 0;
+#ifdef CONSENT_CLIENT_OWNER_TEST
+  void (*admission_observer_)(void*) noexcept = nullptr;
+  void* admission_observer_data_ = nullptr;
+#endif
+  CallbackDelivery delivery_;
+  SocketTransport transport_;
+  IoContext io_;
   int read_error_ = CONSENT_ERROR_DISCONNECTED;
 };
 
@@ -686,43 +861,18 @@ int Client::Connect() {
   if (!ReserveClient())
     return CONSENT_ERROR_BUSY;
   state_->counted_ = true;
-  state_->socket_ = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-  if (state_->socket_ < 0)
+  int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+  if (fd < 0 || !state_->transport_.Adopt(fd))
     return CONSENT_ERROR_DISCONNECTED;
-  struct sockaddr_un address = {};
-  address.sun_family = AF_UNIX;
-  if (sizeof(CONSENT_SOCKET_PATH) > sizeof(address.sun_path))
-    return CONSENT_ERROR_INVALID_PARAMETER;
-  memcpy(address.sun_path, CONSENT_SOCKET_PATH, sizeof(CONSENT_SOCKET_PATH));
-  int ret = connect(state_->socket_, reinterpret_cast<struct sockaddr*>(&address),
-      sizeof(address));
-  if (ret && errno == EINPROGRESS) {
-    struct pollfd descriptor = {state_->socket_, POLLOUT, 0};
-    if (poll(&descriptor, 1, 2000) <= 0)
-      return CONSENT_ERROR_TIMEOUT;
-    int error = 0;
-    socklen_t size = sizeof(error);
-    if (getsockopt(state_->socket_, SOL_SOCKET, SO_ERROR, &error, &size) || error)
-      return CONSENT_ERROR_DISCONNECTED;
-  } else if (ret) {
-    return CONSENT_ERROR_DISCONNECTED;
-  }
-  if (!TrustedConnection(state_->socket_, endpoint))
+  int status = state_->transport_.Connect(state_->io_);
+  if (status) return status;
+  if (!TrustedConnection(state_->transport_.fd_, endpoint))
     return CONSENT_ERROR_PERMISSION_DENIED;
-  state_->wake_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-  if (state_->wake_ < 0)
-    return CONSENT_ERROR_DISCONNECTED;
-  GError* error = nullptr;
-  state_->thread_ = g_thread_try_new("consent-io", [](gpointer data) -> gpointer {
-    static_cast<State*>(data)->Run();
-    return nullptr;
-  }, state_.get(), &error);
-  if (!state_->thread_) {
-    g_clear_error(&error);
-    return CONSENT_ERROR_OUT_OF_MEMORY;
-  }
+  state_->transport_.ArmRead(state_->io_.Get(), G_SOURCE_FUNC(State::Ready),
+                             state_.get());
+  if (!state_->io_.Start()) return CONSENT_ERROR_OUT_OF_MEMORY;
   Message result;
-  int status = Call({{"method", "hello"}}, 2000, &result);
+  status = Call({{"method", "hello"}}, 2000, &result);
   if (status == 0) {
     Lock lock(state_->mutex_);
     state_->approval_supported_ = Get(result, "approval_version") == "1";
@@ -747,17 +897,14 @@ int Client::Close() {
       entry.second->callback = nullptr;
     }
     state_->operations_.clear();
-    sources.swap(state_->sources_);
+    sources.swap(state_->delivery_.sources_);
     g_cond_broadcast(&state_->condition_);
   }
+  state_->io_.Stop();
+  state_->io_.Join();
   for (const auto& source : sources) {
     g_source_destroy(source.second);
     g_source_unref(source.second);
-  }
-  state_->Wake();
-  if (state_->thread_) {
-    g_thread_join(state_->thread_);
-    state_->thread_ = nullptr;
   }
   return 0;
 }
@@ -765,7 +912,8 @@ int Client::Close() {
 int Client::Call(Message message, unsigned timeout_ms, Message* result) {
   if (!IsCurrentProcess() || !result || !timeout_ms || timeout_ms > kMaximumWaitMs)
     return CONSENT_ERROR_INVALID_PARAMETER;
-  if (Get(message, "method") != "hello" && g_main_context_is_owner(state_->context_))
+  if (Get(message, "method") != "hello" &&
+      g_main_context_is_owner(state_->delivery_.context_))
     return CONSENT_ERROR_WOULD_DEADLOCK;
   std::shared_ptr<State::Operation> operation;
   int status = state_->Admit(std::move(message), timeout_ms, false, nullptr,
@@ -813,10 +961,10 @@ int Client::Detach(uint64_t operation_id) {
     it->second->detached = true;
     it->second->callback = nullptr;
     state_->operations_.erase(it);
-    auto posted = state_->sources_.find(operation_id);
-    if (posted != state_->sources_.end()) {
+    auto posted = state_->delivery_.sources_.find(operation_id);
+    if (posted != state_->delivery_.sources_.end()) {
       source = posted->second;
-      state_->sources_.erase(posted);
+      state_->delivery_.sources_.erase(posted);
     }
   }
   if (source) {

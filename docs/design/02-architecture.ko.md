@@ -293,3 +293,53 @@ DB executor는 모든 record 검증·결정적 revision 정렬 후 기존 regist
 조회 전·commit 후에 다시 검증합니다. Applied/obsolete 결과는 DB 소실에도 registry에
 남고, 같은 generation의 inactive 정의는 처음 보는 seed로 되살리지 않습니다.
 [이미지 등록 순서와 신뢰 경계](../guides/04-offline-registration.ko.md)를 참고하세요.
+
+## Client GIO owner
+
+```mermaid
+flowchart LR
+  API[Creating thread: C API] --> State[State: bounded operations and cache]
+  State --> IO[IoContext: private GMainContext and GMainLoop]
+  IO --> Transport[SocketTransport: nonblocking GSocket and I/O sources]
+  Transport --> Daemon[Authenticated daemon connection]
+  State --> Delivery[CallbackDelivery: caller context and result sources]
+  Delivery --> Callback[Caller loop: after-return callback without locks]
+```
+
+`IoContext`는 thread 생성 전에 재사용 wake/deadline source를 attach합니다.
+Dispatch는 작업 snapshot 전에 source를 disarm하므로 이후 admission의 wake를
+잃지 않습니다. `State::Pump`가 operation deadline, accepted-result polling과
+partial-frame deadline을 합치는 유일한 scheduler입니다. Pump는 즉시 nonblocking
+Write를 시도하고 stall한 output이 남을 때만 write readiness를 attach합니다.
+Cache-only 완료는 caller delivery만 attach하고 I/O wake를 생략합니다.
+Idle client에는 주기 timer가 없습니다.
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant State
+  participant IO as IoContext thread
+  participant Transport as SocketTransport
+  participant Delivery as CallbackDelivery
+  Caller->>State: Close: retire callbacks under state lock
+  State->>IO: Monotonic Stop on preattached wake source
+  IO->>Transport: Close socket and destroy I/O sources
+  IO-->>State: Thread joined
+  State->>Delivery: Destroy sources outside state lock
+  Note over Caller,State: Close can return while a callback pins State
+  Caller->>State: Release final State owner after callback return
+  State->>IO: Destructor: destroy wake/deadline and unref loop/context
+```
+
+Callback은 I/O thread가 아닌 caller context에서 실행되고 반환까지 현재 result
+owner를 유지하므로 client close가 가능합니다. Fork child에서는 각 owner의 PID
+guard가 상속 GLib 자원을 별도로 abandon하며 상속 mutex/context/source를 파괴하거나
+thread를 join하지 않습니다. Transport의 상속 raw FD만 한 번 닫고 child는 새 client를
+만들어야 합니다. Disconnect는 advisory cache와 synchronization을 무효화합니다.
+Daemon/DB recovery에는 authoritative epoch fencing과 fresh check가 계속 적용됩니다.
+Target GLib의 첫 GSocket 생성은 프로세스 전체 SIGPIPE 처리에도 영향을 줍니다.
+Guide 02의 공개 동작 설명을 참고하세요.
+
+Close는 producer를 중단하고 join하지만 context/loop 해제는 마지막 State owner가
+해제되어 IoContext destructor가 실행될 때 수행합니다. Callback은 반환까지 State를
+pin하므로 최종 해제가 Close 반환 이후로 지연될 수 있습니다.

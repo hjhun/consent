@@ -652,3 +652,36 @@ PERMISSION_DENIED를 반환합니다. 잘못된 token은 INVALID_PARAMETER입니
 폐기하고 새 sweep을 시작하며 내부 CleanupProgress owner도 continuation을
 명시적으로 초기화합니다. 이 초기화는 물리삭제 완료 근거가 아닙니다.
 페이지/API 오류를 삭제 성공으로 처리하지 않습니다.
+
+## Client GIO 소유권과 프로세스 signal
+
+각 online client의 `IoContext`는 전용 I/O thread, `GMainContext`,
+`GMainLoop`를 소유합니다. `SocketTransport`는 nonblocking `GSocket`,
+read/write source와 제한된 partial-frame buffer를 소유합니다.
+`CallbackDelivery`는 호출자의 callback context와 delivery source를 보유합니다.
+I/O context는 thread 시작 전에 재사용 wake source를 attach하며 stop은
+단조 상태이므로 loop 진입 전 요청도 유지됩니다. 하나의 scheduler가 operation
+deadline, result polling, partial-frame deadline을 합치며 idle 상태에서는
+주기 timer를 실행하지 않습니다.
+
+Close는 I/O producer를 중단하고 join한 뒤 state lock 밖에서 delivery source를
+파괴합니다. 사용자 callback은 호출자 context에서 lock 없이 실행되며 callback
+안에서 close해도 borrowed result는 callback 반환까지 유효합니다. Fork child의
+각 owner는 상속된 GLib pointer를 abandon하고 상속 lock, source 파괴, thread
+join을 피합니다. Transport는 상속 socket FD를 한 번 닫습니다. Fork 후 새 handle을
+만들어야 하며 상속 handle은 사용할 수 없습니다.
+
+GIO에는 프로세스 전체 signal 영향이 있습니다. 확인한 target GLib 2.80.5의 첫
+`GSocket` 초기화는 기존 custom handler가 있어도 `SIGPIPE`를 `SIG_IGN`으로
+설정합니다. 전용 target probe(PID 3558234)로 확인했으며 socket send에도 GIO의
+signal 억제 동작이 적용됩니다. Client는 GIO 호출 전후 signal handler를 저장하거나
+복구하지 않습니다. 다른 library를 함께 사용하는 프로그램은 이 GIO 정책을 고려해야
+합니다. C ABI, wire protocol, 인증 검사는 유지하지만 기존 raw-socket client의
+signal 동작까지 동일하다는 의미는 아닙니다.
+
+Online create는 hello 전송을 시도하고 확인 응답 전에 disconnect/timeout이 발생하면
+OUTCOME_UNKNOWN을 반환할 수 있습니다. 두 create 함수 모두 실패 시 output handle을
+NULL로 유지하므로 새 handle로 다시 연결해야 합니다. 이 handshake 오류는 보호 업무나
+승인 요청을 발행했다는 의미가 아닙니다. 인증 role 거부는 hello 중 DISCONNECTED 또는
+OUTCOME_UNKNOWN으로 나타날 수 있으며 연결 실패만으로 PERMISSION_DENIED 정책
+판단이라고 해석하지 않습니다.

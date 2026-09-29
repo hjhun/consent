@@ -680,3 +680,38 @@ Malformed tokens return INVALID_PARAMETER. After these errors, the caller
 abandons its old traversal and starts a new sweep; an internal CleanupProgress owner
 explicitly resets its continuation first. This reset does not attest to physical
 data deletion. A page/API failure is not a successful deletion result.
+
+## Client GIO ownership and process signals
+
+Each online client owns an `IoContext` with its own I/O thread,
+`GMainContext` and `GMainLoop`. `SocketTransport` owns the nonblocking
+`GSocket`, read/write sources and bounded partial-frame buffers.
+`CallbackDelivery` retains the caller's callback context and delivery sources.
+The I/O context attaches its reusable wake source before starting the thread;
+stop is monotonic and remains effective when requested before loop entry.
+One scheduler combines operation deadlines, result polling and partial-frame
+deadlines. It does not run a periodic timer when the client is idle.
+
+Close first stops and joins the I/O producer, then destroys delivery sources
+outside the state lock. User callbacks run on the caller context without locks;
+closing from a callback preserves its borrowed result until return. In a fork
+child, each owner abandons inherited GLib pointers and avoids inherited locks,
+source destruction and thread joins. The transport closes its inherited socket
+FD once. Create a new handle after fork; inherited handles remain unusable.
+
+GIO has a process-wide signal effect: the first `GSocket` initialization on the
+verified target GLib 2.80.5 sets `SIGPIPE` to `SIG_IGN`, even if a custom handler
+was installed previously. A dedicated target probe confirmed this behavior
+(PID 3558234); socket sends also use GIO's signal-suppression behavior.
+The client does not save or restore signal handlers around GIO calls.
+Applications embedding other libraries must account for this GIO policy.
+This transport change preserves the C ABI, wire protocol and authentication
+checks, but does change the signal behavior of the former raw-socket client.
+
+Online create can return OUTCOME_UNKNOWN if hello transmission was attempted
+but no reply arrived before disconnect or timeout. Both create functions leave
+the output
+handle NULL on failure; create a new handle to reconnect. This handshake error
+does not mean a protected action or approval request was issued. An authenticated
+role rejection can surface as DISCONNECTED or OUTCOME_UNKNOWN during hello;
+connection failure alone is not a PERMISSION_DENIED policy decision.

@@ -1376,3 +1376,154 @@ matched persistent-handle performance comparison, registry-loss helper design/
 implementation and final storage/reboot/CEP audit remain incomplete. Failed
 performance fixture setup logs are not successful baselines. External product
 identity/provider connections retain explicit requirements for actual sources.
+
+## Build32 repository-tool baseline before GIO
+
+The repository performance tool and extracted helper differ from the preserved
+seventh prototype baseline. Their authoritative comparison baseline is separate:
+`/var/tmp/consent-artifacts/performance-build32-tool2/baseline-first.log`
+(exit 0, 19.218 s). It uses the Build32 isolated static client archive and packaged
+`consentd-test`, not the production shared-library variant. Compile argv and
+seed/binary hashes are in `compile-command.json` and `prepare.log` there.
+
+Each API uses warmup 100 and measured n=1000. QUERY/AUTHORIZE/CHECK/D16 return
+ALLOWED through the daemon; legacy sync/async report CACHE 1000 for this trial.
+D16 approval_version=1 remains cacheable=0. Acceptance latency and callback
+latency are separate; interval reciprocal and measured wall throughput are
+reported separately. Idle context switches (79/2 s) are a process-wide proxy
+with measured client plus supporting UI handle, hence two I/O threads.
+
+`scripts/emulator-performance.sh` restores the isolated DB/registry/authority/
+control from `/opt/var/lib/consent-perf-template-build32-tool2` before each
+unique attempt and restores base runtime roles on exit. `--capture` creates a
+new seed only after fresh basic setup and refuses to overwrite an existing seed.
+The pre/post comparison must use identical tool/helper source, explicit gcc/g++
+flags, seed, actor path and measurement conditions; only the compared archives
+and daemon change. A CMake-built tool is not automatically flag-identical.
+The seventh prototype and all failed attempts remain distinct evidence.
+At this historical checkpoint Build33 GBS/device and post-GIO measurements
+were pending; the completed results follow below.
+
+## Build33 GIO verification and performance follow-up
+
+Frozen tree `0b5c8ed5847c32b64c9462d47b76f73e64999136`, Release4, is preserved
+in `/var/tmp/consent-artifacts/gbs-build-33`. GBS exit0: 25 CTests comprise
+21 PASS, 4 explicit root SKIP, 0 FAIL (17.20 s). Only consent-tests requires
+the three GTest/GMock libraries. Installed evidence is in
+`/var/tmp/consent-artifacts/emulator-build-33`: normal matching five-RPM
+upgrade, client/IO4/owner3/signal/ownership13/cleanup10/publicAPI and actual
+root4 fixtures pass with service exit0. Installed regular files: 146/147 match;
+the sole POC roles.conf difference is preserved `%config(noreplace)`.
+Versioned public ABI symbols remain 42.
+
+The first basic attempt failed the fresh-control-generation guard; preserve
+`scenario-basic.log` as failure. After preserving old isolated directories,
+`scenario-basic-second.log` reports phase PASS and service0. Cleanup97, wire,
+partial shutdown and accepted-DB drain each report phase PASS and service0.
+SDB transport exit is separate from systemd service exit in actual command JSON.
+Default-deny first expect-107 failed because hello returned OUTCOME_UNKNOWN.
+The second installed-library probe (PID3562808/UID0) returned -107 and UNKNOWN
+for the two constructors, both NULL handles; daemon instances2/3 reject the same
+PID/UID with no matching trusted identity. This proves authentication rejection
+with connection/hello failure, not a PERMISSION_DENIED policy reply.
+Target DLOG PID3560012 preserves literal100% and source/tag/level; shutdown
+PID3560555 logs are preserved without global log clearing.
+
+The exact tool2 Build32-to-Build33 pair and a second post trial are preserved in
+`performance-build33-tool2`. Source/helper/flags/seed/actor path match the new
+Build32 baseline. A separate controlled comparison in
+`performance-controlled-build33` runs both client versions against the same
+Build33 daemon: CPU1.72/1.66 versus2.37/2.08s, RSS5148–5240 versus7816–7988KiB,
+idle process context switches79/80 versus1/1 over2s. All four trials pass with
+ALLOWED and explicit CACHE/DAEMON counts. This does not equate the controlled
+daemon scope with the original full-package baseline. Persistent CPU/QUERY cost
+motivates an approved immediate nonblocking-write follow-up; sole causation is
+not established. At this historical checkpoint Build34/Release5 verification
+and performance were pending; completed Build34 results follow below.
+
+Build34 follow-up native evidence is supplementary SDK-header/host-GLib testing
+in `/var/tmp/consent-artifacts/native-increment34`. The first owner run failed
+4 PASS/1 FAIL: one 30000-byte value was invalid before I/O. Its logs, failed
+command and binary are preserved. The corrected fixture uses eight bounded
+4000-byte values per frame. The second owner run reports5 PASS, including real
+partial WOULD_BLOCK and exact ordered two-frame restoration; existing client
+regression also passes. Successful second argv/env/exit are separate files.
+GBS and target validation of this follow-up remain pending at this checkpoint.
+
+## Build34 immediate-write evidence
+
+Release5 frozen tree `0b4dc11144511bf55b63b82a7d95a4535dfa2dbf` is preserved
+in `gbs-build-34`: GBS0, CTest21 PASS/4 root SKIP/0 FAIL (16.64 s).
+`emulator-build-34` records normal five-RPM upgrade, client/IO4/owner5/signal/
+ownership13/cleanup10/publicAPI/root4 service0, and fresh basic/cleanup97/wire/
+partial shutdown/DB drain phase PASS plus service0. Installed regular files
+146/147 match with the same sole preserved POC config; symlinks9/9 and ABI42
+match. Default-deny PID3566797/UID0 returns two UNKNOWN errors with NULL handles
+and same-PID daemon role rejection. Actual DLOG ownership PID3565699 preserves
+100%; shutdown PID3566335 matches the journal evidence.
+
+Exact-tool full-package trials in `performance-build34-tool2` use new archives
+3b9ee069/c5a85e13, daemon5bf9fc06 and pulled actor b2bbefb1. CPU1.91/1.88s,
+RSS7936/7880KiB and idle proxy1/1 differ from the earlier Build33 package pair.
+A separate same-Build34-daemon comparison in `performance-controlled-write34`
+runs before33/after34 clients: CPU2.15/2.16 versus1.89/2.23s. All trials pass
+ALLOWED/source counts; this mixed result does not prove uniform CPU improvement
+or identify a sole cause. The write path demonstrably avoids a readiness source
+when an immediate nonblocking write drains output, preserving partial I/O.
+
+The next approved increment skips I/O wake for already-completed cache hits,
+while keeping caller-context delivery and noncache wake unchanged. Native,
+GBS, installed and performance validation of that increment are pending.
+
+Build35 cache-only wake native checks pass: owner6 (including cache-hit/miss
+context readiness contrast and no remote bytes) and the existing client suite.
+Exact successful argv/env/exit are in `native-increment35`; these are
+SDK-header/host-GLib supplementary results. Release6 GBS/device and same-tool
+performance remain pending. After this focused GIO checkpoint, proceed to the
+separate 80-column checkpoint, reviewed registry-loss helper, and authoritative
+final-source storage/reboot/CEP audit rather than speculative optimization.
+
+## Build35 cache-only wake verification (2026-09-30)
+
+Release6 frozen tree `07d663838c306aa2eda89727e7e90ffe6d98e2f6` is preserved
+in `/var/tmp/consent-artifacts/gbs-build-35`. GBS exit0 and CTest25 comprise
+21 PASS, 4 explicit root SKIP, 0 FAIL (16.98 s). Test libraries remain confined
+to the tests RPM. The paired documentation corrections after GBS completion
+are outside this frozen source snapshot.
+
+`emulator-build-35` records the normal matching five-RPM transaction and actual
+client/IO4/owner6/signal/ownership13/cleanup10/publicAPI/root4 service exit0.
+Fresh basic, cache, cleanup97, wire, partial-I/O shutdown and accepted DB drain
+each report phase PASS and service0. Installed regular files match146/147; the
+sole preserved POC configuration has `%config(noreplace)`. Symlinks match9/9,
+public versioned ABI symbols remain42, and security_fw UID402/storage700/DB600
+are retained. Default-deny actor PID3574606/UID0 returns UNKNOWN and NULL for
+both constructors, with the same PID/UID rejected by daemon instances1/2.
+This is connection/hello failure following authentication rejection. DLOG
+ownership PID3572539 preserves literal100% and source/tag/level; shutdown
+PID3574521 is correlated with the isolated journal without global clearing.
+
+Exact tool2 full-package trials in `performance-build35-tool2` use actor
+`eea4147c`, daemon `75ae7a17`, unchanged source/helper/script/compile flags and
+the same immutable seed. Both trials pass all9 metrics, n1000/warm100/ALLOWED,
+legacy CACHE1000 and CHECK/D16 DAEMON1000. CPU1.99/1.88s, RSS8020/7812KiB and
+idle proxy1/1 do not establish a uniform improvement over Build34. The client
+is the isolated static archive variant, not the production shared library.
+
+| Work | Current evidence | Remaining work |
+| --- | --- | --- |
+| Internal cleanup/ownership/DLOG/GIO | Build30/32/35 scoped target evidence | Separate mechanical 80-column checkpoint |
+| Registry total-loss helper | Guide09 proposal and read-only source investigation | Concrete trusted-source/marker/lifecycle design review, implementation and tests |
+| External product integration | Actual source and installed-package investigation | Installer lifecycle and authenticated role/provider/history/model adapters |
+| Final validation | Increment-specific evidence above | Authoritative final-source storage interruption/deletion/reboot and CEP A-01–A-63 audit |
+
+Earlier pending statements describe their historical checkpoints. None of the
+remaining rows is claimed complete by the Build35 increment.
+
+The separate `performance-controlled-cache35` comparison uses the same
+Build35 daemon (`75ae7a17`) for before34/after35 clients, with two alternating
+trials each. All four pass9 metrics and the same seed/source-count conditions.
+CPU2.16/2.17 versus2.11/2.15s and RSS7816/7884 versus7912/7896KiB show small
+variation, not a broad performance improvement. The focused change avoids the
+cache-only I/O wake as verified by owner6; further speculative optimization
+is deferred in favor of the remaining implementation and final audit.

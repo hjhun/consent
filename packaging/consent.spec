@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    3
+Release:    6
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz

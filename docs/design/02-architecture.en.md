@@ -309,3 +309,53 @@ invented peer. Installation identity is rechecked before retry lookup and after
 commit. Applied and obsolete outcomes survive in the registry, including DB
 loss. Same-generation inactive definitions cannot be revived by unseen seeds.
 See the [image registration sequence and trust boundaries](../guides/04-offline-registration.en.md).
+
+## Client GIO owners
+
+```mermaid
+flowchart LR
+  API[Creating thread: C API] --> State[State: bounded operations and cache]
+  State --> IO[IoContext: private GMainContext and GMainLoop]
+  IO --> Transport[SocketTransport: nonblocking GSocket and I/O sources]
+  Transport --> Daemon[Authenticated daemon connection]
+  State --> Delivery[CallbackDelivery: caller context and result sources]
+  Delivery --> Callback[Caller loop: after-return callback without locks]
+```
+
+`IoContext` attaches reusable wake/deadline sources before thread creation.
+Dispatch disarms a source before taking the work snapshot, so later admission
+cannot lose its wake. `State::Pump` is the only scheduler for operation deadlines,
+accepted-result polling and partial-frame deadlines. Pump first attempts an
+immediate nonblocking Write; it attaches write readiness only when stalled
+output remains. Cache-only completion attaches caller delivery and skips the
+I/O wake. Idle clients have no periodic timer.
+
+```mermaid
+sequenceDiagram
+  participant Caller
+  participant State
+  participant IO as IoContext thread
+  participant Transport as SocketTransport
+  participant Delivery as CallbackDelivery
+  Caller->>State: Close: retire callbacks under state lock
+  State->>IO: Monotonic Stop on preattached wake source
+  IO->>Transport: Close socket and destroy I/O sources
+  IO-->>State: Thread joined
+  State->>Delivery: Destroy sources outside state lock
+  Note over Caller,State: Close can return while a callback pins State
+  Caller->>State: Release final State owner after callback return
+  State->>IO: Destructor: destroy wake/deadline and unref loop/context
+```
+
+A callback may close its client because it runs on the caller context, not the
+I/O thread, and retains the current result owner through return. Each owner's
+PID guard independently abandons inherited GLib resources in a fork child;
+no inherited mutex, context, source or thread is destroyed/joined. Only the
+transport's inherited raw FD is closed once. The child must create a new client.
+Disconnect invalidates advisory caches and synchronization; daemon/DB recovery
+still uses authoritative epoch fencing and fresh checks. First GSocket creation
+also changes process-wide SIGPIPE handling on target GLib; see Guide 02.
+
+Close stops and joins the producer, but context/loop teardown occurs in the
+IoContext destructor when the last State owner is released. A callback pins
+State until return, so that final teardown may occur after Close returns.

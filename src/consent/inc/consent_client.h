@@ -50,6 +50,10 @@ extern "C" {
  *     not be authenticated.
  * @retval #CONSENT_ERROR_DISCONNECTED Connection failed.
  * @retval #CONSENT_ERROR_TIMEOUT Connection or hello timed out.
+ * @retval #CONSENT_ERROR_OUTCOME_UNKNOWN Hello transmission was attempted, but
+ *     no reply arrived before disconnect or timeout. The output handle is
+ *     NULL; reconnect.
+ *     This does not mean a protected action or approval request was issued.
  * @see consent_client_destroy()
  * @see consent_client_create_with_context()
  */
@@ -84,6 +88,10 @@ CONSENT_API int consent_client_create(consent_client_h* client);
  * @retval #CONSENT_ERROR_BUSY The client resource limit was reached.
  * @retval #CONSENT_ERROR_DISCONNECTED Connection failed.
  * @retval #CONSENT_ERROR_TIMEOUT Connection or hello timed out.
+ * @retval #CONSENT_ERROR_OUTCOME_UNKNOWN Hello transmission was attempted, but
+ *     no reply arrived before disconnect or timeout. The output handle is
+ *     NULL; reconnect.
+ *     This does not mean a protected action or approval request was issued.
  * @see consent_result_cb
  * @see consent_client_destroy()
  */
