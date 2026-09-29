@@ -65,18 +65,31 @@ consentd::Peer Peer() {
 }
 
 Message Definition(int version) {
-  return {{"method", "register"}, {"package", "package"}, {"app", "app"},
-      {"definition", "definition"}, {"enforcer", "enforcer"},
-      {"operation_id", "operation" + std::to_string(version)},
-      {"_install_identity", "generation"}, {"policy_version", std::to_string(version)},
-      {"text_revision", "1"}, {"level", "1"}, {"modes", "PERSISTENT"},
-      {"default_locale", "en"}, {"message.en.title", "Title"}, {"message.en.body", "Body"}};
+  return {{"method", "register"},
+          {"package", "package"},
+          {"app", "app"},
+          {"definition", "definition"},
+          {"enforcer", "enforcer"},
+          {"operation_id", "operation" + std::to_string(version)},
+          {"_install_identity", "generation"},
+          {"policy_version", std::to_string(version)},
+          {"text_revision", "1"},
+          {"level", "1"},
+          {"modes", "PERSISTENT"},
+          {"default_locale", "en"},
+          {"message.en.title", "Title"},
+          {"message.en.body", "Body"}};
 }
 
 Message Query() {
-  return {{"method", "check"}, {"subject", "subject"}, {"profile", "profile"},
-      {"count", "1"}, {"r0.definition", "definition"}, {"r0.operation", "read"},
-      {"r0.scope", "scope"}, {"r0.purpose", "purpose"}};
+  return {{"method", "check"},
+          {"subject", "subject"},
+          {"profile", "profile"},
+          {"count", "1"},
+          {"r0.definition", "definition"},
+          {"r0.operation", "read"},
+          {"r0.scope", "scope"},
+          {"r0.purpose", "purpose"}};
 }
 
 void Approve(Repository* repository) {
@@ -86,11 +99,14 @@ void Approve(Repository* repository) {
   request["operation_id"] = "persistent-before-storage-errors";
   auto pending = repository->Execute(Peer(), request);
   if (consent::Get(pending, "status") != "0")
-    std::cerr << "approval fixture: " << consent::Get(pending, "reason") << '\n';
+    std::cerr << "approval fixture: " << consent::Get(pending, "reason")
+              << '\n';
   Check(consent::Get(pending, "status") == "0" &&
-      consent::Get(pending, "decision") == "PENDING", "create persistent approval request");
-  Message response = {{"method", "get_prompt"}, {"locale", "en"},
-      {"request_id", consent::Get(pending, "request_id")}};
+            consent::Get(pending, "decision") == "PENDING",
+        "create persistent approval request");
+  Message response = {{"method", "get_prompt"},
+                      {"locale", "en"},
+                      {"request_id", consent::Get(pending, "request_id")}};
   auto prompt = repository->Execute(Peer(), response);
   Check(consent::Get(prompt, "status") == "0", "get approval prompt");
   response["method"] = "respond";
@@ -98,9 +114,10 @@ void Approve(Repository* repository) {
   response["decision"] = "ALLOWED";
   response["grant_mode"] = "PERSISTENT";
   Check(consent::Get(repository->Execute(Peer(), response), "status") == "0",
-      "record persistent approval before generic storage failures");
-  Check(consent::Get(repository->Execute(Peer(), Query()), "decision") == "ALLOWED",
-      "persistent approval baseline exists");
+        "record persistent approval before generic storage failures");
+  Check(consent::Get(repository->Execute(Peer(), Query()), "decision") ==
+            "ALLOWED",
+        "persistent approval baseline exists");
 }
 
 int RetiredFiles(const std::string& directory) {
@@ -116,10 +133,11 @@ int RetiredFiles(const std::string& directory) {
 }
 
 std::unique_ptr<Repository> Create(const std::string& directory) {
-  std::unique_ptr<Repository> repository(new Repository(directory + "/consent.db",
-      directory + "/registry"));
+  std::unique_ptr<Repository> repository(
+      new Repository(directory + "/consent.db", directory + "/registry"));
   repository->SetInstallationValidator([](const std::string& package,
-      const std::string& app, const std::string& generation) {
+                                          const std::string& app,
+                                          const std::string& generation) {
     return package == "package" && app == "app" && generation == "generation";
   });
   return repository;
@@ -131,7 +149,8 @@ void RemoveFiles(const std::string& directory) {
     if (!entries)
       continue;
     while (auto* entry = readdir(entries)) {
-      if (std::strcmp(entry->d_name, ".") == 0 || std::strcmp(entry->d_name, "..") == 0)
+      if (std::strcmp(entry->d_name, ".") == 0 ||
+          std::strcmp(entry->d_name, "..") == 0)
         continue;
       unlink((path + "/" + entry->d_name).c_str());
     }
@@ -145,8 +164,9 @@ void RemoveFiles(const std::string& directory) {
 
 extern "C" __attribute__((visibility("default"))) int fsync(int fd) {
   struct stat st = {};
-  if (failed_directory_syncs > 0 && fstat(fd, &st) == 0 && S_ISDIR(st.st_mode) &&
-      st.st_dev == registry_device && st.st_ino == registry_inode) {
+  if (failed_directory_syncs > 0 && fstat(fd, &st) == 0 &&
+      S_ISDIR(st.st_mode) && st.st_dev == registry_device &&
+      st.st_ino == registry_inode) {
     --failed_directory_syncs;
     errno = EIO;
     return -1;
@@ -154,9 +174,11 @@ extern "C" __attribute__((visibility("default"))) int fsync(int fd) {
   return static_cast<int>(syscall(SYS_fsync, fd));
 }
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt* statement) {
+extern "C" __attribute__((visibility("default"))) int sqlite3_step(
+    sqlite3_stmt* statement) {
   using Step = int (*)(sqlite3_stmt*);
-  static Step real_step = reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
+  static Step real_step =
+      reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
   if (!real_step)
     _exit(99);
   const char* sql = sqlite3_sql(statement);
@@ -165,13 +187,15 @@ extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt*
     --failed_definition_reads;
     return definition_failure_code;
   }
-  if (sql && std::strcmp(sql, "SELECT value FROM meta WHERE key='incarnation'") == 0) {
+  if (sql &&
+      std::strcmp(sql, "SELECT value FROM meta WHERE key='incarnation'") == 0) {
     if (corrupt_next_incarnation_read) {
       corrupt_next_incarnation_read = false;
       corrupt_metadata_connection = sqlite3_db_handle(statement);
     }
     if (sqlite3_db_handle(statement) == corrupt_metadata_connection)
-      return SQLITE_CORRUPT;  // Sticky until the original connection is retired.
+      return SQLITE_CORRUPT;  // Sticky until the original connection is
+                              // retired.
   }
   if (corrupt_next_definition_read && sql &&
       std::strstr(sql, "SELECT config FROM definitions WHERE id=") == sql) {
@@ -183,9 +207,11 @@ extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt*
   return real_step(statement);
 }
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_close(sqlite3* database) {
+extern "C" __attribute__((visibility("default"))) int sqlite3_close(
+    sqlite3* database) {
   using Close = int (*)(sqlite3*);
-  static Close real_close = reinterpret_cast<Close>(dlsym(RTLD_NEXT, "sqlite3_close"));
+  static Close real_close =
+      reinterpret_cast<Close>(dlsym(RTLD_NEXT, "sqlite3_close"));
   if (!real_close)
     _exit(99);
   int status = real_close(database);
@@ -201,43 +227,56 @@ int main() {
     char* created = mkdtemp(pattern);
     Check(created != nullptr, "create fault test directory");
     directory = created;
-    Check(mkdir((directory + "/registry").c_str(), 0700) == 0, "create registry directory");
+    Check(mkdir((directory + "/registry").c_str(), 0700) == 0,
+          "create registry directory");
     struct stat st = {};
-    Check(stat((directory + "/registry").c_str(), &st) == 0, "stat registry directory");
+    Check(stat((directory + "/registry").c_str(), &st) == 0,
+          "stat registry directory");
     registry_device = st.st_dev;
     registry_inode = st.st_ino;
     auto repository = Create(directory);
     std::string error;
     Check(repository->Open(&error), error.c_str());
-    Check(consent::Get(repository->Execute(Peer(), Definition(1)), "status") == "0", "initial registration");
+    Check(consent::Get(repository->Execute(Peer(), Definition(1)), "status") ==
+              "0",
+          "initial registration");
 
     failed_directory_syncs = 2;
-    Check(consent::Get(repository->Execute(Peer(), Definition(2)), "status") == std::to_string(CONSENT_ERROR_STORAGE),
-        "rename followed by failed fsync must not report success");
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
-        "readable registry must remain fenced until successful durability barrier");
+    Check(consent::Get(repository->Execute(Peer(), Definition(2)), "status") ==
+              std::to_string(CONSENT_ERROR_STORAGE),
+          "rename followed by failed fsync must not report success");
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") ==
+              std::to_string(CONSENT_ERROR_STORAGE),
+          "readable registry must remain fenced until successful "
+          "durability barrier");
     auto replayed = repository->Execute(Peer(), Query());
     Check(consent::Get(replayed, "status") == "0" &&
-        consent::Get(replayed, "r0.policy_version") == "2",
-        "successful barrier permits newest desired-state projection");
+              consent::Get(replayed, "r0.policy_version") == "2",
+          "successful barrier permits newest desired-state projection");
 
     failed_directory_syncs = 1;
-    Check(consent::Get(repository->Execute(Peer(), Definition(3)), "status") == std::to_string(CONSENT_ERROR_STORAGE),
-        "second uncertain registry commit");
+    Check(consent::Get(repository->Execute(Peer(), Definition(3)), "status") ==
+              std::to_string(CONSENT_ERROR_STORAGE),
+          "second uncertain registry commit");
     repository.reset();
     repository = Create(directory);
     failed_directory_syncs = 1;
-    Check(!repository->Open(&error), "restart must also establish successful durability barrier");
+    Check(!repository->Open(&error),
+          "restart must also establish successful durability barrier");
     repository.reset();
     repository = Create(directory);
     Check(repository->Open(&error), error.c_str());
     auto restarted = repository->Execute(Peer(), Query());
-    Check(consent::Get(restarted, "r0.policy_version") == "3", "restart replays revision after barrier");
-    std::cout << "PASS directory fsync uncertainty stays fenced across retry and restart\n";
+    Check(consent::Get(restarted, "r0.policy_version") == "3",
+          "restart replays revision after barrier");
+    std::cout
+        << "PASS directory fsync uncertainty stays fenced across retry and "
+           "restart\n";
 
     Approve(repository.get());
     struct stat original = {};
-    Check(lstat((directory + "/consent.db").c_str(), &original) == 0, "record original DB identity");
+    Check(lstat((directory + "/consent.db").c_str(), &original) == 0,
+          "record original DB identity");
     int retired = RetiredFiles(directory);
     for (int code : {SQLITE_FULL, SQLITE_IOERR_WRITE}) {
       auto original_epoch = consent::Get(repository->Snapshot(), "epoch");
@@ -245,43 +284,53 @@ int main() {
       failed_definition_reads = 2;
       for (int attempt = 0; attempt < 2; ++attempt) {
         auto failure = repository->Execute(Peer(), Query());
-        Check(consent::Get(failure, "status") == std::to_string(CONSENT_ERROR_STORAGE) &&
-            consent::Get(failure, "epoch") == original_epoch,
-            "generic SQL failure remains explicit and does not retire epoch");
+        Check(consent::Get(failure, "status") ==
+                      std::to_string(CONSENT_ERROR_STORAGE) &&
+                  consent::Get(failure, "epoch") == original_epoch,
+              "generic SQL failure remains explicit and does not retire epoch");
         struct stat current = {};
-        Check(lstat((directory + "/consent.db").c_str(), &current) == 0 &&
-            current.st_dev == original.st_dev && current.st_ino == original.st_ino &&
-            RetiredFiles(directory) == retired,
+        Check(
+            lstat((directory + "/consent.db").c_str(), &current) == 0 &&
+                current.st_dev == original.st_dev &&
+                current.st_ino == original.st_ino &&
+                RetiredFiles(directory) == retired,
             "FULL/IOERR must not replace or quarantine the existing database");
       }
       auto retry = repository->Execute(Peer(), Query());
       Check(consent::Get(retry, "status") == "0" &&
-          consent::Get(retry, "epoch") == original_epoch &&
-          consent::Get(retry, "decision") == "ALLOWED" &&
-          consent::Get(retry, "r0.policy_version") == "3",
-          "successful retry preserves the durable approval and definition");
+                consent::Get(retry, "epoch") == original_epoch &&
+                consent::Get(retry, "decision") == "ALLOWED" &&
+                consent::Get(retry, "r0.policy_version") == "3",
+            "successful retry preserves the durable approval and definition");
     }
-    std::cout << "PASS SQLITE_FULL/SQLITE_IOERR_WRITE preserve inode, epoch, grants and quarantine inventory\n";
+    std::cout
+        << "PASS SQLITE_FULL/SQLITE_IOERR_WRITE preserve inode, epoch, grants "
+           "and quarantine inventory\n";
 
     auto epoch = consent::Get(repository->Snapshot(), "epoch");
     corrupt_next_definition_read = true;
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
-        "original SQLITE_CORRUPT becomes storage error");
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") ==
+              std::to_string(CONSENT_ERROR_STORAGE),
+          "original SQLITE_CORRUPT becomes storage error");
     auto recovered = repository->Execute(Peer(), Query());
     Check(consent::Get(recovered, "status") == "0" &&
-        consent::Get(recovered, "epoch") != epoch &&
-        consent::Get(recovered, "decision") == "CONSENT_REQUIRED",
-        "captured SQLite failure survives rollback and triggers conservative recovery");
+              consent::Get(recovered, "epoch") != epoch &&
+              consent::Get(recovered, "decision") == "CONSENT_REQUIRED",
+          "captured SQLite failure survives rollback and triggers "
+          "conservative recovery");
     std::cout << "PASS captured SQLite corruption code survives rollback\n";
     epoch = consent::Get(repository->Snapshot(), "epoch");
     corrupt_next_incarnation_read = true;
-    Check(consent::Get(repository->Execute(Peer(), Query()), "status") == std::to_string(CONSENT_ERROR_STORAGE),
-        "incarnation metadata corruption becomes explicit storage failure");
+    Check(consent::Get(repository->Execute(Peer(), Query()), "status") ==
+              std::to_string(CONSENT_ERROR_STORAGE),
+          "incarnation metadata corruption becomes explicit storage failure");
     recovered = repository->Execute(Peer(), Query());
     Check(consent::Get(recovered, "status") == "0" &&
-        consent::Get(recovered, "epoch") != epoch,
-        "latched corruption is retired before another metadata query");
-    std::cout << "PASS metadata corruption cannot trap recovery in repeated failing SELECT\n";
+              consent::Get(recovered, "epoch") != epoch,
+          "latched corruption is retired before another metadata query");
+    std::cout
+        << "PASS metadata corruption cannot trap recovery in repeated failing "
+           "SELECT\n";
     repository.reset();
     RemoveFiles(directory);
     return 0;

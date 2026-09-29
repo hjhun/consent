@@ -25,7 +25,8 @@ bool IsDefinitionField(const std::string& key);
 // Syntax and policy-shape validation only. Installation identity, ownership,
 // revision ordering and publication belong to the authoritative repository.
 // Private _install_identity is deliberately not required by offline staging.
-bool ValidateDefinition(const Message& definition, std::string* error = nullptr);
+bool ValidateDefinition(const Message& definition,
+                        std::string* error = nullptr);
 
 }  // namespace registration
 }  // namespace consent

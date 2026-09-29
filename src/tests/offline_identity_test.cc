@@ -39,14 +39,17 @@ static ssize_t FixtureRead(int fd, void* buffer, size_t size) {
 
 namespace {
 void Write(const std::string& contents) {
-  int fd = open(authority_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+  int fd = open(authority_path.c_str(),
+                O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
   assert(fd >= 0);
-  assert(write(fd, contents.data(), contents.size()) == static_cast<ssize_t>(contents.size()));
+  assert(write(fd, contents.data(), contents.size()) ==
+         static_cast<ssize_t>(contents.size()));
   assert(close(fd) == 0);
 }
-const char* valid = "[authority]\nschema=1\n[package demo]\nstate=active\ngeneration=g1\n"
+const char* valid =
+    "[authority]\nschema=1\n[package demo]\nstate=active\ngeneration=g1\n"
     "[demo.app]\npackage=demo\nstate=active\ngeneration=g1\n";
-}
+}  // namespace
 
 int main() {
   if (getuid() != 0 || geteuid() != 0) {
@@ -57,37 +60,48 @@ int main() {
   assert(mkdtemp(directory));
   authority_path = std::string(directory) + "/installations.conf";
   assert(consentd::CheckOfflineAuthority() == -ESTALE);
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -ESTALE);
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+         -ESTALE);
   Write(valid);
   assert(consentd::CheckOfflineAuthority() == 0);
   assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == 0);
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g2") == -ESTALE);
-  assert(consentd::ValidateOfflineInstallation("absent", "missing", "g1") == -ESTALE);
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g2") ==
+         -ESTALE);
+  assert(consentd::ValidateOfflineInstallation("absent", "missing", "g1") ==
+         -ESTALE);
   std::string pending(valid);
   pending.replace(pending.find("state=active"), 12, "state=pending");
   Write(pending);
   assert(consentd::CheckOfflineAuthority() == 0);
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -ESTALE);
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+         -ESTALE);
   pending.replace(pending.find("state=pending"), 13, "state=invalid");
   Write(pending);
   assert(consentd::CheckOfflineAuthority() == -EINVAL);
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -EINVAL);
-  puts("PASS offline authority valid/missing/mismatch/pending/schema classification");
-  for (const auto& body : {std::string("[broken"), std::string("[authority]\nschema=2\n"),
-      std::string("[authority]\n"), std::string()}) {
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+         -EINVAL);
+  puts(
+      "PASS offline authority valid/missing/mismatch/pending/schema "
+      "classification");
+  for (const auto& body :
+       {std::string("[broken"), std::string("[authority]\nschema=2\n"),
+        std::string("[authority]\n"), std::string()}) {
     Write(body);
     assert(consentd::CheckOfflineAuthority() == -EINVAL);
-    assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -EINVAL);
+    assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+           -EINVAL);
   }
   Write(valid);
   assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == 0);
   Write("[broken");
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -EINVAL);
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+         -EINVAL);
   puts("PASS malformed/schema/empty and changed-source classified reads");
   Write(valid);
   fail_read = true;
   assert(consentd::CheckOfflineAuthority() == -EIO);
-  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") == -EIO);
+  assert(consentd::ValidateOfflineInstallation("demo", "demo.app", "g1") ==
+         -EIO);
   fail_read = false;
   assert(chmod(authority_path.c_str(), 0666) == 0);
   assert(consentd::CheckOfflineAuthority() == -EACCES);
@@ -98,10 +112,12 @@ int main() {
   alarm(0);
   assert(unlink(authority_path.c_str()) == 0);
   assert(symlink("/dev/null", authority_path.c_str()) == 0);
-  assert(consentd::CheckOfflineAuthority() != 0 && consentd::CheckOfflineAuthority() != -ESTALE);
+  assert(consentd::CheckOfflineAuthority() != 0 &&
+         consentd::CheckOfflineAuthority() != -ESTALE);
   assert(unlink(authority_path.c_str()) == 0);
   assert(rmdir(directory) == 0);
-  assert(consentd::CheckOfflineAuthority() != 0 && consentd::CheckOfflineAuthority() != -ESTALE);
+  assert(consentd::CheckOfflineAuthority() != 0 &&
+         consentd::CheckOfflineAuthority() != -ESTALE);
   puts("PASS I/O/protection/FIFO/symlink/ancestor errors are not deferred");
   return 0;
 }

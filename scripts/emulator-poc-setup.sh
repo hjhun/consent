@@ -38,7 +38,8 @@ prepare_runtime() {
   [ "$(systemctl show -p MainPID --value consentd-poc.service)" = 0 ]
   socket_state=$(systemctl show -p ActiveState --value consentd-poc.socket)
   [ "$socket_state" = inactive ] || [ "$socket_state" = failed ]
-  if [ ! -e "$runtime" ] && [ ! -L "$runtime" ]; then mkdir -m 0755 "$runtime"; fi
+  if [ ! -e "$runtime" ] && [ ! -L "$runtime" ]; then mkdir -m 0755 \
+  "$runtime"; fi
   [ -d "$runtime" ] && [ ! -L "$runtime" ]
   [ "$(stat -c '%u:%g:%a' "$runtime")" = 0:0:755 ]
   chsmack -a _ "$runtime"
@@ -72,7 +73,8 @@ EOF
     systemctl daemon-reload
     systemctl start consentd-poc.socket
     trap - EXIT HUP INT TERM
-    echo 'READY socket peer observation; launch the UI within the activated probe timeout'
+    echo \
+  'READY socket peer observation; launch the UI within the activated probe timeout'
     ;;
   probe-stop)
     # A short-lived probe can exit before journald resolves its cgroup/unit.
@@ -92,10 +94,12 @@ EOF
     [ ! -e /run/systemd/system/consentd-poc.service.d ]
     [ ! -L /run/systemd/system/consentd-poc.service.d ]
     [ -z "$(systemctl show -p DropInPaths --value consentd-poc.service)" ]
-    [ "$(systemctl show -p FragmentPath --value consentd-poc.service)" = /usr/lib/systemd/system/consentd-poc.service ]
+    [ "$(systemctl show -p FragmentPath --value consentd-poc.service)" = \
+  /usr/lib/systemd/system/consentd-poc.service ]
     [ "$(systemctl show -p Type --value consentd-poc.service)" = notify ]
     start=$(systemctl show -p ExecStart --value consentd-poc.service)
-    printf '%s\n' "$start" | grep -F "path=$tools/consentd-poc ; argv[]=$tools/consentd-poc ;" > /dev/null
+    printf '%s\n' "$start" | grep -F \
+  "path=$tools/consentd-poc ; argv[]=$tools/consentd-poc ;" > /dev/null
     [ "$#" = 1 ] || [ "$#" = 3 ]
     operation=${2:-poc-ui-install-1}
     expected=${3:-absent}
@@ -103,11 +107,14 @@ EOF
     case "$expected" in ''|*[!a-zA-Z0-9_.-]*) exit 2;; esac
     [ "${#operation}" -le 100 ] && [ "${#expected}" -le 128 ]
     # The operator must first preserve this exact package label observed by the
-    # kernel probe at this socket. A process label or guessed prefix is not enough.
-    grep -Fq '"label":"User::Pkg::org.tizen.consentui"' "$control/peer-observation.log"
+    # kernel probe at this socket. A process label or guessed prefix is not
+    # enough.
+    grep -Fq '"label":"User::Pkg::org.tizen.consentui"' \
+  "$control/peer-observation.log"
     app=$(pkginfo --app "$package")
     printf '%s\n' "$app" | grep -Fx "Package: $package" > /dev/null
-    printf '%s\n' "$app" | grep -Fx 'Exec: /opt/usr/globalapps/org.tizen.consentui/bin/ConsentUI.dll' > /dev/null
+    printf '%s\n' "$app" | grep -Fx \
+  'Exec: /opt/usr/globalapps/org.tizen.consentui/bin/ConsentUI.dll' > /dev/null
     apps=$(pkginfo --list "$package")
     [ "$(printf '%s\n' "$apps" | grep -c '^Appid: ')" = 1 ]
     printf '%s\n' "$apps" | grep -Fx "Appid: $package" > /dev/null
@@ -117,7 +124,8 @@ EOF
     stat -c '%u:%g:%a:%d:%i %n' /usr/bin/dotnet-hydra-loader \
       /opt/usr/globalapps /opt/usr/globalapps/org.tizen.consentui \
       /opt/usr/globalapps/org.tizen.consentui/bin \
-      /opt/usr/globalapps/org.tizen.consentui/bin/ConsentUI.dll > "$control/payload-identity.log"
+      /opt/usr/globalapps/org.tizen.consentui/bin/ConsentUI.dll > \
+  "$control/payload-identity.log"
     pkg_uid=$(getent passwd tizenglobalapp | cut -d: -f3)
     [ -n "$pkg_uid" ] && [ "$pkg_uid" != "$app_uid" ]
     case " $(id -G owner) " in *' 0 '*) exit 1;; esac
@@ -170,16 +178,19 @@ EOF
     # Stable explicit installation transaction. Repeated setup never invents a
     # different installation generation or silently overwrites another owner.
     authority="$tools/consent-installation-authority-poc"
-    generation=$(systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
+    generation=$(systemd-run --quiet --wait --pipe -p \
+  SmackProcessLabel=System::Privileged \
       "$authority" begin "$package" "$operation" "$expected")
     systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
-      "$authority" attach "$package" "$package" "$operation-attach" "$generation"
+      "$authority" attach "$package" "$package" "$operation-attach" \
+  "$generation"
     systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
       "$authority" commit "$package" "$operation-commit" "$generation"
     printf '%s\n' "$generation" > "$control/generation"
     mkdir -p "$control/fixtures"
     for input in /usr/share/consent/poc/fixtures/*.ini; do
-      sed "s/@INSTALL_GENERATION@/$generation/g" "$input" > "$control/fixtures/${input##*/}"
+      sed "s/@INSTALL_GENERATION@/$generation/g" "$input" > \
+  "$control/fixtures/${input##*/}"
     done
     systemctl start consentd-poc.socket consentd-poc.service
     [ "$(systemctl show -p Type --value consentd-poc.service)" = notify ]
@@ -189,12 +200,15 @@ EOF
     [ "$(stat -c '%u:%a' "$runtime")" = 0:755 ]
     [ "$(stat -c '%u:%G:%a' "$runtime/consent.sock")" = 0:users:660 ]
     systemctl is-active consentd-poc.service
-    echo 'READY explicit PoC roles and generation; definitions still require the installer C API'
+    echo \
+  'READY explicit PoC roles and generation; definitions still require the installer C API'
     ;;
   stop)
     systemctl stop consentd-poc.socket consentd-poc.service
     [ "$(systemctl show -p MainPID --value consentd-poc.service)" = 0 ]
-    echo 'PASS PoC daemon stopped; preserved state and package are available for review'
+    echo \
+  'PASS PoC daemon stopped; preserved state and package are available for review'
     ;;
-  *) echo 'Usage: emulator-poc-setup.sh probe-start|probe-stop|configure [INSTALL_OPERATION EXPECTED_GENERATION]|stop' >&2; exit 2;;
+  *) echo \
+  'Usage: emulator-poc-setup.sh probe-start|probe-stop|configure [INSTALL_OPERATION EXPECTED_GENERATION]|stop' >&2; exit 2;;
 esac

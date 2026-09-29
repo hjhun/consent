@@ -48,9 +48,11 @@ class Connection final {
     Require(fd_ >= 0, "socket");
     struct sockaddr_un address = {};
     address.sun_family = AF_UNIX;
-    static_assert(sizeof(CONSENT_SOCKET_PATH) <= sizeof(address.sun_path), "socket path");
+    static_assert(sizeof(CONSENT_SOCKET_PATH) <= sizeof(address.sun_path),
+                  "socket path");
     memcpy(address.sun_path, CONSENT_SOCKET_PATH, sizeof(CONSENT_SOCKET_PATH));
-    if (connect(fd_, reinterpret_cast<struct sockaddr*>(&address), sizeof(address))) {
+    if (connect(fd_, reinterpret_cast<struct sockaddr*>(&address),
+                sizeof(address))) {
       close(fd_);
       throw std::runtime_error("connect isolated consentd");
     }
@@ -60,7 +62,7 @@ class Connection final {
   Connection& operator=(const Connection&) = delete;
 
   bool Send(const uint8_t* bytes, size_t size, unsigned timeout = 3000,
-      size_t* transmitted = nullptr) {
+            size_t* transmitted = nullptr) {
     if (transmitted)
       *transmitted = 0;
     gint64 deadline = g_get_monotonic_time() + timeout * 1000LL;
@@ -83,7 +85,7 @@ class Connection final {
     return true;
   }
   bool Send(const std::vector<uint8_t>& frame, unsigned timeout = 3000,
-      size_t* transmitted = nullptr) {
+            size_t* transmitted = nullptr) {
     return Send(frame.data(), frame.size(), timeout, transmitted);
   }
   bool Reply(uint64_t id, unsigned timeout = 3000) {
@@ -98,25 +100,25 @@ class Connection final {
       if (!Read(body.data(), body.size(), deadline))
         return false;
       consent::Message response;
-      Require(consent::Decode(body.data(), body.size(), &response), "invalid native Parcel reply");
+      Require(consent::Decode(body.data(), body.size(), &response),
+              "invalid native Parcel reply");
       if (consent::Get(response, "method") == "event")
         continue;
       Require(consent::Get(response, "method") == "reply", "not a reply");
-      Require(consent::Number(response, "id") == static_cast<int64_t>(id), "reply correlation");
+      Require(consent::Number(response, "id") == static_cast<int64_t>(id),
+              "reply correlation");
       Require(consent::Number(response, "status", -1) == 0, "hello rejected");
       Require(!consent::Get(response, "epoch").empty(), "hello epoch missing");
       Require(consent::Get(response, "approval_version") == "1",
-          "hello approval capability missing");
+              "hello approval capability missing");
       if (baseline_epoch.empty())
         baseline_epoch = consent::Get(response, "epoch");
       Require(consent::Get(response, "epoch") == baseline_epoch,
-          "daemon generation changed during wire fixture");
+              "daemon generation changed during wire fixture");
       return true;
     }
   }
-  bool Hello(uint64_t id = 1) {
-    return Send(Frame(id)) && Reply(id);
-  }
+  bool Hello(uint64_t id = 1) { return Send(Frame(id)) && Reply(id); }
   bool Closed(unsigned timeout = 3000) {
     gint64 deadline = g_get_monotonic_time() + timeout * 1000LL;
     uint8_t bytes[8192];
@@ -127,7 +129,8 @@ class Connection final {
         return true;
       if (count > 0) {
         drained += count;
-        Require(drained < 4 * 1024 * 1024, "unbounded output while waiting for close");
+        Require(drained < 4 * 1024 * 1024,
+                "unbounded output while waiting for close");
       } else if (errno == EINTR) {
         continue;
       } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -138,9 +141,12 @@ class Connection final {
     }
     return false;
   }
-  void FinishWrite() { Require(shutdown(fd_, SHUT_WR) == 0, "shutdown writer"); }
+  void FinishWrite() {
+    Require(shutdown(fd_, SHUT_WR) == 0, "shutdown writer");
+  }
   static std::vector<uint8_t> Frame(uint64_t id) {
-    return consent::Encode({{"v", "1"}, {"id", std::to_string(id)}, {"method", "hello"}});
+    return consent::Encode(
+        {{"v", "1"}, {"id", std::to_string(id)}, {"method", "hello"}});
   }
 
  private:
@@ -150,7 +156,8 @@ class Connection final {
       if (remaining <= 0)
         return false;
       struct pollfd descriptor{fd_, events, 0};
-      int result = poll(&descriptor, 1, static_cast<int>((remaining + 999) / 1000));
+      int result =
+          poll(&descriptor, 1, static_cast<int>((remaining + 999) / 1000));
       if (result > 0)
         return true;
       if (!result || errno != EINTR)
@@ -185,7 +192,7 @@ void Healthy() {
 }
 
 void Rejected(const char* name, const std::vector<uint8_t>& frame,
-    bool finish = false) {
+              bool finish = false) {
   Connection connection;
   Require(connection.Hello(), "initial authenticated hello");
   Require(connection.Send(frame), "write malformed fixture");
@@ -193,7 +200,9 @@ void Rejected(const char* name, const std::vector<uint8_t>& frame,
     connection.FinishWrite();
   Require(connection.Closed(), name);
   Healthy();
-  printf("PASS wire malformed %s closes connection; daemon remains responsive\n", name);
+  printf(
+      "PASS wire malformed %s closes connection; daemon remains responsive\n",
+      name);
 }
 
 void Framing() {
@@ -215,7 +224,9 @@ void Framing() {
   Require(connection.Send(coalesced), "coalesced write");
   for (uint64_t id = 2; id <= 17; ++id)
     Require(connection.Reply(id), "coalesced reply");
-  puts("PASS wire authenticated fragmented header/body and 16 coalesced native Parcel frames");
+  puts(
+      "PASS wire authenticated fragmented header/body and 16 coalesced "
+      "native Parcel frames");
 }
 
 void Malformed() {
@@ -257,11 +268,12 @@ void ConnectionLimit() {
       ++rejected;
     }
   }
-  Require(!held.empty() && held.size() <= 24 && rejected > 0, "checker UID connection bound");
+  Require(!held.empty() && held.size() <= 24 && rejected > 0,
+          "checker UID connection bound");
   for (const auto& connection : held)
     Require(connection->Hello(2), "admitted connection lost at UID bound");
   printf("PASS wire UID bound: accepted=%zu rejected=%u (checker limit 24)\n",
-      held.size(), rejected);
+         held.size(), rejected);
   held.clear();
   Healthy();
 }
@@ -284,7 +296,8 @@ void SlowReader() {
       break;
     }
     size_t count = 0;
-    sent = connection.Send(frame, static_cast<unsigned>((remaining + 999) / 1000), &count);
+    sent = connection.Send(
+        frame, static_cast<unsigned>((remaining + 999) / 1000), &count);
     transmitted += count;
     if (!sent)
       break;
@@ -294,15 +307,19 @@ void SlowReader() {
   // close insufficient evidence of output pressure. Reject that ambiguity.
   const size_t frame_size = Connection::Frame(1).size();
   Require(transmitted >= 256 * frame_size && transmitted % frame_size == 0,
-      "pressure write did not end on a complete frame boundary");
+          "pressure write did not end on a complete frame boundary");
   for (uint64_t id = 2; id <= 14; ++id) {
-    Require(monitor.Hello(id), "live monitor starved or generation changed under pressure");
+    Require(monitor.Hello(id),
+            "live monitor starved or generation changed under pressure");
     g_usleep(500000);
   }
   Require(connection.Closed(), "slow consumer output bound/deadline");
   Healthy();
-  printf("PASS wire slow-consumer bounded close: all-input-sent=%d bytes=%zu frames=%zu; "
-      "live monitor remained responsive (verify output-limit/write-timeout in daemon log)\n",
+  printf(
+      "PASS wire slow-consumer bounded close: all-input-sent=%d bytes=%zu "
+      "frames=%zu; "
+      "live monitor remained responsive (verify output-limit/write-timeout "
+      "in daemon log)\n",
       sent, transmitted, transmitted / frame_size);
 }
 
@@ -310,21 +327,27 @@ void ShutdownWait() {
   constexpr const char* marker = "/tmp/consent-test/shutdown-ready";
   Connection connection;
   Require(connection.Hello(), "shutdown initial authenticated hello");
-  Require(connection.Send(std::vector<uint8_t>{0, 0}), "shutdown partial header");
+  Require(connection.Send(std::vector<uint8_t>{0, 0}),
+          "shutdown partial header");
   const gint64 started = g_get_monotonic_time();
   // The supervising test removes any old marker before starting this mode.
   // Exclusive creation prevents a stale marker or symlink from causing an
   // earlier stop than this connection's actual partial write.
-  int ready = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  int ready =
+      open(marker, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
   Require(ready >= 0, "create fresh shutdown-ready marker");
   Require(close(ready) == 0, "close shutdown-ready marker");
-  puts("READY wire shutdown: authenticated connection has a two-byte partial header");
+  puts(
+      "READY wire shutdown: authenticated connection has a two-byte "
+      "partial header");
   gint64 remaining = 2000000 - (g_get_monotonic_time() - started);
-  Require(remaining > 0 && connection.Closed(static_cast<unsigned>(remaining / 1000)),
-      "daemon shutdown did not close partial input within two seconds");
+  Require(remaining > 0 &&
+              connection.Closed(static_cast<unsigned>(remaining / 1000)),
+          "daemon shutdown did not close partial input within two seconds");
   gint64 elapsed = g_get_monotonic_time() - started;
   Require(elapsed <= 2000000, "shutdown close exceeded two seconds");
-  printf("PASS wire shutdown: partial-input connection closed in %lld us "
+  printf(
+      "PASS wire shutdown: partial-input connection closed in %lld us "
       "(supervisor must verify systemctl stop and database-drained log)\n",
       static_cast<long long>(elapsed));
 }
@@ -346,7 +369,9 @@ int main(int argc, char** argv) {
     ConnectionLimit();
     SlowReader();
     Healthy();
-    puts("PASS wire scenario: isolated authenticated daemon survives malformed IPC and pressure");
+    puts(
+        "PASS wire scenario: isolated authenticated daemon survives "
+        "malformed IPC and pressure");
     return 0;
   } catch (const std::exception& error) {
     fprintf(stderr, "FAIL wire scenario: %s (errno=%d)\n", error.what(), errno);

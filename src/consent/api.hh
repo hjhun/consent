@@ -24,7 +24,7 @@ namespace consent {
 namespace api {
 
 /* Every allocating C ABI path passes through this exception boundary. */
-template<typename Function>
+template <typename Function>
 int Guard(Function&& function) noexcept {
   try {
     return function();
@@ -36,10 +36,11 @@ int Guard(Function&& function) noexcept {
 }
 
 int Call(consent_client_h client, const char* method,
-    const consent_params_t* params, unsigned timeout, consent_result_t** result);
+         const consent_params_t* params, unsigned timeout,
+         consent_result_t** result);
 int Submit(consent_client_h client, const char* method,
-    const consent_params_t* params, consent_result_cb callback, void* data,
-    consent_async_id_t* operation);
+           const consent_params_t* params, consent_result_cb callback,
+           void* data, consent_async_id_t* operation);
 int OnlineStatus(consent_client_h client);
 
 }  // namespace api

@@ -14,9 +14,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 -->
-<manifest xmlns="http://tizen.org/ns/packages" api-version="10.1" package="org.tizen.consentui.negative" version="0.1.0">
+<manifest
+  xmlns="http://tizen.org/ns/packages"
+  api-version="10.1"
+  package="org.tizen.consentui.negative"
+  version="0.1.0">
   <profile name="common" />
-  <ui-application appid="org.tizen.consentui.negative" exec="ConsentUINegative.dll" type="dotnet"
+  <ui-application
+    appid="org.tizen.consentui.negative"
+    exec="ConsentUINegative.dll"
+    type="dotnet"
                   multiple="false" taskmanage="true" nodisplay="false"
                   launch_mode="single" api-version="14">
     <label>ConsentUI negative identity test</label>

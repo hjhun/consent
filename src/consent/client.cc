@@ -46,15 +46,17 @@ namespace {
 constexpr size_t kMaxPending = 64;
 constexpr size_t kMaxOutputBytes = 262144;
 constexpr unsigned kMaximumWaitMs = 300000;
-// PID and count update together, including concurrent first creation after fork.
+// PID and count update together, including concurrent first creation after
+// fork.
 std::atomic<uint64_t> client_budget{0};
 
 bool ReserveClient() {
   const uint64_t process = static_cast<uint64_t>(getpid()) << 32;
   uint64_t observed = client_budget.load();
   for (;;) {
-    unsigned count = (observed & 0xffffffff00000000ULL) == process ?
-        static_cast<unsigned>(observed) : 0;
+    unsigned count = (observed & 0xffffffff00000000ULL) == process
+                         ? static_cast<unsigned>(observed)
+                         : 0;
     if (count >= 16)
       return false;
     if (client_budget.compare_exchange_weak(observed, process | (count + 1)))
@@ -68,7 +70,7 @@ void ReleaseClient(pid_t pid) {
   const uint64_t process = static_cast<uint64_t>(pid) << 32;
   uint64_t observed = client_budget.load();
   while ((observed & 0xffffffff00000000ULL) == process &&
-      static_cast<unsigned>(observed) > 0) {
+         static_cast<unsigned>(observed) > 0) {
     if (client_budget.compare_exchange_weak(observed, observed - 1))
       return;
   }
@@ -78,6 +80,7 @@ class Lock final {
  public:
   explicit Lock(GMutex& mutex) : mutex_(mutex) { g_mutex_lock(&mutex_); }
   ~Lock() { g_mutex_unlock(&mutex_); }
+
  private:
   GMutex& mutex_;
 };
@@ -95,8 +98,8 @@ bool TrustedEndpoint(EndpointSnapshot* snapshot) {
       continue;
     std::string parent = end ? endpoint.substr(0, end) : "/";
     struct stat info = {};
-    if (lstat(parent.c_str(), &info) || !S_ISDIR(info.st_mode) || info.st_uid != 0 ||
-        (info.st_mode & 0002))
+    if (lstat(parent.c_str(), &info) || !S_ISDIR(info.st_mode) ||
+        info.st_uid != 0 || (info.st_mode & 0002))
       return false;
     if (info.st_mode & 0020) {
       // Tizen /run is shared with system services. This exception grants no
@@ -106,7 +109,8 @@ bool TrustedEndpoint(EndpointSnapshot* snapshot) {
       struct group* resolved = nullptr;
       char buffer[4096];
       if (parent != "/run" || endpoint != "/run/.consentd.sock" ||
-          getgrnam_r("system_share", &group, buffer, sizeof(buffer), &resolved) ||
+          getgrnam_r("system_share", &group, buffer, sizeof(buffer),
+                     &resolved) ||
           !resolved || info.st_gid != resolved->gr_gid)
         return false;
     }
@@ -132,19 +136,22 @@ bool TrustedConnection(int fd, const EndpointSnapshot& snapshot) {
     return false;
   struct ucred peer = {};
   socklen_t size = sizeof(peer);
-  if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) || size != sizeof(peer))
+  if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &peer, &size) ||
+      size != sizeof(peer))
     return false;
   struct sockaddr_un address = {};
   socklen_t address_size = sizeof(address);
-  if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&address), &address_size))
+  if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&address),
+                  &address_size))
     return false;
   char label[256] = {};
   size = sizeof(label);
-  if (getsockopt(fd, SOL_SOCKET, SO_PEERSEC, label, &size) ||
-      !size || size >= sizeof(label))
+  if (getsockopt(fd, SOL_SOCKET, SO_PEERSEC, label, &size) || !size ||
+      size >= sizeof(label))
     return false;
-  return MatchActivatedPeer(peer.pid, peer.uid, address, address_size,
-      label, size, CONSENT_SOCKET_PATH, CONSENT_SERVER_SMACK_LABEL);
+  return MatchActivatedPeer(peer.pid, peer.uid, address, address_size, label,
+                            size, CONSENT_SOCKET_PATH,
+                            CONSENT_SERVER_SMACK_LABEL);
 #else
   (void)fd;
   (void)snapshot;
@@ -159,7 +166,7 @@ std::string CacheKey(const Message& message) {
         field.first == "operation_id" || field.first == "deadline_ms")
       continue;
     key += std::to_string(field.first.size()) + ":" + field.first +
-        std::to_string(field.second.size()) + ":" + field.second;
+           std::to_string(field.second.size()) + ":" + field.second;
   }
   return key;
 }
@@ -219,7 +226,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       g_main_context_unref(context_);
     }
     void Cancel() noexcept {
-      if (pid_ != getpid()) return;
+      if (pid_ != getpid())
+        return;
       std::map<uint64_t, GSource*> sources;
       sources.swap(sources_);
       for (const auto& entry : sources) {
@@ -249,14 +257,16 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         return;
       }
       Close();
-      if (socket_) g_object_unref(socket_);
+      if (socket_)
+        g_object_unref(socket_);
     }
     bool Adopt(int fd) {
       consent::Descriptor guard(fd);
       GError* error = nullptr;
       socket_ = g_socket_new_from_fd(fd, &error);
       g_clear_error(&error);
-      if (!socket_) return false;
+      if (!socket_)
+        return false;
       fd_ = guard.Release();
       g_socket_set_blocking(socket_, FALSE);
       return true;
@@ -270,7 +280,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
                      g_error_matches(error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK);
       g_clear_error(&error);
       if (!connected && pending) {
-        if (!io.Wait(socket_, 2000)) return CONSENT_ERROR_TIMEOUT;
+        if (!io.Wait(socket_, 2000))
+          return CONSENT_ERROR_TIMEOUT;
         connected = g_socket_check_connect_result(socket_, &error);
         g_clear_error(&error);
       }
@@ -311,10 +322,12 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       return count;
     }
     void Close() noexcept {
-      if (pid_ != getpid()) return;
+      if (pid_ != getpid())
+        return;
       Destroy(read_);
       Destroy(write_);
-      if (socket_) g_socket_close(socket_, nullptr);
+      if (socket_)
+        g_socket_close(socket_, nullptr);
       fd_ = -1;
       wire_.clear();
       output_.clear();
@@ -324,14 +337,16 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
 
    private:
     void Abandon() noexcept {
-      if (fd_ >= 0) close(fd_);
+      if (fd_ >= 0)
+        close(fd_);
       fd_ = -1;
       socket_ = nullptr;
       read_ = nullptr;
       write_ = nullptr;
     }
     static void Destroy(GSource*& source) noexcept {
-      if (!source) return;
+      if (!source)
+        return;
       g_source_destroy(source);
       g_source_unref(source);
       source = nullptr;
@@ -360,13 +375,15 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   ~State() {
     // Each member owner checks its own PID; returning here alone would not
     // suppress automatic C++ member destructors in a fork child.
-    if (pid_ != getpid()) return;
+    if (pid_ != getpid())
+      return;
     io_.Stop();
     io_.Join();
     delivery_.Cancel();
     g_cond_clear(&condition_);
     g_mutex_clear(&mutex_);
-    if (counted_) ReleaseClient(pid_);
+    if (counted_)
+      ReleaseClient(pid_);
   }
 
   void Wake() noexcept { io_.Wake(); }
@@ -402,7 +419,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       try {
         consent_result result;
         result.values.swap(operation->result);
-        callback(operation->status, operation->status ? nullptr : &result, user_data);
+        callback(operation->status, operation->status ? nullptr : &result,
+                 user_data);
       } catch (...) {
         // A caller callback must not throw across this C callback boundary.
       }
@@ -411,7 +429,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   }
 
   void Complete(const std::shared_ptr<Operation>& operation, int status,
-      Message result = {}) {
+                Message result = {}) {
     Lock lock(mutex_);
     if (operation->done || operation->detached)
       return;
@@ -433,14 +451,16 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   }
 
   int Admit(Message message, unsigned timeout, bool asynchronous,
-      consent_result_cb callback, void* data, std::shared_ptr<Operation>* output) {
+            consent_result_cb callback, void* data,
+            std::shared_ptr<Operation>* output) {
     auto operation = std::make_shared<Operation>();
     operation->message = std::move(message);
     operation->asynchronous = asynchronous;
     operation->callback = callback;
     operation->data = data;
     operation->admitted = g_get_monotonic_time();
-    operation->deadline = operation->admitted + static_cast<gint64>(timeout) * 1000;
+    operation->deadline =
+        operation->admitted + static_cast<gint64>(timeout) * 1000;
     // Allocate all callback bookkeeping before publishing acceptance. A failed
     // C ABI call must leave neither I/O nor a callback using caller user_data.
     auto release_source = [](GSource* source) {
@@ -449,13 +469,15 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         g_source_unref(source);
       }
     };
-    std::unique_ptr<GSource, decltype(release_source)> source(nullptr, release_source);
+    std::unique_ptr<GSource, decltype(release_source)> source(nullptr,
+                                                              release_source);
     if (asynchronous) {
-      auto delivery = std::unique_ptr<Delivery>(new Delivery{shared_from_this(), operation});
+      auto delivery = std::unique_ptr<Delivery>(
+          new Delivery{shared_from_this(), operation});
       source.reset(g_idle_source_new());
-      g_source_set_callback(source.get(), Dispatch, delivery.release(), [](gpointer data) {
-        delete static_cast<Delivery*>(data);
-      });
+      g_source_set_callback(
+          source.get(), Dispatch, delivery.release(),
+          [](gpointer data) { delete static_cast<Delivery*>(data); });
     }
     Message cached;
     bool cached_hit = false;
@@ -509,9 +531,11 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     *output = operation;
 #ifdef CONSENT_CLIENT_OWNER_TEST
     // Unit executable only; independent of endpoint/authentication fixtures.
-    if (admission_observer_) admission_observer_(admission_observer_data_);
+    if (admission_observer_)
+      admission_observer_(admission_observer_data_);
 #endif
-    if (!cached_hit) Wake();
+    if (!cached_hit)
+      Wake();
     return 0;
   }
 
@@ -567,7 +591,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     transport_.wire_.erase(it);
     operation->inflight = false;
     int64_t status = CONSENT_ERROR_PROTOCOL;
-    if (!ParseNumber(Get(message, "status"), &status) || status > 0 || status < INT_MIN)
+    if (!ParseNumber(Get(message, "status"), &status) || status > 0 ||
+        status < INT_MIN)
       return false;
     {
       Lock lock(mutex_);
@@ -598,11 +623,13 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     }
     if (!status && Get(operation->message, "method") == "request" &&
         !operation->message.count("approval_version") &&
-        Get(message, "decision") == "ALLOWED" && Get(message, "cacheable") == "1" &&
+        Get(message, "decision") == "ALLOWED" &&
+        Get(message, "cacheable") == "1" &&
         (Get(operation->message, "session").empty() ||
          (Get(message, "session") == Get(operation->message, "session") &&
           !Get(operation->message, "generation").empty() &&
-          Get(message, "generation") == Get(operation->message, "generation")))) {
+          Get(message, "generation") ==
+              Get(operation->message, "generation")))) {
       gint64 ttl = std::min<int64_t>(1000, Number(message, "cache_ttl_ms", 0));
       // The server's remaining lifetime was measured before this reply arrived.
       // Admission precedes that measurement, so it is a conservative anchor
@@ -612,7 +639,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         Lock lock(mutex_);
         if (synced_) {
           if (cache_.size() >= 64) {
-            auto oldest = std::min_element(cache_.begin(), cache_.end(),
+            auto oldest = std::min_element(
+                cache_.begin(), cache_.end(),
                 [](const auto& left, const auto& right) {
                   return left.second.last_used < right.second.last_used;
                 });
@@ -651,7 +679,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         }
         if (!operation)
           break;
-        if (error == CONSENT_ERROR_DISCONNECTED && operation->sent && !operation->accepted)
+        if (error == CONSENT_ERROR_DISCONNECTED && operation->sent &&
+            !operation->accepted)
           status = CONSENT_ERROR_OUTCOME_UNKNOWN;
       }
       Complete(operation, status);
@@ -676,7 +705,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
           read_error_ = CONSENT_ERROR_PROTOCOL;
           return false;
         }
-        if (transport_.input_.size() < size + 4) break;
+        if (transport_.input_.size() < size + 4)
+          break;
         Message message;
         if (!Decode(transport_.input_.data() + 4, size, &message) ||
             !Receive(std::move(message))) {
@@ -701,7 +731,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       auto& current = transport_.output_.front();
       {
         Lock lock(mutex_);
-        if (!current.offset && (current.operation->done || current.operation->detached)) {
+        if (!current.offset &&
+            (current.operation->done || current.operation->detached)) {
           transport_.output_bytes_ -= current.frame.size();
           transport_.output_.pop_front();
           continue;
@@ -728,7 +759,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   static gboolean Ready(GSocket*, GIOCondition condition,
                         gpointer data) noexcept {
     auto* self = static_cast<State*>(data);
-    if (self->pid_ != getpid()) return G_SOURCE_REMOVE;
+    if (self->pid_ != getpid())
+      return G_SOURCE_REMOVE;
     try {
       if ((condition & G_IO_IN) && !self->Read()) {
         self->Fail(self->read_error_);
@@ -819,7 +851,10 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       // Idle connections leave this source disarmed, without periodic ticks.
       io_.Deadline(next);
     } catch (...) {
-      try { Fail(CONSENT_ERROR_OUT_OF_MEMORY); } catch (...) {}
+      try {
+        Fail(CONSENT_ERROR_OUT_OF_MEMORY);
+      } catch (...) {
+      }
       io_.Stop();
     }
   }
@@ -849,10 +884,17 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   int read_error_ = CONSENT_ERROR_DISCONNECTED;
 };
 
-Client::Client(GMainContext* context) : state_(std::make_shared<State>(context)) {}
-Client::~Client() { Close(); }
-bool Client::IsOwner() const { return state_->owner_ == g_thread_self(); }
-bool Client::IsCurrentProcess() const { return state_->pid_ == getpid(); }
+Client::Client(GMainContext* context)
+    : state_(std::make_shared<State>(context)) {}
+Client::~Client() {
+  Close();
+}
+bool Client::IsOwner() const {
+  return state_->owner_ == g_thread_self();
+}
+bool Client::IsCurrentProcess() const {
+  return state_->pid_ == getpid();
+}
 
 int Client::Connect() {
   EndpointSnapshot endpoint;
@@ -865,12 +907,14 @@ int Client::Connect() {
   if (fd < 0 || !state_->transport_.Adopt(fd))
     return CONSENT_ERROR_DISCONNECTED;
   int status = state_->transport_.Connect(state_->io_);
-  if (status) return status;
+  if (status)
+    return status;
   if (!TrustedConnection(state_->transport_.fd_, endpoint))
     return CONSENT_ERROR_PERMISSION_DENIED;
   state_->transport_.ArmRead(state_->io_.Get(), G_SOURCE_FUNC(State::Ready),
                              state_.get());
-  if (!state_->io_.Start()) return CONSENT_ERROR_OUT_OF_MEMORY;
+  if (!state_->io_.Start())
+    return CONSENT_ERROR_OUT_OF_MEMORY;
   Message result;
   status = Call({{"method", "hello"}}, 2000, &result);
   if (status == 0) {
@@ -910,23 +954,26 @@ int Client::Close() {
 }
 
 int Client::Call(Message message, unsigned timeout_ms, Message* result) {
-  if (!IsCurrentProcess() || !result || !timeout_ms || timeout_ms > kMaximumWaitMs)
+  if (!IsCurrentProcess() || !result || !timeout_ms ||
+      timeout_ms > kMaximumWaitMs)
     return CONSENT_ERROR_INVALID_PARAMETER;
   if (Get(message, "method") != "hello" &&
       g_main_context_is_owner(state_->delivery_.context_))
     return CONSENT_ERROR_WOULD_DEADLOCK;
   std::shared_ptr<State::Operation> operation;
   int status = state_->Admit(std::move(message), timeout_ms, false, nullptr,
-      nullptr, &operation);
+                             nullptr, &operation);
   if (status)
     return status;
   Lock lock(state_->mutex_);
   while (!operation->done) {
-    if (!g_cond_wait_until(&state_->condition_, &state_->mutex_, operation->deadline)) {
+    if (!g_cond_wait_until(&state_->condition_, &state_->mutex_,
+                           operation->deadline)) {
       if (!operation->done) {
         operation->done = true;
-        operation->status = operation->sent && !operation->accepted ?
-            CONSENT_ERROR_OUTCOME_UNKNOWN : CONSENT_ERROR_TIMEOUT;
+        operation->status = operation->sent && !operation->accepted
+                                ? CONSENT_ERROR_OUTCOME_UNKNOWN
+                                : CONSENT_ERROR_TIMEOUT;
         state_->operations_.erase(operation->local_id);
       }
       break;
@@ -938,12 +985,12 @@ int Client::Call(Message message, unsigned timeout_ms, Message* result) {
 }
 
 int Client::Submit(Message message, consent_result_cb callback, void* data,
-    uint64_t* operation_id) {
+                   uint64_t* operation_id) {
   if (!IsCurrentProcess() || !IsOwner() || !callback || !operation_id)
     return CONSENT_ERROR_INVALID_PARAMETER;
   std::shared_ptr<State::Operation> operation;
   int status = state_->Admit(std::move(message), kMaximumWaitMs, true, callback,
-      data, &operation);
+                             data, &operation);
   if (!status)
     *operation_id = operation->local_id;
   return status;

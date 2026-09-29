@@ -15,23 +15,24 @@
  */
 namespace ConsentUI;
 
-internal sealed record LaunchRequest(string Operation, string? RequestId, string? Locale)
-{
-  public bool Settings => Operation is "" or "http://tizen.org/appcontrol/operation/default";
+internal sealed record LaunchRequest(string Operation, string? RequestId,
+                                     string? Locale) {
+  public bool Settings =>
+      Operation is "" or "http://tizen.org/appcontrol/operation/default";
 }
 
-internal sealed class LaunchGate
-{
+internal sealed class LaunchGate {
   private bool active;
 
-  public LaunchRequest? ReadInitial(Func<LaunchRequest> read)
-  {
+  public LaunchRequest? ReadInitial(Func<LaunchRequest> read) {
     // App-control senders have no authority to cancel/replace a visible choice.
     // Do not even inspect later payloads (including DEFAULT launcher relaunch).
-    if (active) return null;
+    if (active)
+      return null;
     var request = read();
-    if ((!request.Settings && (request.Operation != "http://tizen.org/appcontrol/operation/view" ||
-         !PromptSnapshot.ValidRequestId(request.RequestId))) ||
+    if ((!request.Settings &&
+         (request.Operation != "http://tizen.org/appcontrol/operation/view" ||
+          !PromptSnapshot.ValidRequestId(request.RequestId))) ||
         request.Settings && !string.IsNullOrEmpty(request.RequestId) ||
         !PromptSnapshot.ValidLocale(request.Locale))
       throw new InvalidOperationException("Invalid initial app-control");

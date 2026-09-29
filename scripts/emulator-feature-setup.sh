@@ -31,10 +31,13 @@ done
 [ -f "$roles" ] && [ ! -L "$roles" ]
 [ "$(stat -c '%u:%h' "$roles")" = 0:1 ]
 restore_roles() {
-  [ -f "$control/feature-original-roles.conf" ] && [ ! -L "$control/feature-original-roles.conf" ] || return 1
-  [ "$(stat -c '%u:%h:%a' "$control/feature-original-roles.conf")" = 0:1:600 ] || return 1
+  [ -f "$control/feature-original-roles.conf" ] && [ ! -L \
+  "$control/feature-original-roles.conf" ] || return 1
+  [ "$(stat -c '%u:%h:%a' "$control/feature-original-roles.conf")" = 0:1:600 \
+  ] || return 1
   systemctl stop consentd-poc.socket consentd-poc.service || return 1
-  [ "$(systemctl show -p MainPID --value consentd-poc.service)" = 0 ] || return 1
+  [ "$(systemctl show -p MainPID --value consentd-poc.service)" = 0 ] || \
+  return 1
   cp "$control/feature-original-roles.conf" "$roles" || return 1
   chmod 0644 "$roles" || return 1
   chsmack -a System "$roles" || return 1
@@ -46,7 +49,8 @@ rollback_start() {
   trap - EXIT HUP INT TERM
   # Never restore role configuration while either consumer remains active.
   if systemctl stop consent-feature-poc.socket consent-feature-poc.service &&
-      [ "$(systemctl show -p MainPID --value consent-feature-poc.service)" = 0 ]; then
+      [ "$(systemctl show -p MainPID --value consent-feature-poc.service)" = \
+  0 ]; then
     restore_roles || result=1
   else
     result=1
@@ -58,11 +62,13 @@ case "$phase" in
     # This opt-in fixture assumes the exact observed package/UI roles were
     # provisioned with emulator-poc-setup first. No production role is touched.
     grep -Fx 'label=User::Pkg::org.tizen.consentui' "$roles" > /dev/null
-    [ -z "$(systemctl show -p DropInPaths --value consent-feature-poc.service)" ]
+    [ -z "$(systemctl show -p DropInPaths --value \
+  consent-feature-poc.service)" ]
     [ -z "$(systemctl show -p DropInPaths --value consent-feature-poc.socket)" ]
     systemctl stop consent-feature-poc.socket consent-feature-poc.service
     [ "$(systemctl show -p MainPID --value consent-feature-poc.service)" = 0 ]
-    if [ ! -e "$runtime" ] && [ ! -L "$runtime" ]; then mkdir -m 0755 "$runtime"; fi
+    if [ ! -e "$runtime" ] && [ ! -L "$runtime" ]; then mkdir -m 0755 \
+  "$runtime"; fi
     [ -d "$runtime" ] && [ ! -L "$runtime" ]
     [ "$(stat -c '%u:%g:%a' "$runtime")" = 0:0:755 ]
     chsmack -a _ "$runtime"
@@ -77,20 +83,30 @@ case "$phase" in
     trap 'exit 1' HUP INT TERM
     systemctl stop consentd-poc.socket consentd-poc.service
     /usr/bin/python3 - "$roles" <<'PYTHON'
-import configparser,os,stat,sys
-path=sys.argv[1]
-info=os.lstat(path)
-assert stat.S_ISREG(info.st_mode) and info.st_uid==0 and info.st_nlink==1 and not(info.st_mode&0o022)
-p=configparser.ConfigParser(interpolation=None)
+import configparser, os, stat, sys
+
+path = sys.argv[1]
+info = os.lstat(path)
+assert (
+    stat.S_ISREG(info.st_mode)
+    and info.st_uid == 0
+    and info.st_nlink == 1
+    and not (info.st_mode & 0o022)
+)
+p = configparser.ConfigParser(interpolation=None)
 p.read(path)
-for role in ('cm','ce'):
- section='identity mock-'+role
- assert p[section]['executable']=='/usr/libexec/consent/poc/consent-mock-'+role
- assert p[section]['roles']=='checker;'
- p[section]['enforcers']='mock-'+role+';'
-with open(path,'w') as output:
- p.write(output)
- output.flush();os.fsync(output.fileno())
+for role in ('cm', 'ce'):
+    section = 'identity mock-' + role
+    assert (
+        p[section]['executable']
+        == '/usr/libexec/consent/poc/consent-mock-' + role
+    )
+    assert p[section]['roles'] == 'checker;'
+    p[section]['enforcers'] = 'mock-' + role + ';'
+with open(path, 'w') as output:
+    p.write(output)
+    output.flush()
+    os.fsync(output.fileno())
 PYTHON
     chsmack -a System "$roles"
     systemctl start consentd-poc.socket consentd-poc.service
@@ -110,7 +126,8 @@ PYTHON
   stop)
     systemctl stop consent-feature-poc.socket consent-feature-poc.service
     [ "$(systemctl show -p MainPID --value consent-feature-poc.service)" = 0 ]
-    if [ -e "$control/feature-original-roles.conf" ] || [ -L "$control/feature-original-roles.conf" ]; then
+    if [ -e "$control/feature-original-roles.conf" ] || [ -L \
+  "$control/feature-original-roles.conf" ]; then
       restore_roles
     fi
     echo 'PASS feature coordinator stopped and PoC roles restored'

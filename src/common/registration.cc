@@ -42,7 +42,7 @@ bool Identifier(const std::string& value) {
 }
 
 bool Integer(const std::string& value, int64_t minimum, int64_t maximum,
-    int64_t* output = nullptr) {
+             int64_t* output = nullptr) {
   if (value.empty() || value.size() > 20)
     return false;
   for (unsigned char character : value) {
@@ -62,14 +62,16 @@ bool Integer(const std::string& value, int64_t minimum, int64_t maximum,
 
 bool IsDefinitionField(const std::string& key) {
   return key == "definition" || key == "package" || key == "app" ||
-      key == "enforcer" || key == "policy_version" || key == "text_revision" ||
-      key == "level" || key == "modes" || key == "default_locale" ||
-      key == "retention_ms" || key.compare(0, 8, "message.") == 0 ||
-      localization::IsDefinitionField(key);
+         key == "enforcer" || key == "policy_version" ||
+         key == "text_revision" || key == "level" || key == "modes" ||
+         key == "default_locale" || key == "retention_ms" ||
+         key.compare(0, 8, "message.") == 0 ||
+         localization::IsDefinitionField(key);
 }
 
 bool ValidateDefinition(const Message& definition, std::string* error) {
-  for (const char* key : {"definition", "package", "app", "enforcer", "default_locale"}) {
+  for (const char* key :
+       {"definition", "package", "app", "enforcer", "default_locale"}) {
     if (!Identifier(Get(definition, key)))
       return Error(error, "invalid definition identity");
   }
@@ -86,8 +88,10 @@ bool ValidateDefinition(const Message& definition, std::string* error) {
   size_t start = 0;
   do {
     size_t end = modes.find(',', start);
-    auto mode = modes.substr(start, end == std::string::npos ? end : end - start);
-    if ((mode != "ONCE" && mode != "SESSION" && mode != "TIMED" && mode != "PERSISTENT") ||
+    auto mode =
+        modes.substr(start, end == std::string::npos ? end : end - start);
+    if ((mode != "ONCE" && mode != "SESSION" && mode != "TIMED" &&
+         mode != "PERSISTENT") ||
         !seen.insert(mode).second)
       return Error(error, "invalid allowed grant mode");
     if (level == 3 && mode != "ONCE")
@@ -109,7 +113,8 @@ bool ValidateDefinition(const Message& definition, std::string* error) {
     ++messages;
   }
   auto prefix = "message." + Get(definition, "default_locale");
-  if (messages < 2 || messages > 32 || Get(definition, prefix + ".title").empty() ||
+  if (messages < 2 || messages > 32 ||
+      Get(definition, prefix + ".title").empty() ||
       Get(definition, prefix + ".body").empty())
     return Error(error, "default locale title and body required");
   return localization::ValidateDefinition(definition, error);

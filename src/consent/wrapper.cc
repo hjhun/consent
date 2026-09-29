@@ -33,7 +33,8 @@ int OnlineStatus(consent_client_h client) {
 }
 
 int Call(consent_client_h client, const char* method,
-    const consent_params_t* params, unsigned timeout, consent_result_t** result) {
+         const consent_params_t* params, unsigned timeout,
+         consent_result_t** result) {
   if (result)
     *result = nullptr;
   int valid = OnlineStatus(client);
@@ -51,8 +52,8 @@ int Call(consent_client_h client, const char* method,
 }
 
 int Submit(consent_client_h client, const char* method,
-    const consent_params_t* params, consent_result_cb callback, void* data,
-    consent_async_id_t* operation) {
+           const consent_params_t* params, consent_result_cb callback,
+           void* data, consent_async_id_t* operation) {
   if (operation)
     *operation = 0;
   int valid = OnlineStatus(client);

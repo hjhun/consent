@@ -28,20 +28,23 @@ namespace consent {
 /* This predicate accepts only observations supplied by kernel socket APIs.
  * It cannot establish trust from fields in an application protocol message. */
 inline bool MatchActivatedPeer(pid_t pid, uid_t uid,
-    const struct sockaddr_un& address, socklen_t address_size,
-    const char* label, size_t label_size, const char* expected_path,
-    const char* expected_label) {
+                               const struct sockaddr_un& address,
+                               socklen_t address_size, const char* label,
+                               size_t label_size, const char* expected_path,
+                               const char* expected_label) {
   if (pid != 1 || uid != 0 || !expected_path || !expected_label ||
       !*expected_label || !label || !label_size ||
       strlen(expected_path) >= sizeof(address.sun_path) ||
       address.sun_family != AF_UNIX ||
-      address_size != offsetof(struct sockaddr_un, sun_path) + strlen(expected_path) + 1 ||
+      address_size !=
+          offsetof(struct sockaddr_un, sun_path) + strlen(expected_path) + 1 ||
       memcmp(address.sun_path, expected_path, strlen(expected_path) + 1))
     return false;
   if (label[label_size - 1] == '\0')
     --label_size;
-  return !memchr(label, '\0', label_size) && label_size == strlen(expected_label) &&
-      !memcmp(label, expected_label, label_size);
+  return !memchr(label, '\0', label_size) &&
+         label_size == strlen(expected_label) &&
+         !memcmp(label, expected_label, label_size);
 }
 
 }  // namespace consent

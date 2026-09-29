@@ -17,8 +17,7 @@ using System.Collections.Concurrent;
 
 namespace ConsentUI;
 
-internal sealed class ConsentWorker
-{
+internal sealed class ConsentWorker {
   private readonly BlockingCollection<Action<IConsentBackend>> jobs = new(2);
   private readonly Thread thread;
   private readonly object lifetime = new();
@@ -29,96 +28,99 @@ internal sealed class ConsentWorker
   private bool decisionAttempted;
   private PromptSnapshot? latest;
 
-  public ConsentWorker(Action<Exception> failed, Func<IConsentBackend>? create = null)
-  {
+  public ConsentWorker(Action<Exception> failed,
+                       Func<IConsentBackend>? create = null) {
     this.failed = failed;
     this.create = create ?? (() => new NativeApi());
-    thread = new Thread(Run) { Name = "ConsentUI native owner", IsBackground = false };
+    thread = new Thread(Run) { Name = "ConsentUI native owner",
+                               IsBackground = false };
     thread.Start();
   }
 
-  public bool Fetch(string requestId, string locale, Action<PromptSnapshot> completed) =>
-      Enqueue(api =>
-      {
-        var snapshot = api.Fetch(requestId, locale);
-        latest = snapshot;
-        if (Volatile.Read(ref stopping) == 0) completed(snapshot);
-      });
+  public bool Fetch(string requestId, string locale,
+                    Action<PromptSnapshot> completed) => Enqueue(api => {
+    var snapshot = api.Fetch(requestId, locale);
+    latest = snapshot;
+    if (Volatile.Read(ref stopping) == 0)
+      completed(snapshot);
+  });
 
-  public bool Respond(PromptSnapshot snapshot, bool allow, Action<string> completed) =>
-      Enqueue(api =>
-      {
-        // Never use a stale UI callback after a newer token was fetched.
-        if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanApprove))
-          throw new InvalidOperationException("Stale or unsupported UI choice");
-        decisionAttempted = true;
-        completed(api.Respond(snapshot, allow));
-      });
+  public bool Respond(PromptSnapshot snapshot, bool allow,
+                      Action<string> completed) => Enqueue(api => {
+    // Never use a stale UI callback after a newer token was fetched.
+    if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanApprove))
+      throw new InvalidOperationException("Stale or unsupported UI choice");
+    decisionAttempted = true;
+    completed(api.Respond(snapshot, allow));
+  });
 
-  public void Stop()
-  {
-    lock (lifetime)
-    {
-      if (Interlocked.Exchange(ref stopping, 1) == 0) jobs.CompleteAdding();
+  public void Stop() {
+    lock (lifetime) {
+      if (Interlocked.Exchange(ref stopping, 1) == 0)
+        jobs.CompleteAdding();
     }
   }
 
-  public bool Join(int milliseconds)
-  {
-    if (!thread.Join(milliseconds)) return false;
-    lock (lifetime)
-    {
-      if (!disposed) { jobs.Dispose(); disposed = true; }
+  public bool Join(int milliseconds) {
+    if (!thread.Join(milliseconds))
+      return false;
+    lock (lifetime) {
+      if (!disposed) {
+        jobs.Dispose();
+        disposed = true;
+      }
     }
     return true;
   }
 
-  private bool Enqueue(Action<IConsentBackend> job)
-  {
-    lock (lifetime)
-    {
-      if (Volatile.Read(ref stopping) != 0) return false;
+  private bool Enqueue(Action<IConsentBackend> job) {
+    lock (lifetime) {
+      if (Volatile.Read(ref stopping) != 0)
+        return false;
       return jobs.TryAdd(job);
     }
   }
 
-  private void Run()
-  {
+  private void Run() {
     IConsentBackend? api = null;
-    try
-    {
+    try {
       api = create();
-      foreach (var job in jobs.GetConsumingEnumerable())
-      {
-        if (Volatile.Read(ref stopping) != 0) break;
+      foreach (var job in jobs.GetConsumingEnumerable()) {
+        if (Volatile.Read(ref stopping) != 0)
+          break;
         job(api);
       }
-    }
-    catch (Exception error)
-    {
+    } catch (Exception error) {
       // A racing approval can finish the request before a compact prompt is
       // produced. Do not fabricate a display error or send another decision.
-      if (error is PromptFinished) { decisionAttempted = true; latest = null; }
+      if (error is PromptFinished) {
+        decisionAttempted = true;
+        latest = null;
+      }
       failed(error);
-    }
-    finally
-    {
+    } finally {
       Stop();
-      if (api is not null)
-      {
-        if (!decisionAttempted && latest is not null)
-        {
-          try { api.Respond(latest, false); }
-          catch (Exception error) { LogStatus("dismiss", error); }
+      if (api is not null) {
+        if (!decisionAttempted && latest is not null) {
+          try {
+            api.Respond(latest, false);
+          } catch (Exception error) {
+            LogStatus("dismiss", error);
+          }
         }
-        try { api.Dispose(); }
-        catch (Exception error) { LogStatus("destroy", error); }
+        try {
+          api.Dispose();
+        } catch (Exception error) {
+          LogStatus("destroy", error);
+        }
       }
     }
   }
 
   internal static void LogStatus(string phase, Exception error) =>
       Console.Error.WriteLine($"ConsentUI {phase} status=" +
-          (error is NativeFailure native ? native.Status.ToString() :
-           error is UiFailure ui ? ui.Reason.ToString() : error.GetType().Name));
+                              (error is NativeFailure native
+                                   ? native.Status.ToString()
+                               : error is UiFailure ui ? ui.Reason.ToString()
+                                                       : error.GetType().Name));
 }

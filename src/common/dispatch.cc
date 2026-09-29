@@ -36,7 +36,8 @@ struct Dispatcher::State {
       MutexLock lock(mutex);
       removed = sources.erase(source) != 0;
     }
-    if (removed) g_source_unref(source);
+    if (removed)
+      g_source_unref(source);
   }
   GMutex mutex;
   std::set<GSource*> sources;
@@ -44,7 +45,9 @@ struct Dispatcher::State {
 };
 
 Dispatcher::Dispatcher() : state_(std::make_shared<State>()) {}
-Dispatcher::~Dispatcher() { Cancel(); }
+Dispatcher::~Dispatcher() {
+  Cancel();
+}
 
 bool Dispatcher::Post(GMainContext* context,
                       std::function<void()> work) noexcept {
@@ -71,11 +74,13 @@ bool Dispatcher::Post(GMainContext* context,
         });
     {
       MutexLock lock(state_->mutex);
-      if (!state_->accepting || state_->sources.size() >= 512) return false;
+      if (!state_->accepting || state_->sources.size() >= 512)
+        return false;
       state_->sources.insert(source.get());
       g_source_ref(source.get());
     }
-    if (!g_source_attach(source.get(), context)) return false;
+    if (!g_source_attach(source.get(), context))
+      return false;
     g_source_unref(source.release());
     return true;
   } catch (...) {

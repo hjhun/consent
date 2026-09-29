@@ -51,7 +51,8 @@ class Pagination : public testing::Test {
     peer_.profiles = {"profile", "other"};
     Start();
     auto opened = Call({{"method", "session_open"},
-        {"subject", "subject"}, {"profile", "profile"}});
+                        {"subject", "subject"},
+                        {"profile", "profile"}});
     session_ = Get(opened, "session");
   }
   void TearDown() override {
@@ -71,10 +72,13 @@ class Pagination : public testing::Test {
     return result;
   }
   Message Page(const std::string& cursor = "", bool reconcile = false,
-      int status = 0) {
-    return Call({{"method", "cleanup_list"}, {"subject", "subject"},
-        {"profile", "profile"}, {"cursor", cursor},
-        {"reconcile", reconcile ? "1" : "0"}}, status);
+               int status = 0) {
+    return Call({{"method", "cleanup_list"},
+                 {"subject", "subject"},
+                 {"profile", "profile"},
+                 {"cursor", cursor},
+                 {"reconcile", reconcile ? "1" : "0"}},
+                status);
   }
   std::string Key(unsigned index) {
     char key[49];
@@ -84,35 +88,42 @@ class Pagination : public testing::Test {
   void Seed(unsigned count, unsigned start = 1) {
     sqlite3* database = nullptr;
     ASSERT_EQ(sqlite3_open((directory_ + "/consent.db").c_str(), &database),
-        SQLITE_OK);
-    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> owner(
-        database, sqlite3_close);
+              SQLITE_OK);
+    std::unique_ptr<sqlite3, decltype(&sqlite3_close)> owner(database,
+                                                             sqlite3_close);
     ASSERT_EQ(sqlite3_exec(database, "BEGIN", nullptr, nullptr, nullptr),
-        SQLITE_OK);
+              SQLITE_OK);
     sqlite3_stmt* statement = nullptr;
-    ASSERT_EQ(sqlite3_prepare_v2(database,
-        "INSERT INTO artifacts VALUES(?,?,?,'holder','instance',"
-        "'purpose','','scope',9223372036854775807,"
-        "'CLEANUP_PENDING',1,'')", -1, &statement, nullptr), SQLITE_OK);
+    ASSERT_EQ(sqlite3_prepare_v2(
+                  database,
+                  "INSERT INTO artifacts VALUES(?,?,?,'holder','instance',"
+                  "'purpose','','scope',9223372036854775807,"
+                  "'CLEANUP_PENDING',1,'')",
+                  -1, &statement, nullptr),
+              SQLITE_OK);
     std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> prepared(
         statement, sqlite3_finalize);
     for (unsigned index = start; index < start + count; ++index) {
       const auto id = Key(index);
-      ASSERT_EQ(sqlite3_bind_text(statement, 1, id.c_str(), -1,
-          SQLITE_TRANSIENT), SQLITE_OK);
-      ASSERT_EQ(sqlite3_bind_text(statement, 2, id.c_str(), -1,
-          SQLITE_TRANSIENT), SQLITE_OK);
+      ASSERT_EQ(
+          sqlite3_bind_text(statement, 1, id.c_str(), -1, SQLITE_TRANSIENT),
+          SQLITE_OK);
+      ASSERT_EQ(
+          sqlite3_bind_text(statement, 2, id.c_str(), -1, SQLITE_TRANSIENT),
+          SQLITE_OK);
       ASSERT_EQ(sqlite3_bind_text(statement, 3, session_.c_str(), -1,
-          SQLITE_TRANSIENT), SQLITE_OK);
+                                  SQLITE_TRANSIENT),
+                SQLITE_OK);
       ASSERT_EQ(sqlite3_step(statement), SQLITE_DONE);
       ASSERT_EQ(sqlite3_reset(statement), SQLITE_OK);
     }
     ASSERT_EQ(sqlite3_exec(database, "COMMIT", nullptr, nullptr, nullptr),
-        SQLITE_OK);
+              SQLITE_OK);
   }
   void Ack(unsigned index, bool success) {
-    Call({{"method", "cleanup_ack"}, {"artifact", Key(index)},
-        {"success", success ? "1" : "0"}});
+    Call({{"method", "cleanup_ack"},
+          {"artifact", Key(index)},
+          {"success", success ? "1" : "0"}});
   }
   consentd::Peer peer_;
   std::string directory_;
@@ -178,8 +189,9 @@ TEST_F(Pagination, ThreePagesWithoutDuplicates) {
     const auto count = consent::Number(result, "count");
     EXPECT_EQ(count, page == 2 ? 1 : 48);
     for (int64_t i = 0; i < count; ++i)
-      EXPECT_TRUE(seen.insert(Get(result,
-          "a" + std::to_string(i) + ".artifact")).second);
+      EXPECT_TRUE(
+          seen.insert(Get(result, "a" + std::to_string(i) + ".artifact"))
+              .second);
     cursor = Get(result, "next_cursor");
   }
   EXPECT_TRUE(cursor.empty());
@@ -201,8 +213,10 @@ TEST_F(Pagination, BoundScopeIncludesInstanceEvenForReconciliation) {
   peer_.instance = "instance";
   Page(cursor, true, -EACCES);
   for (const auto* key : {"subject", "profile"}) {
-    Message request{{"method", "cleanup_list"}, {"subject", "subject"},
-        {"profile", "profile"}, {"cursor", cursor}};
+    Message request{{"method", "cleanup_list"},
+                    {"subject", "subject"},
+                    {"profile", "profile"},
+                    {"cursor", cursor}};
     request[key] = "other";
     Call(request, -EACCES);
     request.erase("cursor");
@@ -213,8 +227,9 @@ TEST_F(Pagination, BoundScopeIncludesInstanceEvenForReconciliation) {
 TEST_F(Pagination, FullTokenValidationAndDatabaseReset) {
   Seed(49);
   const auto token = Get(Page(), "next_cursor");
-  for (const auto& invalid : {std::string(), std::string("1"), token + "x",
-      token.substr(0, token.size() - 1), std::string(8192, 'x')}) {
+  for (const auto& invalid :
+       {std::string(), std::string("1"), token + "x",
+        token.substr(0, token.size() - 1), std::string(8192, 'x')}) {
     if (!invalid.empty())
       Page(invalid, false, -EINVAL);
   }
@@ -245,13 +260,17 @@ TEST_F(Pagination, PartialIndexAndBoundedWireReply) {
   EXPECT_LE(frame.size(), consent::kMaxFrameSize + 4);
   sqlite3* database = nullptr;
   ASSERT_EQ(sqlite3_open((directory_ + "/consent.db").c_str(), &database), 0);
-  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> owner(
-      database, sqlite3_close);
+  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> owner(database,
+                                                           sqlite3_close);
   sqlite3_stmt* query = nullptr;
-  ASSERT_EQ(sqlite3_prepare_v2(database,
-      "EXPLAIN QUERY PLAN SELECT id FROM artifacts WHERE holder='holder' "
-      "AND state IN ('CLEANUP_PENDING','CLEANUP_FAILED') "
-      "AND id>'0' AND id<='f' ORDER BY id LIMIT 49", -1, &query, nullptr), 0);
+  ASSERT_EQ(
+      sqlite3_prepare_v2(
+          database,
+          "EXPLAIN QUERY PLAN SELECT id FROM artifacts WHERE holder='holder' "
+          "AND state IN ('CLEANUP_PENDING','CLEANUP_FAILED') "
+          "AND id>'0' AND id<='f' ORDER BY id LIMIT 49",
+          -1, &query, nullptr),
+      0);
   std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> prepared(
       query, sqlite3_finalize);
   ASSERT_EQ(sqlite3_step(query), SQLITE_ROW);
@@ -272,28 +291,35 @@ TEST(CleanupSweep, CollaboratorFailureDoesNotStopLaterPageAndReleasesCaptures) {
   auto lifetime = std::make_shared<int>(1);
   std::weak_ptr<int> weak = lifetime;
   testing::InSequence sequence;
-  EXPECT_CALL(backend, Fetch(_, _)).WillOnce(Invoke(
-      [](const Message& input, Message* result) {
+  EXPECT_CALL(backend, Fetch(_, _))
+      .WillOnce(Invoke([](const Message& input, Message* result) {
         EXPECT_EQ(Get(input, "cursor"), "");
-        *result = {{"count", "1"}, {"a0.artifact", "failed"},
-            {"more", "1"}, {"next_cursor", "next"}};
+        *result = {{"count", "1"},
+                   {"a0.artifact", "failed"},
+                   {"more", "1"},
+                   {"next_cursor", "next"}};
         return 0;
       }));
   EXPECT_CALL(backend, DeleteAndAck("failed")).WillOnce(Return(-EIO));
-  EXPECT_CALL(backend, Fetch(_, _)).WillOnce(Invoke(
-      [](const Message& input, Message* result) {
+  EXPECT_CALL(backend, Fetch(_, _))
+      .WillOnce(Invoke([](const Message& input, Message* result) {
         EXPECT_EQ(Get(input, "cursor"), "next");
-        *result = {{"count", "1"}, {"a0.artifact", "later"},
-            {"more", "0"}, {"next_cursor", ""}};
+        *result = {{"count", "1"},
+                   {"a0.artifact", "later"},
+                   {"more", "0"},
+                   {"next_cursor", ""}};
         return 0;
       }));
   EXPECT_CALL(backend, DeleteAndAck("later")).WillOnce(Return(0));
-  EXPECT_EQ(consent::CleanupSweep({}, &progress,
-      [&backend, lifetime](const Message& input, Message* output) {
-        return backend.Fetch(input, output);
-      }, [&backend, lifetime](const std::string& artifact) {
-        return backend.DeleteAndAck(artifact);
-      }), -EIO);
+  EXPECT_EQ(consent::CleanupSweep(
+                {}, &progress,
+                [&backend, lifetime](const Message& input, Message* output) {
+                  return backend.Fetch(input, output);
+                },
+                [&backend, lifetime](const std::string& artifact) {
+                  return backend.DeleteAndAck(artifact);
+                }),
+            -EIO);
   lifetime.reset();
   EXPECT_TRUE(weak.expired());
 }
@@ -302,31 +328,36 @@ TEST(CleanupSweep, PageFailureStopsWithoutDeletingUnseenData) {
   testing::StrictMock<CleanupBackend> backend;
   consent::CleanupProgress progress;
   EXPECT_CALL(backend, Fetch(_, _)).WillOnce(Return(-EACCES));
-  EXPECT_EQ(consent::CleanupSweep({}, &progress,
-      [&backend](const Message& input, Message* output) {
-        return backend.Fetch(input, output);
-      }, [&backend](const std::string& artifact) {
-        return backend.DeleteAndAck(artifact);
-      }), -EACCES);
+  EXPECT_EQ(consent::CleanupSweep(
+                {}, &progress,
+                [&backend](const Message& input, Message* output) {
+                  return backend.Fetch(input, output);
+                },
+                [&backend](const std::string& artifact) {
+                  return backend.DeleteAndAck(artifact);
+                }),
+            -EACCES);
 }
 
 TEST(CleanupSweep, MoreThan128FailedPagesRetainContinuationAndFirstError) {
   testing::StrictMock<CleanupBackend> backend;
   consent::CleanupProgress progress;
   unsigned page = 0;
-  EXPECT_CALL(backend, Fetch(_, _)).Times(129).WillRepeatedly(Invoke(
-      [&page](const Message& input, Message* result) {
+  EXPECT_CALL(backend, Fetch(_, _))
+      .Times(129)
+      .WillRepeatedly(Invoke([&page](const Message& input, Message* result) {
         EXPECT_EQ(Get(input, "cursor"), page ? std::to_string(page) : "");
         ++page;
         *result = {{"count", "48"},
-            {"more", page == 129 ? "0" : "1"},
-            {"next_cursor", page == 129 ? "" : std::to_string(page)}};
+                   {"more", page == 129 ? "0" : "1"},
+                   {"next_cursor", page == 129 ? "" : std::to_string(page)}};
         for (unsigned index = 0; index < 48; ++index)
           (*result)["a" + std::to_string(index) + ".artifact"] =
               std::to_string((page - 1) * 48 + index);
         return 0;
       }));
-  EXPECT_CALL(backend, DeleteAndAck(_)).Times(128 * 48)
+  EXPECT_CALL(backend, DeleteAndAck(_))
+      .Times(128 * 48)
       .WillRepeatedly(Return(-EIO));
   for (unsigned index = 6144; index < 6192; ++index)
     EXPECT_CALL(backend, DeleteAndAck(std::to_string(index)))

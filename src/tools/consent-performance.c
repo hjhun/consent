@@ -59,7 +59,8 @@ static int compare(const void* a, const void* b) {
 }
 static void report(const char* api, double* values, double wall_s) {
   double total = 0;
-  for (int i = 0; i < SAMPLES; ++i) total += values[i];
+  for (int i = 0; i < SAMPLES; ++i)
+    total += values[i];
   qsort(values, SAMPLES, sizeof(*values), compare);
   printf(
       "METRIC api=%s n=%d warmup=%d acceptance_status=0 "
@@ -132,7 +133,8 @@ static void measure(const char* api, int type) {
       g_source_set_callback(watchdog, expired, NULL, NULL);
       g_source_attach(watchdog, NULL);
     }
-    if (i == 0) wall_begin = now_ns();
+    if (i == 0)
+      wall_begin = now_ns();
     gint64 begin = now_ns();
     int status;
     if (type >= 3) {
@@ -154,28 +156,37 @@ static void measure(const char* api, int type) {
       CHECK(callback_decision == CONSENT_DECISION_ALLOWED);
       if (i >= 0) {
         accepted[i] = (end - begin) / 1000.0;
-        if (!strcmp(callback_source, "CACHE")) ++sources;
-        if (!strcmp(callback_source, "DAEMON")) ++daemon_sources;
+        if (!strcmp(callback_source, "CACHE"))
+          ++sources;
+        if (!strcmp(callback_source, "DAEMON"))
+          ++daemon_sources;
       }
-      if (type == 5) CHECK(!strcmp(callback_cacheable, "0"));
+      if (type == 5)
+        CHECK(!strcmp(callback_cacheable, "0"));
     } else {
       status = type == 2 ? consent_request(client, p, 5000, &r)
                          : consent_check(client, p, 5000, &r);
-      if (status) fprintf(stderr, "FAIL API %s status=%d\n", api, status);
+      if (status)
+        fprintf(stderr, "FAIL API %s status=%d\n", api, status);
       CHECK(status == 0);
       CHECK(consent_result_get_decision(r) == CONSENT_DECISION_ALLOWED);
       const char* source = consent_result_get(r, "source");
-      if (i >= 0 && source && !strcmp(source, "CACHE")) ++sources;
-      if (i >= 0 && source && !strcmp(source, "DAEMON")) ++daemon_sources;
+      if (i >= 0 && source && !strcmp(source, "CACHE"))
+        ++sources;
+      if (i >= 0 && source && !strcmp(source, "DAEMON"))
+        ++daemon_sources;
     }
     gint64 end = now_ns();
     CHECK(status == 0);
-    if (i >= 0) elapsed[i] = ((type >= 3 ? callback_ns : end) - begin) / 1000.0;
+    if (i >= 0)
+      elapsed[i] = ((type >= 3 ? callback_ns : end) - begin) / 1000.0;
     consent_result_free(r);
   }
   double wall_s = (now_ns() - wall_begin) / 1000000000.0;
-  if (type == 2 || type == 3) CHECK(sources > 0);
-  if (type == 4 || type == 5) CHECK(sources == 0 && daemon_sources == SAMPLES);
+  if (type == 2 || type == 3)
+    CHECK(sources > 0);
+  if (type == 4 || type == 5)
+    CHECK(sources == 0 && daemon_sources == SAMPLES);
   report(api, elapsed, wall_s);
   if (type >= 3)
     report(type == 4   ? "CHECK_ASYNC_ACCEPT"
@@ -190,7 +201,8 @@ static unsigned long context_switches(void) {
   CHECK(directory);
   struct dirent* e;
   while ((e = readdir(directory))) {
-    if (e->d_name[0] == '.') continue;
+    if (e->d_name[0] == '.')
+      continue;
     char path[512];
     snprintf(path, sizeof(path), "/proc/self/task/%s/status", e->d_name);
     FILE* file = fopen(path, "r");

@@ -32,7 +32,8 @@ std::set<std::string> KeyValues(GKeyFile* file, const char* group,
       g_strfreev);
   std::set<std::string> result;
   for (gsize i = 0; i < count; ++i) {
-    if (list.get()[i][0]) result.insert(list.get()[i]);
+    if (list.get()[i][0])
+      result.insert(list.get()[i]);
   }
   return result;
 }

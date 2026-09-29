@@ -33,16 +33,21 @@ constexpr int kWaitMs = 20000;
 class Descriptor final {
  public:
   explicit Descriptor(int value) : value_(value) {}
-  ~Descriptor() { if (value_ >= 0) close(value_); }
+  ~Descriptor() {
+    if (value_ >= 0)
+      close(value_);
+  }
   Descriptor(const Descriptor&) = delete;
   Descriptor& operator=(const Descriptor&) = delete;
   int Get() const { return value_; }
+
  private:
   int value_;
 };
 
 int Error(const char* stage, int status) {
-  std::fprintf(stderr, "event=poc-peer-probe-error stage=%s status=%d\n", stage, status);
+  std::fprintf(stderr, "event=poc-peer-probe-error stage=%s status=%d\n", stage,
+               status);
   return 1;
 }
 
@@ -69,7 +74,8 @@ std::string Escape(const char* bytes, size_t size) {
 
 int main() {
   // sd_listen_fds validates LISTEN_PID/LISTEN_FDS and marks inherited FDs
-  // CLOEXEC. No independent socket creation, bind or activation fallback exists.
+  // CLOEXEC. No independent socket creation, bind or activation fallback
+  // exists.
   int count = sd_listen_fds(1);
   if (count != 1)
     return Error("activation-count", count);
@@ -80,16 +86,20 @@ int main() {
   int flags = fcntl(listener.Get(), F_GETFL);
   if (flags < 0 || fcntl(listener.Get(), F_SETFL, flags | O_NONBLOCK) < 0)
     return Error("listener-nonblocking", -errno);
-  std::printf("{\"event\":\"poc-peer-probe-ready\",\"fd\":3,\"endpoint\":\"%s\",\"wait_ms\":%d}\n",
+  std::printf(
+      "{\"event\":\"poc-peer-probe-ready\",\"fd\":3,\"endpoint\":\"%s\","
+      "\"wait_ms\":%d}\n",
       kEndpoint, kWaitMs);
   if (std::fflush(stdout) != 0)
     return Error("ready-output", -errno);
 
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kWaitMs);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(kWaitMs);
   int accepted = -1;
   while (accepted < 0) {
     auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-        deadline - std::chrono::steady_clock::now()).count();
+                         deadline - std::chrono::steady_clock::now())
+                         .count();
     if (remaining <= 0)
       return Error("accept-timeout", -ETIMEDOUT);
     struct pollfd event = {listener.Get(), POLLIN, 0};
@@ -104,22 +114,25 @@ int main() {
       return Error("listener-state", -EIO);
     if (!(event.revents & POLLIN))
       continue;
-    accepted = accept4(listener.Get(), nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
-    if (accepted < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR &&
-        errno != ECONNABORTED)
+    accepted =
+        accept4(listener.Get(), nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    if (accepted < 0 && errno != EAGAIN && errno != EWOULDBLOCK &&
+        errno != EINTR && errno != ECONNABORTED)
       return Error("accept", -errno);
   }
   Descriptor connection(accepted);
   struct ucred credentials = {};
   socklen_t credential_size = sizeof(credentials);
-  if (getsockopt(connection.Get(), SOL_SOCKET, SO_PEERCRED, &credentials, &credential_size) < 0)
+  if (getsockopt(connection.Get(), SOL_SOCKET, SO_PEERCRED, &credentials,
+                 &credential_size) < 0)
     return Error("peer-credentials", -errno);
   if (credential_size != sizeof(credentials) || credentials.pid <= 0)
     return Error("peer-credentials-size", -EINVAL);
 
   char label[1024] = {};
   socklen_t label_size = sizeof(label);
-  if (getsockopt(connection.Get(), SOL_SOCKET, SO_PEERSEC, label, &label_size) < 0)
+  if (getsockopt(connection.Get(), SOL_SOCKET, SO_PEERSEC, label, &label_size) <
+      0)
     return Error("peer-security", -errno);
   if (!label_size || label_size > sizeof(label))
     return Error("peer-security-size", -EINVAL);
@@ -128,9 +141,11 @@ int main() {
   if (!label_size || std::memchr(label, '\0', label_size))
     return Error("peer-security-label", -EINVAL);
   const auto escaped = Escape(label, label_size);
-  std::printf("{\"event\":\"poc-peer-probe\",\"pid\":%ld,\"uid\":%lu,\"gid\":%lu,"
+  std::printf(
+      "{\"event\":\"poc-peer-probe\",\"pid\":%ld,\"uid\":%lu,\"gid\":%lu,"
       "\"label\":\"%s\",\"protocol_response\":false}\n",
-      static_cast<long>(credentials.pid), static_cast<unsigned long>(credentials.uid),
+      static_cast<long>(credentials.pid),
+      static_cast<unsigned long>(credentials.uid),
       static_cast<unsigned long>(credentials.gid), escaped.c_str());
   if (std::fflush(stdout) != 0)
     return Error("peer-output", -errno);

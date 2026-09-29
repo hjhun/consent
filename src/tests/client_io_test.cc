@@ -42,7 +42,8 @@ TEST(ClientIo, AdmissionAfterSnapshotRetainsItsWake) {
           g_mutex_lock(&mutex);
           entered = true;
           g_cond_signal(&condition);
-          while (!release) g_cond_wait(&condition, &mutex);
+          while (!release)
+            g_cond_wait(&condition, &mutex);
           g_mutex_unlock(&mutex);
         } else {
           owner->Stop();

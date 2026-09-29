@@ -61,15 +61,19 @@ int OpenDirectory() {
   size_t offset = 1;
   while (fd >= 0 && offset < path.size()) {
     auto end = path.find('/', offset);
-    auto component = path.substr(offset, end == std::string::npos ? end : end - offset);
-    int next = openat(fd, component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    auto component =
+        path.substr(offset, end == std::string::npos ? end : end - offset);
+    int next = openat(fd, component.c_str(),
+                      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     close(fd);
     if (next < 0)
       return -1;
     struct stat st = {};
-    bool protected_dir = fstat(next, &st) == 0 && st.st_uid == 0 && !(st.st_mode & 0022);
+    bool protected_dir =
+        fstat(next, &st) == 0 && st.st_uid == 0 && !(st.st_mode & 0022);
 #ifdef CONSENT_TEST_BUILD
-    if (offset == 1 && component == "tmp" && st.st_uid == 0 && (st.st_mode & S_ISVTX))
+    if (offset == 1 && component == "tmp" && st.st_uid == 0 &&
+        (st.st_mode & S_ISVTX))
       protected_dir = true;
 #endif
     if (!protected_dir) {
@@ -95,11 +99,12 @@ bool Persist(int directory, GKeyFile* file, bool image,
   gchar* uuid = g_uuid_string_random();
   std::string temporary = std::string(".installations-") + uuid;
   g_free(uuid);
-  int fd = openat(directory, temporary.c_str(), O_CREAT | O_EXCL | O_WRONLY |
-      O_NOFOLLOW | O_CLOEXEC, 0600);
+  int fd = openat(directory, temporary.c_str(),
+                  O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
   struct stat directory_info = {};
   bool ok = fd >= 0 && fstat(directory, &directory_info) == 0;
-  gid_t group = image ? (previous ? previous->st_gid : 0) : directory_info.st_gid;
+  gid_t group =
+      image ? (previous ? previous->st_gid : 0) : directory_info.st_gid;
   mode_t mode = image ? (previous ? previous->st_mode & 0777 : 0600) : 0640;
   ok = ok && fchown(fd, 0, group) == 0 && fchmod(fd, mode) == 0;
   // Image construction has no target NSS or SMACK requirement. The root
@@ -123,7 +128,8 @@ bool Persist(int directory, GKeyFile* file, bool image,
   if (fd >= 0 && close(fd) < 0)
     ok = false;
   if (ok)
-    ok = renameat(directory, temporary.c_str(), directory, "installations.conf") == 0;
+    ok = renameat(directory, temporary.c_str(), directory,
+                  "installations.conf") == 0;
   if (ok)
     ok = fsync(directory) == 0;
   if (!ok)
@@ -137,7 +143,8 @@ bool Apply(GKeyFile* file, const std::string& command,
            std::string* result) {
   std::string key = "package " + package;
   std::string operation_key = "operation " + operation;
-  std::string fingerprint = command + "|" + package + "|" + app + "|" + expected;
+  std::string fingerprint =
+      command + "|" + package + "|" + app + "|" + expected;
   auto previous = Get(file, operation_key, "fingerprint");
   if (!previous.empty()) {
     if (previous != fingerprint)
@@ -214,16 +221,21 @@ int main(int argc, char** argv) {
   int first = image ? 3 : 1;
   int arguments = argc - first;
   if (arguments < 4 || arguments > 5 || geteuid() != 0) {
-    fprintf(stderr, "Usage (root): %s [--image-root ROOT] begin|commit|remove PACKAGE OPERATION EXPECTED_GENERATION\n"
-        "              %s [--image-root ROOT] attach PACKAGE APP OPERATION GENERATION\n"
-        "Image mode is explicit and generation-only. Commit only after durable package installation.\n",
-        argv[0], argv[0]);
+    fprintf(stderr,
+            "Usage (root): %s [--image-root ROOT] begin|commit|remove "
+            "PACKAGE OPERATION EXPECTED_GENERATION\n"
+            "              %s [--image-root ROOT] attach PACKAGE APP OPERATION "
+            "GENERATION\n"
+            "Image mode is explicit and generation-only. Commit only after "
+            "durable package installation.\n",
+            argv[0], argv[0]);
     return 2;
   }
   std::string command = argv[first], package = argv[first + 1];
   bool attach = command == "attach";
   if ((attach && arguments != 5) || (!attach && arguments != 4) ||
-      (command != "begin" && command != "attach" && command != "commit" && command != "remove"))
+      (command != "begin" && command != "attach" && command != "commit" &&
+       command != "remove"))
     return 2;
   std::string app = attach ? argv[first + 2] : "";
   std::string operation = argv[first + (attach ? 3 : 2)];
@@ -251,22 +263,25 @@ int main(int argc, char** argv) {
   }
   // Normal writers and the daemon share this lock. Ownership migration takes
   // it exclusively, including while moving a legacy authority snapshot.
-  int lifecycle = image ? -1 : openat(directory, "lifecycle.lock", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  int lifecycle = image ? -1
+                        : openat(directory, "lifecycle.lock",
+                                 O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
   struct stat lifecycle_info = {};
   struct stat directory_info = {};
-  if (!image && (lifecycle < 0 || flock(lifecycle, LOCK_SH | LOCK_NB) < 0 ||
-      fstat(directory, &directory_info) < 0 ||
-      fstat(lifecycle, &lifecycle_info) < 0 || lifecycle_info.st_uid != 0 ||
-      !S_ISREG(lifecycle_info.st_mode) || lifecycle_info.st_nlink != 1 ||
-      lifecycle_info.st_gid != directory_info.st_gid ||
-      (lifecycle_info.st_mode & 0777) != 0640)) {
+  if (!image &&
+      (lifecycle < 0 || flock(lifecycle, LOCK_SH | LOCK_NB) < 0 ||
+       fstat(directory, &directory_info) < 0 ||
+       fstat(lifecycle, &lifecycle_info) < 0 || lifecycle_info.st_uid != 0 ||
+       !S_ISREG(lifecycle_info.st_mode) || lifecycle_info.st_nlink != 1 ||
+       lifecycle_info.st_gid != directory_info.st_gid ||
+       (lifecycle_info.st_mode & 0777) != 0640)) {
     if (lifecycle >= 0)
       close(lifecycle);
     close(directory);
     return 1;
   }
-  int lock = openat(directory, "installations.lock", O_CREAT | O_RDWR |
-      O_CLOEXEC | O_NOFOLLOW, 0600);
+  int lock = openat(directory, "installations.lock",
+                    O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
   struct stat st = {};
   if (lock < 0 || fstat(lock, &st) < 0 || st.st_uid != 0 ||
       !S_ISREG(st.st_mode) || (st.st_mode & 0077) || st.st_nlink != 1 ||
@@ -277,15 +292,18 @@ int main(int argc, char** argv) {
     return 1;
   }
   GKeyFile* file = g_key_file_new();
-  int fd = openat(directory, "installations.conf", O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+  int fd = openat(directory, "installations.conf",
+                  O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
   struct stat previous = {};
   bool exists = fd >= 0;
   bool ok = true;
   if (fd >= 0) {
-    ok = fstat(fd, &previous) == 0 && previous.st_uid == 0 && !(previous.st_mode & 0027) &&
-        previous.st_nlink == 1 && S_ISREG(previous.st_mode) && previous.st_size <= 1048576;
+    ok = fstat(fd, &previous) == 0 && previous.st_uid == 0 &&
+         !(previous.st_mode & 0027) && previous.st_nlink == 1 &&
+         S_ISREG(previous.st_mode) && previous.st_size <= 1048576;
     if (ok && image)
-      ok = (previous.st_mode & 07777) == 0600 || (previous.st_mode & 07777) == 0640;
+      ok = (previous.st_mode & 07777) == 0600 ||
+           (previous.st_mode & 07777) == 0640;
     std::string content;
     char bytes[4096];
     ssize_t count;
@@ -300,8 +318,10 @@ int main(int argc, char** argv) {
       ok = content.size() <= 1048576;
     }
     close(fd);
-    ok = ok && g_key_file_load_from_data(file, content.data(), content.size(),
-        G_KEY_FILE_NONE, nullptr) && Get(file, "authority", "schema") == "1";
+    ok = ok &&
+         g_key_file_load_from_data(file, content.data(), content.size(),
+                                   G_KEY_FILE_NONE, nullptr) &&
+         Get(file, "authority", "schema") == "1";
   } else {
     ok = errno == ENOENT;
   }
@@ -314,7 +334,9 @@ int main(int argc, char** argv) {
     close(lifecycle);
   close(directory);
   if (!ok) {
-    fprintf(stderr, "Authority update failed or outcome uncertain; keep package fenced and retry the SAME operation\n");
+    fprintf(stderr,
+            "Authority update failed or outcome uncertain; keep package "
+            "fenced and retry the SAME operation\n");
     return 1;
   }
   printf("%s\n", result.c_str());

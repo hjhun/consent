@@ -67,7 +67,8 @@ extern "C" {
  * @see consent_respond()
  */
 CONSENT_API int consent_get_prompt(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                   const consent_params_t* params,
+                                   consent_result_t** result);
 /**
  * @brief Commits the user's response to the displayed prompt.
  * @since 0.1.0
@@ -108,7 +109,8 @@ CONSENT_API int consent_get_prompt(consent_client_h client,
  * @see consent_check()
  */
 CONSENT_API int consent_respond(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                const consent_params_t* params,
+                                consent_result_t** result);
 
 /**
  * @brief Formats one returned prompt field as bounded plain UTF-8 text.
@@ -139,7 +141,8 @@ CONSENT_API int consent_respond(consent_client_h client,
  * @see consent_get_prompt()
  */
 CONSENT_API int consent_prompt_format(const consent_result_t* prompt,
-    unsigned int requirement_index, const char* field, char** formatted);
+                                      unsigned int requirement_index,
+                                      const char* field, char** formatted);
 
 /** @} */
 

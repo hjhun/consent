@@ -31,7 +31,8 @@ int consent_client_create(consent_client_h* client) {
   return consent_client_create_with_context(nullptr, client);
 }
 
-int consent_client_create_with_context(GMainContext* context, consent_client_h* client) {
+int consent_client_create_with_context(GMainContext* context,
+                                       consent_client_h* client) {
   if (client)
     *client = nullptr;
   return Guard([&]() -> int {
@@ -54,7 +55,8 @@ int consent_client_destroy(consent_client_h client) {
       delete client;
       return 0;
     }
-    if (!client || !client->impl->IsOwner() || !client->impl->IsCurrentProcess())
+    if (!client || !client->impl->IsOwner() ||
+        !client->impl->IsCurrentProcess())
       return CONSENT_ERROR_INVALID_PARAMETER;
     int status = client->impl->Close();
     delete client;
@@ -63,7 +65,7 @@ int consent_client_destroy(consent_client_h client) {
 }
 
 int consent_client_create_offline_registration(const char* image_root,
-    consent_client_h* client) {
+                                               consent_client_h* client) {
   if (client)
     *client = nullptr;
   return Guard([&]() -> int {

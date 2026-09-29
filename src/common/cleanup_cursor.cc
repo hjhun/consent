@@ -63,14 +63,17 @@ std::string CleanupCursor::Encode() const {
 }
 
 std::string CleanupScope(const std::string& holder, const std::string& instance,
-    const std::string& subject, const std::string& profile, bool reconcile) {
+                         const std::string& subject, const std::string& profile,
+                         bool reconcile) {
   std::string input;
   for (const auto* field : {&holder, &instance, &subject, &profile})
     input += std::to_string(field->size()) + ":" + *field;
   input += reconcile ? "1" : "0";
   std::unique_ptr<gchar, decltype(&g_free)> digest(
       g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-          reinterpret_cast<const guchar*>(input.data()), input.size()), g_free);
+                                  reinterpret_cast<const guchar*>(input.data()),
+                                  input.size()),
+      g_free);
   if (!digest)
     throw std::bad_alloc();
   return digest.get();

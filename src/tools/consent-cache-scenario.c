@@ -24,13 +24,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CHECK(expression) do { if (!(expression)) { \
-  fprintf(stderr, "FAIL line=%d expression=%s\n", __LINE__, #expression); exit(1); \
-} } while (0)
-#define CALL(expression) do { int status_ = (expression); if (status_) { \
-  fprintf(stderr, "FAIL line=%d expression=%s status=%d (%s)\n", __LINE__, \
-      #expression, status_, consent_error_string(status_)); exit(1); \
-} } while (0)
+#define CHECK(expression)                                                     \
+  do {                                                                        \
+    if (!(expression)) {                                                      \
+      fprintf(stderr, "FAIL line=%d expression=%s\n", __LINE__, #expression); \
+      exit(1);                                                                \
+    }                                                                         \
+  } while (0)
+#define CALL(expression)                                                       \
+  do {                                                                         \
+    int status_ = (expression);                                                \
+    if (status_) {                                                             \
+      fprintf(stderr, "FAIL line=%d expression=%s status=%d (%s)\n", __LINE__, \
+              #expression, status_, consent_error_string(status_));            \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
 
 static consent_client_h actor;
 static consent_client_h controller;
@@ -75,9 +84,10 @@ static void identify(consent_params_t* p, char* id, size_t size) {
 }
 
 static consent_params_t* query(const char* scope, const char* session,
-    const char* generation) {
+                               const char* generation) {
   consent_params_t* p = params();
-  CALL(consent_params_add_requirement(p, definition, "read", scope, "answer", ""));
+  CALL(consent_params_add_requirement(p, definition, "read", scope, "answer",
+                                      ""));
   set(p, "r0.holder", "cache-scenario");
   if (cache_step[0])
     set(p, "step_id", cache_step);
@@ -101,14 +111,15 @@ static void complete(int status, const consent_result_t* result, void* data) {
 static void dispatch(struct completion* completion) {
   gint64 deadline = g_get_monotonic_time() + 5000000;
   while (!completion->count && g_get_monotonic_time() < deadline) {
-    while (g_main_context_iteration(NULL, FALSE)) {}
+    while (g_main_context_iteration(NULL, FALSE)) {
+    }
     g_usleep(1000);
   }
   CHECK(completion->count == 1);
 }
 
 static consent_params_t* pending(consent_params_t* request,
-    struct completion* completion) {
+                                 struct completion* completion) {
   char id[96];
   identify(request, id, sizeof(id));
   consent_async_id_t operation;
@@ -118,7 +129,8 @@ static consent_params_t* pending(consent_params_t* request,
   set(lookup, "client_request_id", id);
   consent_result_t* result = NULL;
   int status = CONSENT_ERROR_NOT_FOUND;
-  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND; ++attempt) {
+  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND;
+       ++attempt) {
     g_usleep(10000);
     status = consent_get_request_result(controller, lookup, &result);
   }
@@ -151,7 +163,7 @@ static void define(unsigned version) {
 }
 
 static void approve(const char* scope, const char* mode, const char* session,
-    const char* generation) {
+                    const char* generation) {
   consent_params_t* request = query(scope, session, generation);
   struct completion completion = {0};
   consent_params_t* lookup = pending(request, &completion);
@@ -165,15 +177,18 @@ static void approve(const char* scope, const char* mode, const char* session,
   CALL(consent_respond(controller, lookup, &result));
   consent_result_free(result);
   dispatch(&completion);
-  CHECK(completion.status == 0 && completion.decision == CONSENT_DECISION_ALLOWED);
+  CHECK(completion.status == 0 &&
+        completion.decision == CONSENT_DECISION_ALLOWED);
   consent_params_free(lookup);
   consent_params_free(request);
 }
 
 /* Authoritative checks are deliberately performed only AFTER the first
- * post-change request proves event-driven invalidation of an unexpired cache. */
-static void check(const char* scope, const char* session, const char* generation,
-    int expected_status, consent_decision_e expected) {
+ * post-change request proves event-driven invalidation of an unexpired cache.
+ */
+static void check(const char* scope, const char* session,
+                  const char* generation, int expected_status,
+                  consent_decision_e expected) {
   consent_params_t* p = query(scope, session, generation);
   consent_result_t* result = NULL;
   int status = consent_check(actor, p, 5000, &result);
@@ -187,7 +202,7 @@ static void check(const char* scope, const char* session, const char* generation
 }
 
 static void blocked_request(const char* scope, const char* session,
-    const char* generation) {
+                            const char* generation) {
   consent_params_t* p = query(scope, session, generation);
   struct completion completion = {0};
   consent_params_t* lookup = pending(p, &completion);
@@ -195,13 +210,15 @@ static void blocked_request(const char* scope, const char* session,
   CALL(consent_cancel_request(controller, lookup, &result));
   consent_result_free(result);
   dispatch(&completion);
-  CHECK(completion.status == 0 && completion.decision == CONSENT_DECISION_CANCELLED);
+  CHECK(completion.status == 0 &&
+        completion.decision == CONSENT_DECISION_CANCELLED);
   CHECK(!completion.from_cache);
   consent_params_free(lookup);
   consent_params_free(p);
 }
 
-static char* warm(const char* scope, const char* session, const char* generation) {
+static char* warm(const char* scope, const char* session,
+                  const char* generation) {
   snprintf(cache_step, sizeof(cache_step), "%s-warm-%u", run_id, ++sequence);
   consent_params_t* p = query(scope, session, generation);
   char id[96];
@@ -230,7 +247,8 @@ static char* warm(const char* scope, const char* session, const char* generation
   CHECK(completion.count == 0);
   completion.returned = 1;
   dispatch(&completion);
-  CHECK(completion.status == 0 && completion.decision == CONSENT_DECISION_ALLOWED);
+  CHECK(completion.status == 0 &&
+        completion.decision == CONSENT_DECISION_ALLOWED);
   CHECK(completion.from_cache);
   consent_params_free(p);
   return epoch;
@@ -243,11 +261,12 @@ static void before_invalidation_probe(void) {
   gint64 now = g_get_monotonic_time();
   CHECK(now < warmed_deadline && now - warmed_at < 500000);
   printf("cache invalidation probe before original expiry: elapsed_us=%lld\n",
-      (long long)(now - warmed_at));
+         (long long)(now - warmed_at));
 }
 
 static void invalidated_request(const char* scope, const char* session,
-    const char* generation, int expected_status, consent_decision_e expected) {
+                                const char* generation, int expected_status,
+                                consent_decision_e expected) {
   before_invalidation_probe();
   consent_params_t* p = query(scope, session, generation);
   char id[96];
@@ -255,7 +274,8 @@ static void invalidated_request(const char* scope, const char* session,
   consent_result_t* result = NULL;
   int status = consent_request(actor, p, 5000, &result);
   if (status != expected_status)
-    fprintf(stderr, "request status=%d expected=%d scope=%s\n", status, expected_status, scope);
+    fprintf(stderr, "request status=%d expected=%d scope=%s\n", status,
+            expected_status, scope);
   CHECK(status == expected_status);
   if (!status) {
     CHECK(consent_result_get_decision(result) == expected);
@@ -312,8 +332,8 @@ int main(int argc, char** argv) {
   CALL(consent_session_suspend(controller, p, &result));
   char* suspended_generation = field(result, "generation");
   consent_result_free(result);
-  invalidated_request("session", session, generation, CONSENT_ERROR_SESSION_INACTIVE,
-      CONSENT_DECISION_UNKNOWN);
+  invalidated_request("session", session, generation,
+                      CONSENT_ERROR_SESSION_INACTIVE, CONSENT_DECISION_UNKNOWN);
   set(p, "generation", suspended_generation);
   CALL(consent_session_close(controller, p, &result));
   consent_result_free(result);
@@ -321,7 +341,9 @@ int main(int argc, char** argv) {
   g_free(session);
   g_free(generation);
   g_free(suspended_generation);
-  puts("PASS live SESSION cache invalidated by suspend; suspended session closed");
+  puts(
+      "PASS live SESSION cache invalidated by suspend; suspended session "
+      "closed");
 
   /* An independent ACTIVE session is warmed immediately before close. The
    * earlier suspend must not supply the invalidation being tested here. */
@@ -339,11 +361,13 @@ int main(int argc, char** argv) {
   CHECK(!strcmp(consent_result_get(result, "state"), "CLOSED"));
   consent_result_free(result);
   invalidated_request("session-close", session, generation,
-      CONSENT_ERROR_SESSION_CLOSED, CONSENT_DECISION_UNKNOWN);
+                      CONSENT_ERROR_SESSION_CLOSED, CONSENT_DECISION_UNKNOWN);
   consent_params_free(p);
   g_free(session);
   g_free(generation);
-  puts("PASS live SESSION cache independently invalidated by ACTIVE session close");
+  puts(
+      "PASS live SESSION cache independently invalidated by ACTIVE session "
+      "close");
 
   g_free(warm("persistent", NULL, NULL));
   p = params();
@@ -364,18 +388,21 @@ int main(int argc, char** argv) {
   CHECK(service && service->pw_uid != 0);
   CHECK(lstat(CONSENT_TEST_DB_PATH, &database) == 0);
   CHECK(S_ISREG(database.st_mode) && database.st_nlink == 1 &&
-      database.st_uid == service->pw_uid && database.st_gid == service->pw_gid &&
-      (database.st_mode & 0777) == 0600);
+        database.st_uid == service->pw_uid &&
+        database.st_gid == service->pw_gid &&
+        (database.st_mode & 0777) == 0600);
   CHECK(unlink(CONSENT_TEST_DB_PATH) == 0);
   p = query("persistent", NULL, NULL);
   int status = CONSENT_ERROR_STORAGE;
-  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_STORAGE; ++attempt) {
+  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_STORAGE;
+       ++attempt) {
     status = consent_check(controller, p, 5000, &result);
     if (status == CONSENT_ERROR_STORAGE)
       g_usleep(10000);
   }
   CHECK(status == 0);
-  CHECK(consent_result_get_decision(result) == CONSENT_DECISION_CONSENT_REQUIRED);
+  CHECK(consent_result_get_decision(result) ==
+        CONSENT_DECISION_CONSENT_REQUIRED);
   CHECK(strcmp(consent_result_get(result, "epoch"), previous_epoch));
   consent_result_free(result);
   consent_params_free(p);
@@ -384,9 +411,13 @@ int main(int argc, char** argv) {
   blocked_request("persistent", NULL, NULL);
   approve("persistent", "PERSISTENT", NULL, NULL);
   g_free(warm("persistent", NULL, NULL));
-  puts("PASS live cache invalidated after forced DB deletion; definitions restored; fresh approval works");
+  puts(
+      "PASS live cache invalidated after forced DB deletion; definitions "
+      "restored; fresh approval works");
 #else
-  puts("SKIP DB deletion: available only in separately compiled isolated executable");
+  puts(
+      "SKIP DB deletion: available only in separately compiled isolated "
+      "executable");
 #endif
   CALL(consent_client_destroy(controller));
   CALL(consent_client_destroy(actor));

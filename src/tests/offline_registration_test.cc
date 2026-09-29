@@ -40,7 +40,8 @@ static int OfflineChmod(int fd, mode_t mode) {
 }
 static int OfflineSync(int fd) {
   struct stat info = {};
-  if (fail_sync_inode && fstat(fd, &info) == 0 && info.st_ino == fail_sync_inode) {
+  if (fail_sync_inode && fstat(fd, &info) == 0 &&
+      info.st_ino == fail_sync_inode) {
     ++matching_sync_calls;
     if (matching_sync_calls == fail_sync_call) {
       errno = EIO;
@@ -64,10 +65,15 @@ using consent::offline::ImageRoot;
 using consent::offline::LoadRegistrations;
 using consent::offline::RegistrationWriter;
 
-#define CHECK(expression) do { if (!(expression)) { \
-  std::fprintf(stderr, "FAIL offline registration line=%d expression=%s\n", __LINE__, #expression); \
-  std::exit(1); \
-} } while (0)
+#define CHECK(expression)                                               \
+  do {                                                                  \
+    if (!(expression)) {                                                \
+      std::fprintf(stderr,                                              \
+                   "FAIL offline registration line=%d expression=%s\n", \
+                   __LINE__, #expression);                              \
+      std::exit(1);                                                     \
+    }                                                                   \
+  } while (0)
 
 void Remove(const std::string& path) {
   struct stat info = {};
@@ -103,18 +109,26 @@ struct Fixture {
 };
 
 Message Definition(const std::string& operation = "install-1") {
-  return {{"definition", "offline.read"}, {"package", "offline.package"},
-      {"app", "offline.app"}, {"enforcer", "offline.enforcer"}, {"policy_version", "1"},
-      {"text_revision", "1"}, {"level", "1"}, {"modes", "PERSISTENT"},
-      {"default_locale", "en"}, {"message.en.title", "Read"},
-      {"message.en.body", "Allow reading?"}, {"operation_id", operation},
-      {"expected_generation", "generation-1"}};
+  return {{"definition", "offline.read"},
+          {"package", "offline.package"},
+          {"app", "offline.app"},
+          {"enforcer", "offline.enforcer"},
+          {"policy_version", "1"},
+          {"text_revision", "1"},
+          {"level", "1"},
+          {"modes", "PERSISTENT"},
+          {"default_locale", "en"},
+          {"message.en.title", "Read"},
+          {"message.en.body", "Allow reading?"},
+          {"operation_id", operation},
+          {"expected_generation", "generation-1"}};
 }
 
 std::string Name(const Message& value) {
   auto operation = consent::Get(value, "operation_id");
-  gchar* checksum = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      reinterpret_cast<const guchar*>(operation.data()), operation.size());
+  gchar* checksum = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, reinterpret_cast<const guchar*>(operation.data()),
+      operation.size());
   CHECK(checksum);
   std::string name = std::string(checksum) + ".parcel";
   g_free(checksum);
@@ -122,9 +136,11 @@ std::string Name(const Message& value) {
 }
 
 void File(const std::string& path, const std::vector<uint8_t>& bytes) {
-  int fd = open(path.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
+  int fd = open(path.c_str(),
+                O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
   CHECK(fd >= 0);
-  CHECK(write(fd, bytes.data(), bytes.size()) == static_cast<ssize_t>(bytes.size()));
+  CHECK(write(fd, bytes.data(), bytes.size()) ==
+        static_cast<ssize_t>(bytes.size()));
   CHECK(close(fd) == 0);
 }
 
@@ -134,8 +150,8 @@ std::vector<uint8_t> Encode(Message value) {
   value["method"] = "register";
   auto bytes = consent::Encode(value);
   CHECK(!bytes.empty());
-  gchar* digest = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      bytes.data() + 4, bytes.size() - 4);
+  gchar* digest = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, bytes.data() + 4, bytes.size() - 4);
   CHECK(digest);
   value["offline_format"] = "1";
   value["payload_sha256"] = digest;
@@ -145,7 +161,8 @@ std::vector<uint8_t> Encode(Message value) {
   return stored;
 }
 
-std::vector<uint8_t> DuplicateField(const Message& stored, const std::string& duplicate) {
+std::vector<uint8_t> DuplicateField(const Message& stored,
+                                    const std::string& duplicate) {
   consent::wire::Envelope envelope;
   envelope.version = 1;
   envelope.kind = 1;
@@ -216,8 +233,9 @@ void FormatMetadata() {
     wrong["offline_format"] = version;
     CHECK(rejected(consent::Encode(wrong)));
   }
-  for (const auto& digest : {std::string(), std::string(63, 'a'), std::string(65, 'a'),
-      std::string(64, 'A'), std::string(64, 'g'), std::string(64, '0')}) {
+  for (const auto& digest :
+       {std::string(), std::string(63, 'a'), std::string(65, 'a'),
+        std::string(64, 'A'), std::string(64, 'g'), std::string(64, '0')}) {
     auto wrong = stored;
     wrong["payload_sha256"] = digest;
     CHECK(rejected(consent::Encode(wrong)));
@@ -264,7 +282,9 @@ void FormatMetadata() {
     bounded = error.Status() == -E2BIG;
   }
   CHECK(bounded);  // The public envelope fits; stored metadata exceeds 64 KiB.
-  std::puts("PASS offline format: actual producer, version/SHA256, metadata injection/duplicates/tampering and field budget");
+  std::puts(
+      "PASS offline format: actual producer, version/SHA256, metadata "
+      "injection/duplicates/tampering and field budget");
 }
 
 void DurableRecords() {
@@ -272,9 +292,11 @@ void DurableRecords() {
   RegistrationWriter writer;
   CHECK(writer.Open(fixture.root) == 0);
   CHECK(writer.Register(Definition()) == 0);
-  int stored_directory = open(fixture.spool.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  int stored_directory =
+      open(fixture.spool.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
   CHECK(stored_directory >= 0);
-  CHECK(consent::offline::ReadFile(stored_directory, Name(Definition())) == Encode(Definition()));
+  CHECK(consent::offline::ReadFile(stored_directory, Name(Definition())) ==
+        Encode(Definition()));
   CHECK(close(stored_directory) == 0);
   ImageRoot competing;
   CHECK(competing.Open(fixture.root) == -EBUSY);
@@ -283,7 +305,8 @@ void DurableRecords() {
   changed["message.en.body"] = "Changed meaning";
   CHECK(writer.Register(changed) == -EEXIST);
   std::vector<Message> records;
-  CHECK(LoadRegistrations(fixture.authority, &records) == 0 && records.size() == 1);
+  CHECK(LoadRegistrations(fixture.authority, &records) == 0 &&
+        records.size() == 1);
   CHECK(records[0] == Definition());
   auto private_field = Definition("private");
   private_field["_install_identity"] = "forged";
@@ -307,12 +330,16 @@ void DurableRecords() {
   CHECK(matching_sync_calls >= 1);
   fail_sync_inode = 0;
 
-  const auto orphan = fixture.spool + "/.pending-00000000-0000-4000-8000-000000000001";
+  const auto orphan =
+      fixture.spool + "/.pending-00000000-0000-4000-8000-000000000001";
   File(orphan, {0, 0});
-  CHECK(LoadRegistrations(fixture.authority, &records) == 0 && records.size() == 2);
+  CHECK(LoadRegistrations(fixture.authority, &records) == 0 &&
+        records.size() == 2);
   CHECK(writer.Register(Definition("after-interruption")) == 0);
   CHECK(access(orphan.c_str(), F_OK) < 0 && errno == ENOENT);
-  std::puts("PASS offline: durable native Parcel, retry/conflict, post-publication sync failure and orphan recovery");
+  std::puts(
+      "PASS offline: durable native Parcel, retry/conflict, "
+      "post-publication sync failure and orphan recovery");
 }
 
 void FilesystemRejection() {
@@ -323,7 +350,8 @@ void FilesystemRejection() {
   std::vector<Message> records;
   const auto record = fixture.spool + "/" + Name(Definition());
   CHECK(chmod(record.c_str(), 0666) == 0);
-  CHECK(LoadRegistrations(fixture.authority, &records) == -EACCES && records.empty());
+  CHECK(LoadRegistrations(fixture.authority, &records) == -EACCES &&
+        records.empty());
   CHECK(chmod(record.c_str(), 0600) == 0);
   const auto extra = fixture.spool + "/" + Name(Definition("extra"));
   CHECK(link(record.c_str(), extra.c_str()) == 0);
@@ -345,7 +373,8 @@ void FilesystemRejection() {
   CHECK(LoadRegistrations(fixture.authority, &records) == -E2BIG);
   CHECK(unlink(extra.c_str()) == 0);
   File(record, {0, 0, 0, 1, 0});
-  CHECK(LoadRegistrations(fixture.authority, &records) == -EINVAL && records.empty());
+  CHECK(LoadRegistrations(fixture.authority, &records) == -EINVAL &&
+        records.empty());
 
   ImageRoot escape;
   CHECK(escape.Open(fixture.root + "/../escape") == -EINVAL);
@@ -356,7 +385,9 @@ void FilesystemRejection() {
   CHECK(chmod(fixture.root.c_str(), 0777) == 0);
   CHECK(escape.Open(fixture.root) == -EACCES);
   CHECK(chmod(fixture.root.c_str(), 0700) == 0);
-  std::puts("PASS offline: protected paths, symlink/hardlink/FIFO, mode, malformed and oversized record rejection");
+  std::puts(
+      "PASS offline: protected paths, symlink/hardlink/FIFO, mode, "
+      "malformed and oversized record rejection");
 }
 
 void Bounds() {
@@ -375,12 +406,16 @@ void Bounds() {
     File(fixture.spool + "/" + Name(value), Encode(value));
   }
   std::vector<Message> records;
-  CHECK(LoadRegistrations(fixture.authority, &records) == 0 && records.size() == 128);
+  CHECK(LoadRegistrations(fixture.authority, &records) == 0 &&
+        records.size() == 128);
   CHECK(writer.Register(Definition("full")) == -ENOSPC);
   auto excess = Definition("129th");
   File(fixture.spool + "/" + Name(excess), Encode(excess));
-  CHECK(LoadRegistrations(fixture.authority, &records) == -ENOSPC && records.empty());
-  std::puts("PASS offline: exact128 record capacity and registration/reader size limits");
+  CHECK(LoadRegistrations(fixture.authority, &records) == -ENOSPC &&
+        records.empty());
+  std::puts(
+      "PASS offline: exact128 record capacity and registration/reader size "
+      "limits");
 }
 
 void AggregateAndOrder() {
@@ -393,11 +428,14 @@ void AggregateAndOrder() {
   CHECK(writer.Register(newer) == 0);
   CHECK(writer.Register(Definition("older-second")) == 0);
   std::vector<Message> records;
-  CHECK(LoadRegistrations(fixture.authority, &records) == 0 && records.size() == 2);
+  CHECK(LoadRegistrations(fixture.authority, &records) == 0 &&
+        records.size() == 2);
   CHECK(consent::Get(records[0], "policy_version") == "1" &&
-      consent::Get(records[1], "policy_version") == "2");
+        consent::Get(records[1], "policy_version") == "2");
   CHECK(unlink((fixture.spool + "/" + Name(newer)).c_str()) == 0);
-  CHECK(unlink((fixture.spool + "/" + Name(Definition("older-second"))).c_str()) == 0);
+  CHECK(unlink(
+            (fixture.spool + "/" + Name(Definition("older-second"))).c_str()) ==
+        0);
   size_t total = 0;
   unsigned count = 0;
   while (true) {
@@ -414,9 +452,12 @@ void AggregateAndOrder() {
     if (total > consent::offline::kMaxRegistrationBytes)
       break;
   }
-  CHECK(LoadRegistrations(fixture.authority, &records) == -ENOSPC && records.empty());
+  CHECK(LoadRegistrations(fixture.authority, &records) == -ENOSPC &&
+        records.empty());
   CHECK(writer.Register(Definition("over-budget")) == -ENOSPC);
-  std::puts("PASS offline: revision ordering and aggregate4MiB bound independent of record count/size");
+  std::puts(
+      "PASS offline: revision ordering and aggregate4MiB bound independent "
+      "of record count/size");
 }
 
 void InterruptedScaffold() {
@@ -425,76 +466,117 @@ void InterruptedScaffold() {
   fail_ancestor_mode = true;
   CHECK(writer.Open(fixture.root) == -EIO);
   struct stat info = {};
-  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 && (info.st_mode & 0777) == 0700);
+  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 &&
+        (info.st_mode & 0777) == 0700);
   CHECK(writer.Open(fixture.root) == -EACCES);
-  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 && (info.st_mode & 0777) == 0700);
+  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 &&
+        (info.st_mode & 0777) == 0700);
   CHECK(access(fixture.authority.c_str(), F_OK) < 0);
   CHECK(chmod((fixture.root + "/opt").c_str(), 0711) == 0);
   CHECK(writer.Open(fixture.root) == -EACCES);
-  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 && (info.st_mode & 0777) == 0711);
+  CHECK(stat((fixture.root + "/opt").c_str(), &info) == 0 &&
+        (info.st_mode & 0777) == 0711);
   CHECK(access(fixture.authority.c_str(), F_OK) < 0);
   // Existing image metadata is never silently repaired. An explicit image
   // builder correction permits a later retry without overstating completion.
   CHECK(chmod((fixture.root + "/opt").c_str(), 0755) == 0);
   CHECK(writer.Open(fixture.root) == 0);
   CHECK(writer.Register(Definition()) == 0);
-  std::puts("PASS offline: interrupted ancestor initialization rejects retry until explicit repair");
+  std::puts(
+      "PASS offline: interrupted ancestor initialization rejects retry "
+      "until explicit repair");
 }
 
 void PublicHandle() {
   Fixture fixture;
   consent_client_h client = nullptr;
-  CHECK(consent_client_create_offline_registration(fixture.root.c_str(), &client) == 0 && client);
+  CHECK(consent_client_create_offline_registration(fixture.root.c_str(),
+                                                   &client) == 0 &&
+        client);
   consent_params_t* params = nullptr;
   CHECK(consent_params_create(&params) == 0);
   for (const auto& field : Definition()) {
     if (field.first != "package" && field.first != "app")
-      CHECK(consent_params_set(params, field.first.c_str(), field.second.c_str()) == 0);
+      CHECK(consent_params_set(params, field.first.c_str(),
+                               field.second.c_str()) == 0);
   }
-  CHECK(consent_register(client, "offline.package", "offline.app", params) == 0);
-  CHECK(consent_update(client, "offline.package", "offline.app", params) == CONSENT_ERROR_INVALID_OPERATION);
-  CHECK(consent_unregister(client, "offline.package", params) == CONSENT_ERROR_INVALID_OPERATION);
+  CHECK(consent_register(client, "offline.package", "offline.app", params) ==
+        0);
+  CHECK(consent_update(client, "offline.package", "offline.app", params) ==
+        CONSENT_ERROR_INVALID_OPERATION);
+  CHECK(consent_unregister(client, "offline.package", params) ==
+        CONSENT_ERROR_INVALID_OPERATION);
   consent_result_t* result = reinterpret_cast<consent_result_t*>(1);
-  CHECK(consent_request(client, params, 1, &result) == CONSENT_ERROR_INVALID_OPERATION && !result);
+  CHECK(consent_request(client, params, 1, &result) ==
+            CONSENT_ERROR_INVALID_OPERATION &&
+        !result);
   result = reinterpret_cast<consent_result_t*>(1);
-  CHECK(consent_check(client, params, 1, &result) == CONSENT_ERROR_INVALID_OPERATION && !result);
+  CHECK(consent_check(client, params, 1, &result) ==
+            CONSENT_ERROR_INVALID_OPERATION &&
+        !result);
   consent_async_id_t operation = 1;
-  CHECK(consent_request_async(client, params, nullptr, nullptr, &operation) == CONSENT_ERROR_INVALID_OPERATION && !operation);
+  CHECK(consent_request_async(client, params, nullptr, nullptr, &operation) ==
+            CONSENT_ERROR_INVALID_OPERATION &&
+        !operation);
   operation = 1;
-  CHECK(consent_check_async(client, params, nullptr, nullptr, &operation) == CONSENT_ERROR_INVALID_OPERATION && !operation);
+  CHECK(consent_check_async(client, params, nullptr, nullptr, &operation) ==
+            CONSENT_ERROR_INVALID_OPERATION &&
+        !operation);
   CHECK(consent_async_detach(client, 1) == CONSENT_ERROR_INVALID_OPERATION);
-  using Function = int (*)(consent_client_h, const consent_params_t*, consent_result_t**);
-  const Function functions[] = {consent_get_prompt, consent_respond, consent_get_request_result,
-      consent_cancel_request, consent_revoke, consent_session_open, consent_session_suspend,
-      consent_session_resume, consent_session_close, consent_session_get_state, consent_data_register,
-      consent_data_register_derived, consent_data_release, consent_cleanup_get_state, consent_cleanup_get_pending};
+  using Function =
+      int (*)(consent_client_h, const consent_params_t*, consent_result_t**);
+  const Function functions[] = {consent_get_prompt,
+                                consent_respond,
+                                consent_get_request_result,
+                                consent_cancel_request,
+                                consent_revoke,
+                                consent_session_open,
+                                consent_session_suspend,
+                                consent_session_resume,
+                                consent_session_close,
+                                consent_session_get_state,
+                                consent_data_register,
+                                consent_data_register_derived,
+                                consent_data_release,
+                                consent_cleanup_get_state,
+                                consent_cleanup_get_pending};
   for (auto function : functions) {
     result = reinterpret_cast<consent_result_t*>(1);
-    CHECK(function(client, params, &result) == CONSENT_ERROR_INVALID_OPERATION && !result);
+    CHECK(function(client, params, &result) ==
+              CONSENT_ERROR_INVALID_OPERATION &&
+          !result);
   }
   std::thread other([&]() {
-    CHECK(consent_register(client, "offline.package", "offline.app", params) == CONSENT_ERROR_INVALID_PARAMETER);
+    CHECK(consent_register(client, "offline.package", "offline.app", params) ==
+          CONSENT_ERROR_INVALID_PARAMETER);
     CHECK(consent_client_destroy(client) == CONSENT_ERROR_INVALID_PARAMETER);
   });
   other.join();
   pid_t child = fork();
   CHECK(child >= 0);
   if (child == 0) {
-    CHECK(consent_register(client, "offline.package", "offline.app", params) == CONSENT_ERROR_INVALID_PARAMETER);
+    CHECK(consent_register(client, "offline.package", "offline.app", params) ==
+          CONSENT_ERROR_INVALID_PARAMETER);
     CHECK(consent_client_destroy(client) == CONSENT_ERROR_INVALID_PARAMETER);
     CHECK(setgid(65534) == 0 && setuid(65534) == 0);
     consent_client_h denied = reinterpret_cast<consent_client_h>(1);
-    CHECK(consent_client_create_offline_registration(fixture.root.c_str(), &denied) == CONSENT_ERROR_PERMISSION_DENIED && !denied);
+    CHECK(consent_client_create_offline_registration(fixture.root.c_str(),
+                                                     &denied) ==
+              CONSENT_ERROR_PERMISSION_DENIED &&
+          !denied);
     _exit(0);
   }
   int status = 0;
-  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) &&
+        WEXITSTATUS(status) == 0);
   ImageRoot competing;
   CHECK(competing.Open(fixture.root) == -EBUSY);
   CHECK(consent_client_destroy(client) == 0);
   CHECK(competing.Open(fixture.root) == 0);
   consent_params_free(params);
-  std::puts("PASS offline public C API: registration only, output resets, thread/fork/root guards and lifecycle lock");
+  std::puts(
+      "PASS offline public C API: registration only, output resets, "
+      "thread/fork/root guards and lifecycle lock");
 }
 }  // namespace
 
@@ -502,8 +584,12 @@ int main() {
   FormatMetadata();
   if (getuid() != 0 || geteuid() != 0) {
     consent_client_h client = reinterpret_cast<consent_client_h>(1);
-    CHECK(consent_client_create_offline_registration("/", &client) == CONSENT_ERROR_PERMISSION_DENIED && !client);
-    std::puts("SKIP root-only offline fixture; non-root public constructor denial PASS");
+    CHECK(consent_client_create_offline_registration("/", &client) ==
+              CONSENT_ERROR_PERMISSION_DENIED &&
+          !client);
+    std::puts(
+        "SKIP root-only offline fixture; non-root public constructor "
+        "denial PASS");
     return 77;
   }
   DurableRecords();

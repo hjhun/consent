@@ -14,7 +14,8 @@
 # limitations under the License.
 set -eu
 # Run as root with SmackProcessLabel=System on a selected DEVELOPMENT emulator.
-# All mutable data belongs to this isolated test; production config is untouched.
+# All mutable data belongs to this isolated test; production config is
+# untouched.
 phase=${1:-basic}
 state=/opt/var/lib/consent-test
 control=/opt/var/lib/consent-test-control
@@ -48,7 +49,8 @@ cleanup_fixture() {
   fi
   if [ "$phase" = db-shutdown ]; then
     systemctl stop consentd-isolated.socket consentd-isolated.service || true
-    sed -i 's@/consentd-shutdown-test@/consentd-test@' /run/systemd/system/consentd-isolated.service
+    sed -i 's@/consentd-shutdown-test@/consentd-test@' \
+  /run/systemd/system/consentd-isolated.service
     rm -f "$gate/shutdown-db-ready" "$gate/shutdown-db-release"
     rmdir "$gate" || true
   fi
@@ -167,7 +169,8 @@ systemctl start consentd-isolated.socket
 systemctl start consentd-isolated.service
 case "$phase" in
   basic)
-    # Fresh state only: preserve previous evidence instead of implicitly wiping it.
+    # Fresh state only: preserve previous evidence instead of implicitly wiping
+    # it.
     [ ! -e "$control/generation" ]
     generation=$(authority begin demo.package begin-1 absent)
     authority attach demo.package demo.app attach-1 "$generation"
@@ -185,7 +188,8 @@ case "$phase" in
     "$scenario" persistent "$(cat "$control/generation")"
     ;;
   localization)
-    "$tools/consent-localization-scenario-isolated" "$(cat "$control/generation")"
+    "$tools/consent-localization-scenario-isolated" "$(cat \
+  "$control/generation")"
     ;;
   cache)
     "$tools/consent-cache-scenario-isolated" "$(cat "$control/generation")"
@@ -202,15 +206,21 @@ case "$phase" in
     quota_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
       grep "$daemon_pid)" | grep -c 'reason=uid-connection-limit' || true)
     pressure_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
-      grep "$daemon_pid)" | grep -Ec 'reason=(output-limit|write-timeout)' || true)
+      grep "$daemon_pid)" | grep -Ec 'reason=(output-limit|write-timeout)' || \
+  true)
     "$tools/wire-scenario"
-    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = "$daemon_pid" ]
-    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" > "$runtime/wire-daemon.log"
-    quota_after=$(grep -c 'reason=uid-connection-limit' "$runtime/wire-daemon.log" || true)
-    pressure_after=$(grep -Ec 'reason=(output-limit|write-timeout)' "$runtime/wire-daemon.log" || true)
+    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = \
+  "$daemon_pid" ]
+    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" > \
+  "$runtime/wire-daemon.log"
+    quota_after=$(grep -c 'reason=uid-connection-limit' \
+  "$runtime/wire-daemon.log" || true)
+    pressure_after=$(grep -Ec 'reason=(output-limit|write-timeout)' \
+  "$runtime/wire-daemon.log" || true)
     [ "$((quota_after - quota_before))" = 4 ]
     [ "$pressure_after" -gt "$pressure_before" ]
-    echo "PASS wire same daemon PID=$daemon_pid quota_rejections=4 output-pressure-reason-confirmed"
+    echo \
+  "PASS wire same daemon PID=$daemon_pid quota_rejections=4 output-pressure-reason-confirmed"
     ;;
   shutdown)
     systemctl start consentd-isolated.service
@@ -241,11 +251,15 @@ OBSERVER
     systemctl start "$observer"
     systemctl stop consentd-isolated.socket consentd-isolated.service
     [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = 0 ]
-    [ "$(systemctl show consentd-isolated.service -p Result --value)" = success ]
-    [ "$(systemctl show consentd-isolated.service -p ExecMainCode --value)" = 1 ]
-    [ "$(systemctl show consentd-isolated.service -p ExecMainStatus --value)" = 0 ]
+    [ "$(systemctl show consentd-isolated.service -p Result --value)" = \
+  success ]
+    [ "$(systemctl show consentd-isolated.service -p ExecMainCode --value)" = \
+  1 ]
+    [ "$(systemctl show consentd-isolated.service -p ExecMainStatus --value)" \
+  = 0 ]
     attempt=0
-    while [ "$(systemctl show "$wait_unit" -p MainPID --value)" != 0 ] && [ "$attempt" -lt 20 ]; do
+    while [ "$(systemctl show "$wait_unit" -p MainPID --value)" != 0 ] && [ \
+  "$attempt" -lt 20 ]; do
       sleep 0.05
       attempt=$((attempt + 1))
     done
@@ -253,7 +267,8 @@ OBSERVER
     [ "$(systemctl show "$wait_unit" -p Result --value)" = success ]
     [ "$(systemctl show "$wait_unit" -p ExecMainCode --value)" = 1 ]
     [ "$(systemctl show "$wait_unit" -p ExecMainStatus --value)" = 0 ]
-    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | grep 'stage=database-drained'
+    dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | grep \
+  'stage=database-drained'
     dlogutil -d STDERR_consentd-test:V '*:S' | grep "$daemon_pid)" | \
       grep "pid=$waiter_pid .*reason=daemon-shutdown pending_input_bytes=2"
     journalctl -u "$wait_unit" --no-pager -o cat -n 8
@@ -261,7 +276,8 @@ OBSERVER
     rm -f "/run/systemd/system/$observer"
     observer=
     systemctl daemon-reload
-    echo "PASS partial-I/O shutdown daemon PID=$daemon_pid normal exit and database-drained"
+    echo \
+  "PASS partial-I/O shutdown daemon PID=$daemon_pid normal exit and database-drained"
     ;;
   db-shutdown)
     [ ! -L "$gate" ]
@@ -287,7 +303,8 @@ OBSERVER
       sleep 0.05
       attempt=$((attempt + 1))
     done
-    [ "$(cat "$gate/shutdown-db-ready")" = "pid=$daemon_pid state=before-commit" ]
+    [ "$(cat "$gate/shutdown-db-ready")" = \
+  "pid=$daemon_pid state=before-commit" ]
     observer=consent-db-observer-$$.target
     cat > "/run/systemd/system/$observer" <<OBSERVER
 [Unit]
@@ -300,7 +317,8 @@ OBSERVER
     systemctl kill --kill-who=main --signal=SIGTERM consentd-isolated.service
     attempt=0
     while [ "$attempt" -lt 40 ]; do
-      dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" > "$runtime/db-drain.log" || true
+      dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" \
+  > "$runtime/db-drain.log" || true
       if grep -q 'stage=stop-admission' "$runtime/db-drain.log"; then break; fi
       sleep 0.05
       attempt=$((attempt + 1))
@@ -310,14 +328,17 @@ OBSERVER
       echo 'FAIL drained before release' >&2
       exit 1
     fi
-    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = "$daemon_pid" ]
+    [ "$(systemctl show consentd-isolated.service -p MainPID --value)" = \
+  "$daemon_pid" ]
     kill -0 "$daemon_pid"
-    printf 'PASS accepted revoke is gated before COMMIT; same PID=%s stopped admission before release\n' "$daemon_pid"
+    printf \
+  'PASS accepted revoke is gated before COMMIT; same PID=%s stopped admission before release\n' "$daemon_pid"
     printf C >&3
     exec 3>&-
     drain_open=0
     attempt=0
-    while [ "$(systemctl show consentd-isolated.service -p MainPID --value)" != 0 ] && [ "$attempt" -lt 60 ]; do
+    while [ "$(systemctl show consentd-isolated.service -p MainPID --value)" \
+  != 0 ] && [ "$attempt" -lt 60 ]; do
       sleep 0.05
       attempt=$((attempt + 1))
     done
@@ -327,16 +348,20 @@ OBSERVER
       [ "$(systemctl show "$unit" -p ExecMainCode --value)" = 1 ]
       [ "$(systemctl show "$unit" -p ExecMainStatus --value)" = 0 ]
     done
-    dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" | grep 'stage=database-drained'
+    dlogutil -d STDERR_consentd-shutdown-test:V '*:S' | grep "$daemon_pid)" | \
+  grep 'stage=database-drained'
     journalctl -u "$revoke_unit" --no-pager -o cat -n 8
-    systemctl stop consentd-isolated.socket consentd-isolated.service "$observer"
+    systemctl stop consentd-isolated.socket consentd-isolated.service \
+  "$observer"
     rm -f "/run/systemd/system/$observer"
     observer=
-    sed -i 's@/consentd-shutdown-test@/consentd-test@' /run/systemd/system/consentd-isolated.service
+    sed -i 's@/consentd-shutdown-test@/consentd-test@' \
+  /run/systemd/system/consentd-isolated.service
     systemctl daemon-reload
     systemctl start consentd-isolated.socket
     "$scenario" shutdown-result "$generation" "$scope"
-    echo "PASS accepted DB revoke drained on SIGTERM; ordinary daemon restart confirms durable revocation"
+    echo \
+  "PASS accepted DB revoke drained on SIGTERM; ordinary daemon restart confirms durable revocation"
     ;;
   holder-restart)
     "$scenario" holder-seed "$(cat "$control/generation")"
@@ -348,8 +373,10 @@ OBSERVER
     "$tools/consent-api-test-isolated" unregister demo.package \
       operation_id=uninstall-old expected_generation="$old"
     for definition in demo.read demo.other; do
-      "$tools/consent-api-test-isolated" check subject=demo.subject profile=demo.profile \
-        count=1 r0.definition="$definition" r0.operation=read r0.scope=persistent-scope \
+      "$tools/consent-api-test-isolated" check subject=demo.subject \
+  profile=demo.profile \
+        count=1 r0.definition="$definition" r0.operation=read \
+  r0.scope=persistent-scope \
         r0.purpose=answer r0.holder=scenario --expect-decision=DENIED
     done
     generation=$(authority begin demo.package reinstall-new "$old")
@@ -395,8 +422,10 @@ OBSERVER
     chmod 755 "$tools/consent-untrusted-client"
     rejection_before=$(dlogutil -d STDERR_consentd-test:V '*:S' | \
       grep -c 'role=rejected' || true)
-    if "$tools/consent-untrusted-client" check subject=demo.subject profile=demo.profile \
-        count=1 r0.definition=demo.read r0.operation=read r0.scope=persistent-scope \
+    if "$tools/consent-untrusted-client" check subject=demo.subject \
+  profile=demo.profile \
+        count=1 r0.definition=demo.read r0.operation=read \
+  r0.scope=persistent-scope \
         r0.purpose=answer r0.holder=scenario; then
       echo 'FAIL unregistered executable accepted' >&2
       exit 1
@@ -413,12 +442,16 @@ esac
 if [ "$phase" != basic ] && [ "$phase" != shutdown ]; then
   systemctl is-active consentd-isolated.service
 fi
-# Daemon owns the live DB. Perform SQLite readback only with the service stopped.
+# Daemon owns the live DB. Perform SQLite readback only with the service
+# stopped.
 systemctl stop consentd-isolated.socket consentd-isolated.service
 integrity=$(sqlite3 "$state/consent.db" 'PRAGMA integrity_check;')
 [ "$integrity" = ok ]
 [ "$(sqlite3 "$state/consent.db" 'PRAGMA user_version;')" = 2 ]
-[ "$(sqlite3 "$state/consent.db" 'SELECT count(*) FROM meta WHERE key IN ("revision","registry_revision","cleanup_unknown");')" = 3 ]
-[ "$(sqlite3 "$state/consent.db" 'SELECT CAST(value AS INTEGER) FROM meta WHERE key="registry_revision";')" -ge 2 ]
+[ "$(sqlite3 "$state/consent.db" \
+  'SELECT count(*) FROM meta WHERE key IN ("revision","registry_revision","cleanup_unknown");')" = 3 ]
+[ "$(sqlite3 "$state/consent.db" \
+  'SELECT CAST(value AS INTEGER) FROM meta WHERE key="registry_revision";')" \
+  -ge 2 ]
 echo 'PASS integrity_check=ok schema=2 expected_metadata_present'
 echo "PASS emulator phase=$phase"

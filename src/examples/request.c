@@ -28,10 +28,12 @@ struct completion {
 
 static void completed(int status, const consent_result_t* result, void* data) {
   struct completion* completion = data;
-  completion->status = completion->api_returned ? status : CONSENT_ERROR_PROTOCOL;
+  completion->status =
+      completion->api_returned ? status : CONSENT_ERROR_PROTOCOL;
   /* The callback result is borrowed. Clone before returning to use it below. */
   if (!completion->status)
-    completion->status = consent_result_clone(result, &completion->owned_result);
+    completion->status =
+        consent_result_clone(result, &completion->owned_result);
   /* A synchronous check/cancel here would own this client's context and fail
    * with WOULD_DEADLOCK. Leave the loop before making such a call. */
   g_main_loop_quit(completion->loop);
@@ -46,7 +48,7 @@ static gboolean stop_waiting(gpointer data) {
 }
 
 static void cancel_remote(consent_client_h client, const char* subject,
-    const char* profile, const char* client_request_id) {
+                          const char* profile, const char* client_request_id) {
   consent_params_t* params = NULL;
   consent_result_t* result = NULL;
   int status = consent_params_create(&params);
@@ -59,7 +61,8 @@ static void cancel_remote(consent_client_h client, const char* subject,
   if (!status)
     status = consent_cancel_request(client, params, &result);
   if (status)
-    example_error("remote cancellation (outcome still needs reconciliation)", status);
+    example_error("remote cancellation (outcome still needs reconciliation)",
+                  status);
   else
     printf("Remote state after cancellation: %s\n", example_decision(result));
   consent_result_free(result);
@@ -76,7 +79,11 @@ int main(int argc, char** argv) {
   int exit_status = 1;
   int status;
   if (argc != 10 && argc != 12) {
-    fprintf(stderr, "Usage: %s SUBJECT PROFILE DEFINITION POLICY_VERSION SCOPE PURPOSE RECIPIENT CLIENT_REQUEST_ID OPERATION_ID [SESSION GENERATION]\n", argv[0]);
+    fprintf(stderr,
+            "Usage: %s SUBJECT PROFILE DEFINITION POLICY_VERSION SCOPE "
+            "PURPOSE RECIPIENT CLIENT_REQUEST_ID OPERATION_ID [SESSION "
+            "GENERATION]\n",
+            argv[0]);
     return 2;
   }
   /* This executable must be authenticated as argo. A separate authenticated
@@ -84,8 +91,8 @@ int main(int argc, char** argv) {
   context = g_main_context_new();
   completion.loop = g_main_loop_new(context, FALSE);
   status = example_requirement(argv[1], argv[2], argv[3], argv[4], argv[5],
-      argv[6], argv[7], argc == 12 ? argv[10] : NULL,
-      argc == 12 ? argv[11] : NULL, &params);
+                               argv[6], argv[7], argc == 12 ? argv[10] : NULL,
+                               argc == 12 ? argv[11] : NULL, &params);
   if (!status)
     status = consent_params_set(params, "client_request_id", argv[8]);
   if (!status)
@@ -95,7 +102,8 @@ int main(int argc, char** argv) {
   if (!status)
     status = consent_client_create_with_context(context, &client);
   if (!status)
-    status = consent_request_async(client, params, completed, &completion, &operation);
+    status = consent_request_async(client, params, completed, &completion,
+                                   &operation);
   completion.api_returned = 1;
   consent_params_free(params);  // Accepted operations have copied every field.
   if (status)
@@ -103,7 +111,8 @@ int main(int argc, char** argv) {
   watchdog = g_timeout_source_new(65000);
   g_source_set_callback(watchdog, stop_waiting, &completion, NULL);
   g_source_attach(watchdog, context);
-  /* Only this creating thread iterates the context, after submission returns. */
+  /* Only this creating thread iterates the context, after submission returns.
+   */
   g_main_loop_run(completion.loop);
   status = completion.status;
   if (completion.timed_out) {
@@ -115,9 +124,11 @@ int main(int argc, char** argv) {
     cancel_remote(client, argv[1], argv[2], argv[8]);
   } else if (!status) {
     printf("Approval result: %s (advisory; AUTHORIZE is still required)\n",
-        example_decision(completion.owned_result));
+           example_decision(completion.owned_result));
     exit_status = consent_result_get_decision(completion.owned_result) ==
-        CONSENT_DECISION_ALLOWED ? 0 : 3;
+                          CONSENT_DECISION_ALLOWED
+                      ? 0
+                      : 3;
   }
 done:
   if (status)

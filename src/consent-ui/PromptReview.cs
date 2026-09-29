@@ -15,28 +15,35 @@
  */
 namespace ConsentUI;
 
-internal sealed class PromptReview
-{
+internal sealed class PromptReview {
   public PromptSnapshot? Snapshot { get; private set; }
   public int Page { get; private set; }
   public int Reviewed { get; private set; }
-  public bool CanAllow => Snapshot is not null && Snapshot.CanApprove && Reviewed == Snapshot.Pages.Count;
+  public bool CanAllow => Snapshot is not null && Snapshot.CanApprove &&
+                          Reviewed == Snapshot.Pages.Count;
 
-  public int PageFor(PromptSnapshot fresh) => Snapshot is not null && Snapshot.SameContent(fresh) ? Page : 0;
+  public int PageFor(PromptSnapshot fresh) =>
+      Snapshot is not null && Snapshot.SameContent(fresh) ? Page : 0;
 
   // Called only after the NUI renderer prepared and checked the candidate page.
-  public void Install(PromptSnapshot fresh)
-  {
-    if (Snapshot is null || !Snapshot.SameContent(fresh)) { Page = 0; Reviewed = 0; }
+  public void Install(PromptSnapshot fresh) {
+    if (Snapshot is null || !Snapshot.SameContent(fresh)) {
+      Page = 0;
+      Reviewed = 0;
+    }
     Snapshot = fresh;
     Reviewed = Math.Max(Reviewed, Page + 1);
   }
 
-  public void Clear() { Snapshot = null; Page = 0; Reviewed = 0; }
+  public void Clear() {
+    Snapshot = null;
+    Page = 0;
+    Reviewed = 0;
+  }
 
-  public void Move(int offset)
-  {
-    if (offset is not (-1 or 1) || Snapshot is null || Page + offset < 0 || Page + offset >= Snapshot.Pages.Count)
+  public void Move(int offset) {
+    if (offset is not(-1 or 1) || Snapshot is null || Page + offset < 0 ||
+        Page + offset >= Snapshot.Pages.Count)
       throw new InvalidOperationException("Invalid page navigation");
     Page += offset;
     Reviewed = Math.Max(Reviewed, Page + 1);

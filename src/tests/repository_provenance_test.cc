@@ -55,33 +55,51 @@ class Fixture final {
     char* created = mkdtemp(pattern);
     Check(created != nullptr, "create provenance fixture");
     directory = created;
-    Check(mkdir((directory + "/registry").c_str(), 0700) == 0, "create registry");
+    Check(mkdir((directory + "/registry").c_str(), 0700) == 0,
+          "create registry");
     peer.identity = "actor";
     peer.instance = "actor-instance";
-    peer.roles = {"installer", "argo", "ui", "checker", "holder", "session", "admin"};
+    peer.roles = {"installer", "argo",    "ui",   "checker",
+                  "holder",    "session", "admin"};
     peer.subjects = {"subject"};
     peer.profiles = {"profile"};
     peer.packages = {"pkg-a", "pkg-b", "pkg-c"};
-    generations = {{"pkg-a", "a-generation"}, {"pkg-b", "b-generation"}, {"pkg-c", "c-generation"}};
-    repository.reset(new consentd::Repository(directory + "/consent.db", directory + "/registry"));
+    generations = {{"pkg-a", "a-generation"},
+                   {"pkg-b", "b-generation"},
+                   {"pkg-c", "c-generation"}};
+    repository.reset(new consentd::Repository(directory + "/consent.db",
+                                              directory + "/registry"));
     repository->SetInstallationValidator([this](const std::string& package,
-        const std::string& app, const std::string& generation) {
+                                                const std::string& app,
+                                                const std::string& generation) {
       auto it = generations.find(package);
-      return it != generations.end() && app == package + ".app" && it->second == generation;
+      return it != generations.end() && app == package + ".app" &&
+             it->second == generation;
     });
     std::string error;
     if (!repository->Open(&error))
       throw std::runtime_error(error);
     for (const char* id : {"a", "b", "c"}) {
       std::string package = std::string("pkg-") + id;
-      Call({{"method", "register"}, {"package", package}, {"app", package + ".app"},
-          {"definition", id}, {"enforcer", "actor"}, {"operation_id", package},
-          {"_install_identity", generations[package]}, {"policy_version", "1"},
-          {"text_revision", "1"}, {"level", "1"}, {"modes", "ONCE,TIMED,PERSISTENT"},
-          {"retention_ms", "600000"}, {"default_locale", "en"},
-          {"message.en.title", "Read"}, {"message.en.body", "Read displayed scope"}});
+      Call({{"method", "register"},
+            {"package", package},
+            {"app", package + ".app"},
+            {"definition", id},
+            {"enforcer", "actor"},
+            {"operation_id", package},
+            {"_install_identity", generations[package]},
+            {"policy_version", "1"},
+            {"text_revision", "1"},
+            {"level", "1"},
+            {"modes", "ONCE,TIMED,PERSISTENT"},
+            {"retention_ms", "600000"},
+            {"default_locale", "en"},
+            {"message.en.title", "Read"},
+            {"message.en.body", "Read displayed scope"}});
     }
-    auto opened = Call({{"method", "session_open"}, {"subject", "subject"}, {"profile", "profile"}});
+    auto opened = Call({{"method", "session_open"},
+                        {"subject", "subject"},
+                        {"profile", "profile"}});
     session = consent::Get(opened, "session");
   }
 
@@ -107,35 +125,50 @@ class Fixture final {
   Message Call(const Message& request, int expected = 0) {
     auto result = repository->Execute(peer, request);
     if (consent::Get(result, "status") != std::to_string(expected)) {
-      std::cerr << consent::Get(request, "method") << ": " << consent::Get(result, "status")
-                << " " << consent::Get(result, "reason") << '\n';
+      std::cerr << consent::Get(request, "method") << ": "
+                << consent::Get(result, "status") << " "
+                << consent::Get(result, "reason") << '\n';
       throw std::runtime_error("unexpected provenance result status");
     }
     return result;
   }
 
   Message Data(const char* method) const {
-    return {{"method", method}, {"subject", "subject"}, {"profile", "profile"},
-        {"session", session}, {"generation", "1"}, {"scope", "scope"}, {"purpose", "purpose"}};
+    return {{"method", method},     {"subject", "subject"},
+            {"profile", "profile"}, {"session", session},
+            {"generation", "1"},    {"scope", "scope"},
+            {"purpose", "purpose"}};
   }
 
   Message Acquisition(const char* definition, const char* mode = "ONCE") {
     std::string tag = std::string(definition) + std::to_string(++sequence);
     auto request = Data("request");
-    request.insert({{"count", "1"}, {"r0.definition", definition}, {"r0.scope", "scope"},
-        {"r0.purpose", "purpose"}, {"r0.operation", "read"}, {"r0.holder", "actor"},
-        {"client_request_id", tag}, {"operation_id", tag}, {"step_id", "step"}});
+    request.insert({{"count", "1"},
+                    {"r0.definition", definition},
+                    {"r0.scope", "scope"},
+                    {"r0.purpose", "purpose"},
+                    {"r0.operation", "read"},
+                    {"r0.holder", "actor"},
+                    {"client_request_id", tag},
+                    {"operation_id", tag},
+                    {"step_id", "step"}});
     auto pending = Call(request);
-    Check(consent::Get(pending, "decision") == "PENDING", "acquisition requires fresh approval");
-    auto prompt = Call({{"method", "get_prompt"}, {"request_id", consent::Get(pending, "request_id")},
-        {"locale", "en"}});
-    Call({{"method", "respond"}, {"request_id", consent::Get(pending, "request_id")},
-        {"prompt_token", consent::Get(prompt, "prompt_token")}, {"decision", "ALLOWED"},
-        {"grant_mode", mode}, {"duration_ms", "1000"}});
+    Check(consent::Get(pending, "decision") == "PENDING",
+          "acquisition requires fresh approval");
+    auto prompt = Call({{"method", "get_prompt"},
+                        {"request_id", consent::Get(pending, "request_id")},
+                        {"locale", "en"}});
+    Call({{"method", "respond"},
+          {"request_id", consent::Get(pending, "request_id")},
+          {"prompt_token", consent::Get(prompt, "prompt_token")},
+          {"decision", "ALLOWED"},
+          {"grant_mode", mode},
+          {"duration_ms", "1000"}});
     request["method"] = "check";
     request["mode"] = "AUTHORIZE";
     auto receipt = Call(request);
-    Check(consent::Get(receipt, "decision") == "ALLOWED", "acquisition consumes access grant");
+    Check(consent::Get(receipt, "decision") == "ALLOWED",
+          "acquisition consumes access grant");
     auto data = Data("data_register");
     data["receipt"] = consent::Get(receipt, "receipt");
     return data;
@@ -157,7 +190,8 @@ class Fixture final {
       request["operation"] = "reuse-data";
     auto result = Call(request, expected);
     if (!expected)
-      Check(consent::Get(result, "decision") == "ALLOWED", "retained artifact remains usable");
+      Check(consent::Get(result, "decision") == "ALLOWED",
+            "retained artifact remains usable");
   }
 
   std::string directory;
@@ -175,15 +209,17 @@ void TransitiveGeneration() {
   auto unrelated = fixture.Call(fixture.Acquisition("c"));
   auto child = fixture.Call(fixture.Derived(first, &second));
   auto descendant = fixture.Call(fixture.Derived(child));
-  Check(consent::Number(child, "expires") == std::min(consent::Number(first, "expires"),
-      consent::Number(second, "expires")) &&
-      consent::Get(descendant, "expires") == consent::Get(child, "expires"),
+  Check(
+      consent::Number(child, "expires") ==
+              std::min(consent::Number(first, "expires"),
+                       consent::Number(second, "expires")) &&
+          consent::Get(descendant, "expires") == consent::Get(child, "expires"),
       "transitive derivative inherits earliest TTL without extension");
   fixture.Use(descendant);
   fixture.Use(descendant, true);
   auto repeat = fixture.Call(fixture.Derived(first));
   Check(consent::Get(repeat, "expires") == consent::Get(first, "expires"),
-      "consumed ONCE permits reuse and derivation with fixed retention");
+        "consumed ONCE permits reuse and derivation with fixed retention");
   fixture.generations["pkg-b"] = "reinstalled-b";
   // Deliberately omit Tick: external authority changes must be checked now.
   fixture.Call(fixture.Derived(first, &second), -ESTALE);
@@ -195,7 +231,8 @@ void TransitiveGeneration() {
   fixture.Use(first);
   fixture.Use(unrelated);
   fixture.Call(fixture.Derived(unrelated));
-  std::cout << "PASS no-Tick B-only rotation denies transitive provenance; unrelated package and ONCE retention survive\n";
+  std::cout << "PASS no-Tick B-only rotation denies transitive provenance; "
+               "unrelated package and ONCE retention survive\n";
 }
 
 void TimedRetention() {
@@ -205,8 +242,9 @@ void TimedRetention() {
   fixture.Use(artifact);
   auto child = fixture.Call(fixture.Derived(artifact));
   Check(consent::Get(child, "expires") == consent::Get(artifact, "expires"),
-      "expired access grant does not extend or remove retained-data TTL");
-  std::cout << "PASS TIMED access expiry leaves independent artifact retention valid\n";
+        "expired access grant does not extend or remove retained-data TTL");
+  std::cout << "PASS TIMED access expiry leaves independent artifact retention "
+               "valid\n";
 }
 
 void CommitBoundary(const char* method) {
@@ -226,30 +264,38 @@ void CommitBoundary(const char* method) {
     }
   }
   bool insert = std::strcmp(method, "data_register") == 0 ||
-      std::strcmp(method, "data_register_derived") == 0;
-  arm_statement = insert ? "INSERT INTO artifacts VALUES" :
-      "SELECT session,holder,instance,purpose,recipient,scope,expires,state FROM artifacts";
+                std::strcmp(method, "data_register_derived") == 0;
+  arm_statement =
+      insert ? "INSERT INTO artifacts VALUES"
+             : "SELECT "
+               "session,holder,instance,purpose,recipient,scope,expires,"
+               "state FROM artifacts";
   generation_to_rotate = &fixture.generations["pkg-a"];
   target_transaction = false;
   int previous_rotations = rotation_count;
   auto result = fixture.Call(request, -ESTALE);
   Check(rotation_count == previous_rotations + 1 && !generation_to_rotate &&
-      consent::Get(result, "decision") != "ALLOWED", "rotation occurs at actual COMMIT-return boundary");
+            consent::Get(result, "decision") != "ALLOWED",
+        "rotation occurs at actual COMMIT-return boundary");
   if (!parent.empty())
     fixture.Use(parent, false, -ESTALE);
   // Reconciliation must make a committed-but-unpublished child unusable too.
   fixture.repository->Tick();
   auto cleanup = fixture.Data("cleanup_list");
   auto pending = fixture.Call(cleanup);
-  int expected_copies = std::strcmp(method, "data_register_derived") == 0 ? 2 : 1;
+  int expected_copies =
+      std::strcmp(method, "data_register_derived") == 0 ? 2 : 1;
   Check(consent::Number(pending, "count") == expected_copies,
-      "committed unpublished copy and sources remain visible for holder cleanup");
+        "committed unpublished copy and sources remain visible for holder "
+        "cleanup");
   for (int i = 0; i < consent::Number(pending, "count"); ++i) {
-    Message artifact = {{"artifact", consent::Get(pending, "a" + std::to_string(i) + ".artifact")}};
+    Message artifact = {
+        {"artifact",
+         consent::Get(pending, "a" + std::to_string(i) + ".artifact")}};
     fixture.Use(artifact, false, -ESTALE);
   }
-  std::cout << "PASS real COMMIT-return generation rotation suppresses " << method
-            << " response and blocks persisted artifacts\n";
+  std::cout << "PASS real COMMIT-return generation rotation suppresses "
+            << method << " response and blocks persisted artifacts\n";
 }
 
 void PublicationDatabaseLoss(const char* method) {
@@ -265,56 +311,72 @@ void PublicationDatabaseLoss(const char* method) {
   auto persistent_query = fixture.Data("check");
   persistent_query.erase("session");
   persistent_query.erase("generation");
-  persistent_query.insert({{"count", "1"}, {"r0.definition", "c"}, {"r0.scope", "scope"},
-      {"r0.purpose", "purpose"}, {"r0.operation", "read"}, {"r0.holder", "actor"}});
+  persistent_query.insert({{"count", "1"},
+                           {"r0.definition", "c"},
+                           {"r0.scope", "scope"},
+                           {"r0.purpose", "purpose"},
+                           {"r0.operation", "read"},
+                           {"r0.holder", "actor"}});
   Check(consent::Get(fixture.Call(persistent_query), "decision") == "ALLOWED",
-      "separate durable persistent grant exists before late DB loss");
+        "separate durable persistent grant exists before late DB loss");
   auto original_epoch = consent::Get(fixture.repository->Snapshot(), "epoch");
   int previous_commits = target_commits;
-  arm_statement = std::strcmp(method, "data_register") == 0 ? "INSERT INTO artifacts VALUES" :
-      "SELECT session,holder,instance,purpose,recipient,scope,expires,state FROM artifacts";
+  arm_statement =
+      std::strcmp(method, "data_register") == 0
+          ? "INSERT INTO artifacts VALUES"
+          : "SELECT "
+            "session,holder,instance,purpose,recipient,scope,expires,state "
+            "FROM artifacts";
   target_transaction = false;
   int validations = 0;
   bool deleted = false;
-  fixture.repository->SetInstallationValidator([&](const std::string& package,
-      const std::string& app, const std::string& generation) {
-    auto it = fixture.generations.find(package);
-    bool valid = it != fixture.generations.end() && app == package + ".app" &&
-        it->second == generation;
-    // First callback is inside Data's transaction. For registration, #2 is
-    // the generic postcommit check and #3 the artifact guard; data_check's #2
-    // is its artifact guard. The real target COMMIT must already have returned.
-    if (valid && ++validations == 2) {
-      Check(target_commits == previous_commits + 1 && committed_target_database &&
-          sqlite3_get_autocommit(committed_target_database) != 0,
-          "actual unlink happens only after target COMMIT returned in autocommit mode");
-      Check(unlink((fixture.directory + "/consent.db").c_str()) == 0,
-          "delete real DB at postcommit publication validation");
-      deleted = true;
-    }
-    return valid;
-  });
+  fixture.repository->SetInstallationValidator(
+      [&](const std::string& package, const std::string& app,
+          const std::string& generation) {
+        auto it = fixture.generations.find(package);
+        bool valid = it != fixture.generations.end() &&
+                     app == package + ".app" && it->second == generation;
+        // First callback is inside Data's transaction. For registration, #2 is
+        // the generic postcommit check and #3 the artifact guard; data_check's
+        // #2 is its artifact guard. The real target COMMIT must already have
+        // returned.
+        if (valid && ++validations == 2) {
+          Check(target_commits == previous_commits + 1 &&
+                    committed_target_database &&
+                    sqlite3_get_autocommit(committed_target_database) != 0,
+                "actual unlink happens only after target COMMIT returned "
+                "in autocommit mode");
+          Check(unlink((fixture.directory + "/consent.db").c_str()) == 0,
+                "delete real DB at postcommit publication validation");
+          deleted = true;
+        }
+        return valid;
+      });
   auto response = fixture.Call(request, -ESTALE);
   Check(deleted && consent::Get(response, "decision") != "ALLOWED" &&
-      consent::Get(response, "epoch") != original_epoch && response.count("receipt") == 0 &&
-      response.count("permit") == 0 && response.count("artifact") == 0,
-      "final Snapshot cannot attach a new epoch to an old ALLOWED result");
+            consent::Get(response, "epoch") != original_epoch &&
+            response.count("receipt") == 0 && response.count("permit") == 0 &&
+            response.count("artifact") == 0,
+        "final Snapshot cannot attach a new epoch to an old ALLOWED result");
   auto snapshot = fixture.repository->Snapshot();
   Check(consent::Get(snapshot, "cleanup_reconciliation_required") == "1",
-      "late DB loss exposes unknown cleanup state");
+        "late DB loss exposes unknown cleanup state");
   auto recovered = fixture.Call(persistent_query);
   Check(consent::Get(recovered, "decision") == "CONSENT_REQUIRED" &&
-      consent::Get(recovered, "r0.policy_version") == "1",
-      "late recovery restores definition but does not revive the proven persistent grant");
+            consent::Get(recovered, "r0.policy_version") == "1",
+        "late recovery restores definition but does not revive the proven "
+        "persistent grant");
   std::cout << "PASS real postcommit DB unlink refuses old " << method
             << " success fields under recovered snapshot epoch\n";
 }
 
 }  // namespace
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt* statement) {
+extern "C" __attribute__((visibility("default"))) int sqlite3_step(
+    sqlite3_stmt* statement) {
   using Step = int (*)(sqlite3_stmt*);
-  static Step real_step = reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
+  static Step real_step =
+      reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
   if (!real_step)
     _exit(99);
   const char* sql = sqlite3_sql(statement);
@@ -323,14 +385,18 @@ extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt*
   return real_step(statement);
 }
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_exec(sqlite3* database, const char* sql,
+extern "C" __attribute__((visibility("default"))) int sqlite3_exec(
+    sqlite3* database, const char* sql,
     int (*callback)(void*, int, char**, char**), void* data, char** error) {
-  using Exec = int (*)(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**);
-  static Exec real_exec = reinterpret_cast<Exec>(dlsym(RTLD_NEXT, "sqlite3_exec"));
+  using Exec = int (*)(sqlite3*, const char*,
+                       int (*)(void*, int, char**, char**), void*, char**);
+  static Exec real_exec =
+      reinterpret_cast<Exec>(dlsym(RTLD_NEXT, "sqlite3_exec"));
   if (!real_exec)
     _exit(99);
   int result = real_exec(database, sql, callback, data, error);
-  if (result == SQLITE_OK && target_transaction && std::strcmp(sql, "COMMIT") == 0) {
+  if (result == SQLITE_OK && target_transaction &&
+      std::strcmp(sql, "COMMIT") == 0) {
     committed_target_database = database;
     ++target_commits;
     if (generation_to_rotate) {
@@ -348,7 +414,8 @@ int main() {
   try {
     TransitiveGeneration();
     TimedRetention();
-    for (const char* method : {"data_register", "data_register_derived", "data_check", "check"})
+    for (const char* method :
+         {"data_register", "data_register_derived", "data_check", "check"})
       CommitBoundary(method);
     PublicationDatabaseLoss("data_register");
     PublicationDatabaseLoss("data_check");

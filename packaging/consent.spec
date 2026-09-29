@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    6
+Release:    7
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
@@ -111,12 +111,15 @@ cp %{SOURCE1001} .
 %install
 %make_install
 install -d -m 0755 %{buildroot}%{_unitdir}/sockets.target.wants
-ln -s ../consentd.socket %{buildroot}%{_unitdir}/sockets.target.wants/consentd.socket
+ln -s ../consentd.socket \
+  %{buildroot}%{_unitdir}/sockets.target.wants/consentd.socket
 install -d -m 0755 %{buildroot}%{_unitdir}/basic.target.wants
-ln -s ../consentd.service %{buildroot}%{_unitdir}/basic.target.wants/consentd.service
+ln -s ../consentd.service \
+  %{buildroot}%{_unitdir}/basic.target.wants/consentd.service
 %if %{with poc}
 install -d -m 0755 %{buildroot}%{_unitdir}/multi-user.target.wants
-ln -s ../consent-poc-register.service %{buildroot}%{_unitdir}/multi-user.target.wants/consent-poc-register.service
+ln -s ../consent-poc-register.service \
+  %{buildroot}%{_unitdir}/multi-user.target.wants/consent-poc-register.service
 %endif
 
 %check
@@ -152,40 +155,49 @@ fi
 %if %{with poc}
 %pre poc
 if [ "$1" -gt 1 ] && [ -d /run/systemd/system ] &&
-   [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+   [ "$(stat -Lc '%%d:%%i' /)" = \
+     "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
   for feature_unit in consent-feature-poc.socket consent-feature-poc.service; do
-    feature_load=$(systemctl show -p LoadState --value "$feature_unit") || exit 1
+    feature_load=$(systemctl show -p LoadState \
+      --value "$feature_unit") || exit 1
     if [ "$feature_load" != not-found ]; then
       systemctl stop "$feature_unit" || exit 1
     fi
   done
-  systemctl stop consent-poc-register.service consentd-poc.socket consentd-poc.service || exit 1
+  systemctl stop consent-poc-register.service \
+    consentd-poc.socket consentd-poc.service || exit 1
 fi
 
 %post poc
 /sbin/ldconfig
-if [ -d /run/systemd/system ] && [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ] &&
-   [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+if [ -d /run/systemd/system ] && \
+   [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ] &&
+   [ "$(stat -Lc '%%d:%%i' /)" = \
+     "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
   systemctl daemon-reload || exit 1
   systemctl start consent-poc-register.service || exit 1
 fi
 
 %preun poc
 if [ "$1" -eq 0 ] && [ -d /run/systemd/system ] &&
-   [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+   [ "$(stat -Lc '%%d:%%i' /)" = \
+     "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
   for feature_unit in consent-feature-poc.socket consent-feature-poc.service; do
-    feature_load=$(systemctl show -p LoadState --value "$feature_unit") || exit 1
+    feature_load=$(systemctl show -p LoadState \
+      --value "$feature_unit") || exit 1
     if [ "$feature_load" != not-found ]; then
       systemctl stop "$feature_unit" || exit 1
     fi
   done
-  systemctl stop consent-poc-register.service consentd-poc.socket consentd-poc.service || exit 1
+  systemctl stop consent-poc-register.service \
+    consentd-poc.socket consentd-poc.service || exit 1
 fi
 
 %postun poc
 /sbin/ldconfig
 if [ -d /run/systemd/system ] &&
-   [ "$(stat -Lc '%%d:%%i' /)" = "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
+   [ "$(stat -Lc '%%d:%%i' /)" = \
+     "$(stat -Lc '%%d:%%i' /proc/1/root 2>/dev/null)" ]; then
   systemctl daemon-reload || exit 1
 fi
 %endif

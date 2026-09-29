@@ -22,7 +22,7 @@
 #include <string.h>
 
 typedef int (*management_fn)(consent_client_h, const consent_params_t*,
-    consent_result_t**);
+                             consent_result_t**);
 
 struct management_entry {
   const char* name;
@@ -30,15 +30,21 @@ struct management_entry {
 };
 
 static const struct management_entry management[] = {
-  {"prompt", consent_get_prompt}, {"respond", consent_respond},
-  {"result", consent_get_request_result}, {"cancel", consent_cancel_request},
-  {"revoke", consent_revoke}, {"session_open", consent_session_open},
-  {"session_suspend", consent_session_suspend}, {"session_resume", consent_session_resume},
-  {"session_close", consent_session_close}, {"session_state", consent_session_get_state},
-  {"data_register", consent_data_register}, {"data_derived", consent_data_register_derived},
-  {"data_release", consent_data_release}, {"cleanup", consent_cleanup_get_state},
-  {"cleanup_list", consent_cleanup_get_pending}
-};
+    {"prompt", consent_get_prompt},
+    {"respond", consent_respond},
+    {"result", consent_get_request_result},
+    {"cancel", consent_cancel_request},
+    {"revoke", consent_revoke},
+    {"session_open", consent_session_open},
+    {"session_suspend", consent_session_suspend},
+    {"session_resume", consent_session_resume},
+    {"session_close", consent_session_close},
+    {"session_state", consent_session_get_state},
+    {"data_register", consent_data_register},
+    {"data_derived", consent_data_register_derived},
+    {"data_release", consent_data_release},
+    {"cleanup", consent_cleanup_get_state},
+    {"cleanup_list", consent_cleanup_get_pending}};
 
 struct callback_state {
   int returned;
@@ -48,7 +54,8 @@ struct callback_state {
   consent_result_t* result;
 };
 
-static void result_cb(int status, const consent_result_t* result, void* user_data) {
+static void result_cb(int status, const consent_result_t* result,
+                      void* user_data) {
   struct callback_state* state = user_data;
   if (!state->returned)
     state->ordering_failure = 1;
@@ -66,7 +73,8 @@ static void print_result(int status, const consent_result_t* result) {
   for (i = 0; i < consent_result_size(result); ++i) {
     const char* key;
     const char* value;
-    if (!consent_result_get_at(result, i, &key, &value) && strcmp(key, "status"))
+    if (!consent_result_get_at(result, i, &key, &value) &&
+        strcmp(key, "status"))
       printf("%s=%s\n", key, value);
   }
 }
@@ -79,15 +87,21 @@ static int parse_number(const char* value, long* number) {
 }
 
 static void usage(const char* program) {
-  fprintf(stderr,
+  fprintf(
+      stderr,
       "Usage: %s METHOD [PACKAGE [APP]] [key=value ...] [options]\n"
-      "Methods: register update unregister request check prompt respond result\n"
-      " cancel revoke session_open session_suspend session_resume session_close\n"
-      " session_state data_register data_derived data_release cleanup cleanup_list\n"
+      "Methods: register update unregister request check prompt respond "
+      "result\n"
+      " cancel revoke session_open session_suspend session_resume "
+      "session_close\n"
+      " session_state data_register data_derived data_release cleanup "
+      "cleanup_list\n"
       "Options: --async --timeout-ms=N --repeat=N --expect-status=N\n"
       " --expect-decision=ALLOWED|DENIED|CONSENT_REQUIRED|...\n"
-      " --offline-image-root=ROOT (root-only registration; success means STAGED)\n"
-      "register/update require package, app, expected_generation, operation_id,\n"
+      " --offline-image-root=ROOT (root-only registration; success means "
+      "STAGED)\n"
+      "register/update require package, app, expected_generation, "
+      "operation_id,\n"
       " definition, enforcer, policy_version, text_revision, level, modes,\n"
       " default_locale and message.<locale>.title/body.\n"
       "unregister requires package, expected_generation and operation_id.\n"
@@ -157,7 +171,8 @@ int main(int argc, char** argv) {
       continue;
     }
     if (!strncmp(argument, "--timeout-ms=", 13)) {
-      if (!parse_number(argument + 13, &timeout) || timeout < 1 || timeout > 300000)
+      if (!parse_number(argument + 13, &timeout) || timeout < 1 ||
+          timeout > 300000)
         failed = 1;
       continue;
     }
@@ -175,17 +190,20 @@ int main(int argc, char** argv) {
     status = consent_params_set(params, argument, equal + 1);
     *equal = '=';
     if (status) {
-      fprintf(stderr, "Invalid parameter %s: %s\n", argument, consent_error_string(status));
+      fprintf(stderr, "Invalid parameter %s: %s\n", argument,
+              consent_error_string(status));
       failed = 1;
     }
   }
-  if (failed || (async && strcmp(method, "check") && strcmp(method, "request"))) {
+  if (failed ||
+      (async && strcmp(method, "check") && strcmp(method, "request"))) {
     consent_params_free(params);
     usage(argv[0]);
     return 2;
   }
-  status = offline_root ? consent_client_create_offline_registration(offline_root, &client) :
-      consent_client_create(&client);
+  status = offline_root ? consent_client_create_offline_registration(
+                              offline_root, &client)
+                        : consent_client_create(&client);
   if (status) {
     print_result(status, NULL);
     consent_params_free(params);
@@ -197,13 +215,16 @@ int main(int argc, char** argv) {
       struct callback_state state = {0};
       consent_async_id_t operation;
       gint64 deadline = g_get_monotonic_time() + timeout * 1000;
-      status = !strcmp(method, "request") ?
-          consent_request_async(client, params, result_cb, &state, &operation) :
-          consent_check_async(client, params, result_cb, &state, &operation);
+      status = !strcmp(method, "request")
+                   ? consent_request_async(client, params, result_cb, &state,
+                                           &operation)
+                   : consent_check_async(client, params, result_cb, &state,
+                                         &operation);
       state.returned = 1;
       if (!status) {
         while (!state.callbacks && g_get_monotonic_time() < deadline) {
-          while (g_main_context_iteration(NULL, FALSE)) {}
+          while (g_main_context_iteration(NULL, FALSE)) {
+          }
           if (!state.callbacks)
             g_usleep(1000);
         }
@@ -218,10 +239,11 @@ int main(int argc, char** argv) {
         }
       }
       printf("callbacks=%d\ncallback_after_return=%s\n", state.callbacks,
-          state.ordering_failure ? "false" : "true");
+             state.ordering_failure ? "false" : "true");
     } else if (!strcmp(method, "register") || !strcmp(method, "update")) {
-      status = !strcmp(method, "register") ? consent_register(client, package, app, params) :
-          consent_update(client, package, app, params);
+      status = !strcmp(method, "register")
+                   ? consent_register(client, package, app, params)
+                   : consent_update(client, package, app, params);
     } else if (!strcmp(method, "unregister")) {
       status = consent_unregister(client, package, params);
     } else if (!strcmp(method, "request")) {

@@ -28,10 +28,11 @@ import re
 import sys
 import tempfile
 
-
-NUMERIC = {"u32": ("uint32_t", "U32", 0, 2**32 - 1),
-           "i32": ("int32_t", "I32", -(2**31), 2**31 - 1),
-           "u64": ("uint64_t", "U64", 0, 2**64 - 1)}
+NUMERIC = {
+    "u32": ("uint32_t", "U32", 0, 2**32 - 1),
+    "i32": ("int32_t", "I32", -(2**31), 2**31 - 1),
+    "u64": ("uint64_t", "U64", 0, 2**64 - 1),
+}
 RESERVED = set("""alignas alignof and and_eq asm atomic_cancel atomic_commit
 atomic_noexcept auto bitand bitor bool break case catch char char16_t char32_t
 class compl concept const constexpr const_cast continue co_await co_return
@@ -44,18 +45,25 @@ thread_local throw true try typedef typeid typename union unsigned using virtual
 void volatile wchar_t while xor xor_eq final override std tizen_base
 Reader Writer Valid ValidString WriteToParcel ReadFromParcel
 uint32_t int32_t uint64_t""".split())
-COPYRIGHT = "Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved"
-APACHE_NOTICE = """Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License."""
+COPYRIGHT = (
+    "Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved"
+)
+APACHE_NOTICE = (
+    'Licensed under the Apache License, Version '
+    '2.0 (the "License");\nyou may not use this '
+    'file except in compliance with the '
+    'License.\nYou may obtain a copy of the '
+    'License at\n\n    '
+    'http://www.apache.org/licenses/LICENSE-2.0\n\nU'
+    'nless required by applicable law or agreed '
+    'to in writing, software\ndistributed under '
+    'the License is distributed on an "AS IS" '
+    'BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF '
+    'ANY KIND, either express or implied.\nSee the '
+    'License for the specific language governing '
+    'permissions and\nlimitations under the '
+    'License.'
+)
 HEADER = """/*
  * Copyright (c) 2026 Samsung Electronics Co., Ltd. All Rights Reserved
  *
@@ -81,9 +89,12 @@ def require(condition, message):
 
 
 def identifier(value):
-    return (isinstance(value, str) and
-            re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value) is not None and
-            "__" not in value and value not in RESERVED)
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value) is not None
+        and "__" not in value
+        and value not in RESERVED
+    )
 
 
 def integer(value, minimum, maximum):
@@ -99,63 +110,94 @@ def unique_object(pairs):
 
 
 def validate(schema):
-    require(isinstance(schema, dict) and set(schema) == {"license", "namespace", "records"},
-            "schema requires only license, namespace and records")
-    require(schema["license"] == {"spdx": "Apache-2.0", "copyright": COPYRIGHT,
-                                  "notice": APACHE_NOTICE},
-            "schema requires the complete supported Apache-2.0 notice")
+    require(
+        isinstance(schema, dict)
+        and set(schema) == {"license", "namespace", "records"},
+        "schema requires only license, namespace and records",
+    )
+    require(
+        schema["license"]
+        == {
+            "spdx": "Apache-2.0",
+            "copyright": COPYRIGHT,
+            "notice": APACHE_NOTICE,
+        },
+        "schema requires the complete supported Apache-2.0 notice",
+    )
     namespace = schema["namespace"]
-    require(isinstance(namespace, str) and
-            all(identifier(part) for part in namespace.split("::")),
-            "invalid namespace")
+    require(
+        isinstance(namespace, str)
+        and all(identifier(part) for part in namespace.split("::")),
+        "invalid namespace",
+    )
     records = schema["records"]
-    require(isinstance(records, list) and 1 <= len(records) <= 64,
-            "records must contain 1..64 entries")
+    require(
+        isinstance(records, list) and 1 <= len(records) <= 64,
+        "records must contain 1..64 entries",
+    )
     known = {}
     for record in records:
-        require(isinstance(record, dict) and set(record) == {"name", "fields"},
-                "record requires only name and fields")
+        require(
+            isinstance(record, dict) and set(record) == {"name", "fields"},
+            "record requires only name and fields",
+        )
         name = record["name"]
-        require(identifier(name) and name[0].isupper() and name not in known,
-                "invalid or duplicate record name")
+        require(
+            identifier(name) and name[0].isupper() and name not in known,
+            "invalid or duplicate record name",
+        )
         fields = record["fields"]
-        require(isinstance(fields, list) and 1 <= len(fields) <= 64,
-                "record fields must contain 1..64 entries")
+        require(
+            isinstance(fields, list) and 1 <= len(fields) <= 64,
+            "record fields must contain 1..64 entries",
+        )
         seen = set()
         minimum, maximum, fixed, heap, depth = 0, 0, 16, 0, 1
         for field in fields:
             require(isinstance(field, dict), "field must be an object")
             fname, kind = field.get("name"), field.get("type")
-            require(identifier(fname) and fname[0].islower() and fname not in seen,
-                    "invalid or duplicate field name")
+            require(
+                identifier(fname) and fname[0].islower() and fname not in seen,
+                "invalid or duplicate field name",
+            )
             require(isinstance(kind, str), "field type must be a string")
             allowed = {"name", "type"}
             if kind in NUMERIC:
                 allowed.add("default")
                 info = NUMERIC[kind]
-                require(integer(field.get("default", 0), info[2], info[3]),
-                        "numeric default outside type bounds")
+                require(
+                    integer(field.get("default", 0), info[2], info[3]),
+                    "numeric default outside type bounds",
+                )
                 width = 8 if kind == "u64" else 4
                 minimum += width
                 maximum += width
                 fixed += 8
             elif kind == "string":
                 allowed |= {"min_bytes", "max_bytes"}
-                require(integer(field.get("max_bytes"), 1, 65536),
-                        "string requires max_bytes in 1..65536")
-                require(integer(field.get("min_bytes", 0), 0, field["max_bytes"]),
-                        "invalid string min_bytes")
+                require(
+                    integer(field.get("max_bytes"), 1, 65536),
+                    "string requires max_bytes in 1..65536",
+                )
+                require(
+                    integer(field.get("min_bytes", 0), 0, field["max_bytes"]),
+                    "invalid string min_bytes",
+                )
                 minimum += 5 + field.get("min_bytes", 0)
                 maximum += 5 + field["max_bytes"]
                 fixed += 32
                 heap += field["max_bytes"] + 1
             elif kind == "array":
                 allowed |= {"element", "max_count"}
-                require(isinstance(field.get("element"), str) and
-                        field["element"] in known,
-                        "array element must be an earlier record")
-                require(integer(field.get("max_count"), 1, 4096),
-                        "array requires max_count in 1..4096")
+                require(
+                    isinstance(field.get("element"), str)
+                    and field["element"] in known,
+                    "array element must be an earlier record",
+                )
+                require(
+                    integer(field.get("max_count"), 1, 4096),
+                    "array requires max_count in 1..4096",
+                )
                 child = known[field["element"]]
                 minimum += 4
                 maximum += 4 + field["max_count"] * child["maximum"]
@@ -163,7 +205,9 @@ def validate(schema):
                 heap += field["max_count"] * (child["fixed"] + child["heap"])
                 depth = max(depth, child["depth"] + 1)
             else:
-                require(kind in known, "unknown, recursive or forward field type")
+                require(
+                    kind in known, "unknown, recursive or forward field type"
+                )
                 child = known[kind]
                 minimum += child["minimum"]
                 maximum += child["maximum"]
@@ -172,11 +216,21 @@ def validate(schema):
                 depth = max(depth, child["depth"] + 1)
             require(set(field) <= allowed, "unknown field constraint")
             seen.add(fname)
-        require(depth <= 16 and minimum <= 65536 and fixed <= 65536 and
-                maximum <= 16 * 1024 * 1024 and heap <= 16 * 1024 * 1024,
-                "transitive record depth, wire size or layout exceeds limits")
-        known[name] = {"minimum": minimum, "maximum": maximum, "fixed": fixed,
-                       "heap": heap, "depth": depth}
+        require(
+            depth <= 16
+            and minimum <= 65536
+            and fixed <= 65536
+            and maximum <= 16 * 1024 * 1024
+            and heap <= 16 * 1024 * 1024,
+            "transitive record depth, wire size or layout exceeds limits",
+        )
+        known[name] = {
+            "minimum": minimum,
+            "maximum": maximum,
+            "fixed": fixed,
+            "heap": heap,
+            "depth": depth,
+        }
     return known
 
 
@@ -201,21 +255,32 @@ def emit_record(record, layout):
     for field in fields:
         value, kind = "this->" + field["name"], field["type"]
         if kind == "string":
-            conditions = f"!::consent::wire::ValidString({value}, {field['max_bytes']})"
+            conditions = (
+                f"!::consent::wire::ValidString({value}, {field['max_bytes']})"
+            )
             if field.get("min_bytes", 0):
                 conditions += f" || {value}.size() < {field['min_bytes']}"
             out += [f"    if ({conditions})", "      return false;"]
         elif kind == "array":
-            out += [f"    if ({value}.size() > {field['max_count']})",
-                    "      return false;", f"    for (const auto& item : {value}) {{",
-                    "      if (!item.Valid())", "        return false;", "    }"]
+            out += [
+                f"    if ({value}.size() > {field['max_count']})",
+                "      return false;",
+                f"    for (const auto& item : {value}) {{",
+                "      if (!item.Valid())",
+                "        return false;",
+                "    }",
+            ]
         elif kind not in NUMERIC:
             out += [f"    if (!{value}.Valid())", "      return false;"]
-    out += ["    return true;", "  }", "",
-            "  void WriteToParcel(tizen_base::Parcel* parcel) const override {",
-            "    if (!parcel || !Valid())",
-            '      throw std::invalid_argument("invalid IDL record");',
-            "    [[maybe_unused]] ::consent::wire::Writer writer(parcel);"]
+    out += [
+        "    return true;",
+        "  }",
+        "",
+        "  void WriteToParcel(tizen_base::Parcel* parcel) const override {",
+        "    if (!parcel || !Valid())",
+        '      throw std::invalid_argument("invalid IDL record");',
+        "    [[maybe_unused]] ::consent::wire::Writer writer(parcel);",
+    ]
     for field in fields:
         value, kind = "this->" + field["name"], field["type"]
         call = None
@@ -226,15 +291,26 @@ def emit_record(record, layout):
         elif kind == "array":
             call = f"writer.U32(static_cast<::std::uint32_t>({value}.size()))"
         if call:
-            out += [f"    if (!{call})",
-                    '      throw std::invalid_argument("parcel write failed");']
+            out += [
+                f"    if (!{call})",
+                '      throw std::invalid_argument("parcel write failed");',
+            ]
         if kind == "array":
-            out += [f"    for (const auto& item : {value})", "      item.WriteToParcel(parcel);"]
+            out += [
+                f"    for (const auto& item : {value})",
+                "      item.WriteToParcel(parcel);",
+            ]
         elif kind not in NUMERIC and kind != "string":
             out += [f"    {value}.WriteToParcel(parcel);"]
-    out += ["  }", "", "  void ReadFromParcel(tizen_base::Parcel* parcel) override {",
-            "    if (!parcel)", '      throw std::invalid_argument("null parcel");',
-            "    [[maybe_unused]] ::consent::wire::Reader reader(parcel);", f"    {name} decoded;"]
+    out += [
+        "  }",
+        "",
+        "  void ReadFromParcel(tizen_base::Parcel* parcel) override {",
+        "    if (!parcel)",
+        '      throw std::invalid_argument("null parcel");',
+        "    [[maybe_unused]] ::consent::wire::Reader reader(parcel);",
+        f"    {name} decoded;",
+    ]
     for field in fields:
         fname, kind = field["name"], field["type"]
         value = "decoded." + fname
@@ -245,22 +321,49 @@ def emit_record(record, layout):
             call = f"reader.String(&{value}, {field['max_bytes']})"
         elif kind == "array":
             out += [f"    ::std::uint32_t count_{fname} = 0;"]
-            call = f"reader.U32(&count_{fname}) || count_{fname} > {field['max_count']}"
+            call = (
+                f"reader.U32(&count_{fname}) || "
+                f"count_{fname} > {field['max_count']}"
+            )
         if call:
-            out += [f"    if (!{call})" if kind != "array" else
-                    f"    if (!reader.U32(&count_{fname}) || count_{fname} > {field['max_count']})",
-                    '      throw std::invalid_argument("parcel read failed");']
+            out += [
+                (
+                    f"    if (!{call})"
+                    if kind != "array"
+                    else (
+                        f"    if (!reader.U32(&count_{fname}) || "
+                        f"count_{fname} > {field['max_count']})"
+                    )
+                ),
+                '      throw std::invalid_argument("parcel read failed");',
+            ]
         if kind == "array":
             minimum = layout[field["element"]]["minimum"]
-            out += ["    if (parcel->GetReader() > parcel->GetDataSize() ||",
-                    f"        count_{fname} > (parcel->GetDataSize() - parcel->GetReader()) / {minimum})",
-                    '      throw std::invalid_argument("array exceeds remaining parcel");',
-                    f"    {value}.resize(count_{fname});", f"    for (auto& item : {value})",
-                    "      item.ReadFromParcel(parcel);"]
+            out += [
+                "    if (parcel->GetReader() > parcel->GetDataSize() ||",
+                (
+                    f"        count_{fname} > "
+                    f"(parcel->GetDataSize() - parcel->GetReader()) / "
+                    f"{minimum})"
+                ),
+                (
+                    '      throw std::invalid_argument("array '
+                    'exceeds remaining parcel");'
+                ),
+                f"    {value}.resize(count_{fname});",
+                f"    for (auto& item : {value})",
+                "      item.ReadFromParcel(parcel);",
+            ]
         elif kind not in NUMERIC and kind != "string":
             out += [f"    {value}.ReadFromParcel(parcel);"]
-    out += ["    if (!decoded.Valid())", '      throw std::invalid_argument("invalid IDL record");',
-            "    *this = std::move(decoded);", "  }", "};", ""]
+    out += [
+        "    if (!decoded.Valid())",
+        '      throw std::invalid_argument("invalid IDL record");',
+        "    *this = std::move(decoded);",
+        "  }",
+        "};",
+        "",
+    ]
     return out
 
 
@@ -268,10 +371,23 @@ def generate(schema):
     layout = validate(schema)
     namespace = schema["namespace"]
     guard = "CONSENT_GENERATED_" + namespace.replace("::", "_").upper() + "_HH_"
-    out = [HEADER.rstrip(), f"#ifndef {guard}", f"#define {guard}", "",
-           "#include <cstdint>", "#include <stdexcept>", "#include <string>",
-           "#include <utility>", "#include <vector>", "#include <parcelable.hh>", "",
-           '#include "common/parcel_codec.hh"', "", f"namespace {namespace} {{", ""]
+    out = [
+        HEADER.rstrip(),
+        f"#ifndef {guard}",
+        f"#define {guard}",
+        "",
+        "#include <cstdint>",
+        "#include <stdexcept>",
+        "#include <string>",
+        "#include <utility>",
+        "#include <vector>",
+        "#include <parcelable.hh>",
+        "",
+        '#include "common/parcel_codec.hh"',
+        "",
+        f"namespace {namespace} {{",
+        "",
+    ]
     for record in schema["records"]:
         out.extend(emit_record(record, layout))
     out += [f"}}  // namespace {namespace}", "", f"#endif  // {guard}", ""]
@@ -291,8 +407,13 @@ def write_output(path, content):
     output.parent.mkdir(parents=True, exist_ok=True)
     name = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
-                                         dir=str(output.parent), delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=str(output.parent),
+            delete=False,
+        ) as stream:
             name = stream.name
             stream.write(content)
         os.chmod(name, 0o644)
@@ -307,7 +428,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("schema")
     parser.add_argument("output", nargs="?")
-    parser.add_argument("--check", action="store_true", help="validate without writing")
+    parser.add_argument(
+        "--check", action="store_true", help="validate without writing"
+    )
     args = parser.parse_args()
     if not args.check and not args.output:
         parser.error("output is required unless --check is used")

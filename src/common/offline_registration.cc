@@ -36,8 +36,10 @@ namespace offline {
 namespace {
 class Failure final : public std::runtime_error {
  public:
-  Failure(int status, const char* message) : std::runtime_error(message), status_(status) {}
+  Failure(int status, const char* message)
+      : std::runtime_error(message), status_(status) {}
   int Status() const { return status_; }
+
  private:
   int status_;
 };
@@ -45,12 +47,24 @@ class Failure final : public std::runtime_error {
 class Descriptor final {
  public:
   explicit Descriptor(int fd = -1) : fd_(fd) {}
-  ~Descriptor() { if (fd_ >= 0) close(fd_); }
+  ~Descriptor() {
+    if (fd_ >= 0)
+      close(fd_);
+  }
   Descriptor(const Descriptor&) = delete;
   Descriptor& operator=(const Descriptor&) = delete;
   int Get() const { return fd_; }
-  int Release() { int result = fd_; fd_ = -1; return result; }
-  void Reset(int fd) { if (fd_ >= 0) close(fd_); fd_ = fd; }
+  int Release() {
+    int result = fd_;
+    fd_ = -1;
+    return result;
+  }
+  void Reset(int fd) {
+    if (fd_ >= 0)
+      close(fd_);
+    fd_ = fd;
+  }
+
  private:
   int fd_;
 };
@@ -66,12 +80,23 @@ void Require(bool condition, int status, const char* message) {
 
 int SystemError() {
   switch (errno) {
-    case ENOENT: return -ENOENT;
-    case EACCES: case EPERM: case ELOOP: return -EACCES;
-    case ENOSPC: case EDQUOT: return -ENOSPC;
-    case ENOMEM: return -ENOMEM;
-    case EINVAL: case ENAMETOOLONG: case ENOTDIR: return -EINVAL;
-    default: return -EIO;
+    case ENOENT:
+      return -ENOENT;
+    case EACCES:
+    case EPERM:
+    case ELOOP:
+      return -EACCES;
+    case ENOSPC:
+    case EDQUOT:
+      return -ENOSPC;
+    case ENOMEM:
+      return -ENOMEM;
+    case EINVAL:
+    case ENAMETOOLONG:
+    case ENOTDIR:
+      return -EINVAL;
+    default:
+      return -EIO;
   }
 }
 
@@ -81,56 +106,64 @@ void RequireSystem(bool condition, const char* message) {
 }
 
 void Sync(int fd) {
-  Require(fsync(fd) == 0, -EIO, "cannot synchronize offline registration state");
+  Require(fsync(fd) == 0, -EIO,
+          "cannot synchronize offline registration state");
 }
 
 void ProtectedDirectory(int fd, bool private_leaf = false) {
   struct stat info = {};
   Require(fstat(fd, &info) == 0 && S_ISDIR(info.st_mode) && info.st_uid == 0 &&
-      !(info.st_mode & (private_leaf ? 0027 : 0022)), -EACCES,
-      "offline directory is not root protected");
+              !(info.st_mode & (private_leaf ? 0027 : 0022)),
+          -EACCES, "offline directory is not root protected");
 }
 
 void ProtectedFile(int fd, struct stat* info) {
   Require(fstat(fd, info) == 0 && S_ISREG(info->st_mode) && info->st_uid == 0 &&
-      info->st_nlink == 1 && !(info->st_mode & 07137), -EACCES,
-      "offline file ownership, type, links or permissions rejected");
+              info->st_nlink == 1 && !(info->st_mode & 07137),
+          -EACCES,
+          "offline file ownership, type, links or permissions rejected");
 }
 
 std::vector<std::string> Components(const std::string& path) {
   Require(!path.empty() && path[0] == '/' && path.size() <= 4096 &&
-      path.find('\0') == std::string::npos,
-      -EINVAL, "absolute image and authority paths required");
+              path.find('\0') == std::string::npos,
+          -EINVAL, "absolute image and authority paths required");
   std::vector<std::string> result;
   size_t offset = 1;
   while (offset < path.size()) {
     auto end = path.find('/', offset);
-    auto part = path.substr(offset, end == std::string::npos ? end : end - offset);
+    auto part =
+        path.substr(offset, end == std::string::npos ? end : end - offset);
     Require(!part.empty() && part != "." && part != ".." && part.size() <= 255,
-        -EINVAL, "noncanonical image or authority path");
+            -EINVAL, "noncanonical image or authority path");
     result.push_back(part);
     Require(result.size() <= 128, -EINVAL, "image path depth exceeded");
     if (end == std::string::npos)
       break;
-    Require(end + 1 < path.size(), -EINVAL, "trailing image path separator rejected");
+    Require(end + 1 < path.size(), -EINVAL,
+            "trailing image path separator rejected");
     offset = end + 1;
   }
   return result;
 }
 
-int Descend(int parent, const std::vector<std::string>& components, bool create) {
+int Descend(int parent, const std::vector<std::string>& components,
+            bool create) {
   Descriptor current(fcntl(parent, F_DUPFD_CLOEXEC, 0));
   RequireSystem(current.Get() >= 0, "cannot duplicate image directory");
   ProtectedDirectory(current.Get());
   for (size_t index = 0; index < components.size(); ++index) {
     const auto& component = components[index];
     bool created = false;
-    int fd = openat(current.Get(), component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    int fd = openat(current.Get(), component.c_str(),
+                    O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0 && errno == ENOENT && create) {
       int status = mkdirat(current.Get(), component.c_str(), 0700);
       created = status == 0;
-      RequireSystem(created || errno == EEXIST, "cannot create image authority directory");
-      fd = openat(current.Get(), component.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+      RequireSystem(created || errno == EEXIST,
+                    "cannot create image authority directory");
+      fd = openat(current.Get(), component.c_str(),
+                  O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     }
     RequireSystem(fd >= 0, "cannot open protected image directory");
     Descriptor child(fd);
@@ -140,14 +173,17 @@ int Descend(int parent, const std::vector<std::string>& components, bool create)
       // prepared for the non-root daemon, regardless of the builder's umask.
       // Never adjust an existing ancestor owned by the surrounding image.
       mode_t mode = index + 1 == components.size() ? 0700 : 0755;
-      RequireSystem(fchown(child.Get(), 0, 0) == 0 && fchmod(child.Get(), mode) == 0,
+      RequireSystem(
+          fchown(child.Get(), 0, 0) == 0 && fchmod(child.Get(), mode) == 0,
           "cannot set new image directory metadata");
       Sync(child.Get());
     }
     if (create && index + 1 < components.size()) {
       struct stat info = {};
-      Require(fstat(child.Get(), &info) == 0 && (info.st_mode & 0005) == 0005, -EACCES,
-          "image authority ancestor is not readable and traversable by the target daemon");
+      Require(fstat(child.Get(), &info) == 0 && (info.st_mode & 0005) == 0005,
+              -EACCES,
+              "image authority ancestor is not readable and traversable by "
+              "the target daemon");
     }
     // Repeat this sync on retry too: a prior mkdir may have succeeded before
     // its parent synchronization failed.
@@ -172,38 +208,48 @@ Message PublicRegistration(const Message& input) {
   Message result;
   for (const auto& field : input) {
     if (field.first == "method") {
-      Require(field.second == "register", -EINVAL, "offline handle permits registration only");
+      Require(field.second == "register", -EINVAL,
+              "offline handle permits registration only");
       continue;
     }
-    Require(registration::IsDefinitionField(field.first) || field.first == "operation_id" ||
-        field.first == "expected_generation", -EINVAL, "unsupported offline registration field");
-    Require(ValidField(field.first, field.second), -EINVAL, "invalid offline registration field");
+    Require(registration::IsDefinitionField(field.first) ||
+                field.first == "operation_id" ||
+                field.first == "expected_generation",
+            -EINVAL, "unsupported offline registration field");
+    Require(ValidField(field.first, field.second), -EINVAL,
+            "invalid offline registration field");
     result.insert(field);
   }
-  Require(Identifier(Get(result, "operation_id")) && Identifier(Get(result, "expected_generation")),
-      -EINVAL, "stable operation and expected installation generation required");
+  Require(Identifier(Get(result, "operation_id")) &&
+              Identifier(Get(result, "expected_generation")),
+          -EINVAL,
+          "stable operation and expected installation generation required");
   std::string error;
   Require(registration::ValidateDefinition(result, &error), -EINVAL,
-      "offline registration definition rejected");
+          "offline registration definition rejected");
   return result;
 }
 
 std::string RecordName(const Message& value) {
   auto operation = Get(value, "operation_id");
-  gchar* checksum = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      reinterpret_cast<const guchar*>(operation.data()), operation.size());
-  Require(checksum != nullptr, -ENOMEM, "offline operation fingerprint allocation failed");
+  gchar* checksum = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, reinterpret_cast<const guchar*>(operation.data()),
+      operation.size());
+  Require(checksum != nullptr, -ENOMEM,
+          "offline operation fingerprint allocation failed");
   std::unique_ptr<gchar, decltype(&g_free)> owned(checksum, g_free);
   return std::string(checksum) + ".parcel";
 }
 
 std::string PayloadDigest(const std::vector<uint8_t>& frame) {
-  Require(frame.size() > 4, -EINVAL, "missing canonical offline registration envelope");
+  Require(frame.size() > 4, -EINVAL,
+          "missing canonical offline registration envelope");
   // Hash the canonical native Parcel envelope, excluding its outer BE length.
   // offline_format and payload_sha256 are absent from this canonical envelope.
-  gchar* checksum = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      frame.data() + 4, frame.size() - 4);
-  Require(checksum != nullptr, -ENOMEM, "offline payload fingerprint allocation failed");
+  gchar* checksum = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, frame.data() + 4, frame.size() - 4);
+  Require(checksum != nullptr, -ENOMEM,
+          "offline payload fingerprint allocation failed");
   std::unique_ptr<gchar, decltype(&g_free)> owned(checksum, g_free);
   return checksum;
 }
@@ -213,57 +259,68 @@ std::vector<uint8_t> RecordPayload(Message value) {
   value["id"] = "1";
   value["method"] = "register";
   auto canonical = Encode(value);
-  Require(!canonical.empty(), -E2BIG, "offline registration exceeds canonical envelope limits");
+  Require(!canonical.empty(), -E2BIG,
+          "offline registration exceeds canonical envelope limits");
   value["payload_sha256"] = PayloadDigest(canonical);
   value["offline_format"] = "1";
   auto payload = Encode(value);
-  Require(!payload.empty() && payload.size() <= kMaxRegistrationFileBytes, -E2BIG,
+  Require(
+      !payload.empty() && payload.size() <= kMaxRegistrationFileBytes, -E2BIG,
       "offline registration including format metadata exceeds record limits");
   return payload;
 }
 
-Message DecodeRecord(const std::vector<uint8_t>& payload, const std::string& name) {
+Message DecodeRecord(const std::vector<uint8_t>& payload,
+                     const std::string& name) {
   Message value;
   Require(payload.size() >= 4 && payload.size() <= kMaxRegistrationFileBytes &&
-      FrameSize(payload.data()) == payload.size() - 4 &&
-      Decode(payload.data() + 4, payload.size() - 4, &value) && Get(value, "method") == "register" &&
-      Get(value, "id") == "1", -EINVAL, "malformed offline registration record");
-  Require(Get(value, "offline_format") == "1", -EINVAL, "unsupported offline registration format");
+              FrameSize(payload.data()) == payload.size() - 4 &&
+              Decode(payload.data() + 4, payload.size() - 4, &value) &&
+              Get(value, "method") == "register" && Get(value, "id") == "1",
+          -EINVAL, "malformed offline registration record");
+  Require(Get(value, "offline_format") == "1", -EINVAL,
+          "unsupported offline registration format");
   std::string digest = Get(value, "payload_sha256");
   Require(digest.size() == 64 && RegistrationName(digest + ".parcel"), -EINVAL,
-      "invalid offline payload SHA-256 encoding");
+          "invalid offline payload SHA-256 encoding");
   Message canonical = value;
   canonical.erase("offline_format");
   canonical.erase("payload_sha256");
   auto canonical_payload = Encode(canonical);
-  Require(!canonical_payload.empty() && PayloadDigest(canonical_payload) == digest, -EINVAL,
-      "offline payload fingerprint mismatch");
+  Require(
+      !canonical_payload.empty() && PayloadDigest(canonical_payload) == digest,
+      -EINVAL, "offline payload fingerprint mismatch");
   canonical.erase("v");
   canonical.erase("id");
   canonical.erase("method");
   auto registration = PublicRegistration(canonical);
-  Require(RecordName(registration) == name, -EINVAL, "offline record operation fingerprint mismatch");
+  Require(RecordName(registration) == name, -EINVAL,
+          "offline record operation fingerprint mismatch");
   return registration;
 }
 
 std::vector<uint8_t> ReadFile(int directory, const std::string& name) {
-  Descriptor file(openat(directory, name.c_str(), O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
+  Descriptor file(openat(directory, name.c_str(),
+                         O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
   RequireSystem(file.Get() >= 0, "cannot read offline registration record");
   struct stat info = {};
   ProtectedFile(file.Get(), &info);
-  Require(info.st_size >= 0 && info.st_size <= static_cast<off_t>(kMaxRegistrationFileBytes),
-      -E2BIG, "offline registration record exceeds 64 KiB");
+  Require(info.st_size >= 0 &&
+              info.st_size <= static_cast<off_t>(kMaxRegistrationFileBytes),
+          -E2BIG, "offline registration record exceeds 64 KiB");
   std::vector<uint8_t> bytes(static_cast<size_t>(info.st_size));
   size_t offset = 0;
   while (offset < bytes.size()) {
-    ssize_t count = read(file.Get(), bytes.data() + offset, bytes.size() - offset);
+    ssize_t count =
+        read(file.Get(), bytes.data() + offset, bytes.size() - offset);
     if (count < 0 && errno == EINTR)
       continue;
     Require(count > 0, -EIO, "offline registration record is truncated");
     offset += static_cast<size_t>(count);
   }
   uint8_t trailing;
-  Require(read(file.Get(), &trailing, 1) == 0, -EIO, "offline registration record changed during read");
+  Require(read(file.Get(), &trailing, 1) == 0, -EIO,
+          "offline registration record changed during read");
   return bytes;
 }
 
@@ -295,20 +352,25 @@ std::vector<Record> Scan(int directory, bool remove_temporary) {
     std::string name(entry->d_name);
     if (name == "." || name == "..")
       continue;
-    Require(++entry_count <= kMaxRegistrationEntries, -ENOSPC, "offline directory entry limit exceeded");
+    Require(++entry_count <= kMaxRegistrationEntries, -ENOSPC,
+            "offline directory entry limit exceeded");
     bool temporary = PendingRegistrationName(name);
-    Require(temporary || RegistrationName(name), -EINVAL, "unexpected offline registration file");
+    Require(temporary || RegistrationName(name), -EINVAL,
+            "unexpected offline registration file");
     auto payload = ReadFile(directory, name);
     bytes += payload.size();
-    Require(bytes <= kMaxRegistrationBytes, -ENOSPC, "offline registration storage limit exceeded");
+    Require(bytes <= kMaxRegistrationBytes, -ENOSPC,
+            "offline registration storage limit exceeded");
     if (temporary) {
       if (remove_temporary) {
-        RequireSystem(unlinkat(directory, name.c_str(), 0) == 0, "cannot retire interrupted offline write");
+        RequireSystem(unlinkat(directory, name.c_str(), 0) == 0,
+                      "cannot retire interrupted offline write");
         removed = true;
       }
       continue;
     }
-    Require(records.size() < kMaxRegistrations, -ENOSPC, "offline registration count limit exceeded");
+    Require(records.size() < kMaxRegistrations, -ENOSPC,
+            "offline registration count limit exceeded");
     Message value = DecodeRecord(payload, name);
     records.push_back({name, std::move(payload), std::move(value)});
   }
@@ -321,17 +383,19 @@ int RegistrationDirectory(int authority, bool create) {
   bool created = false;
   if (create) {
     created = mkdirat(authority, kRegistrationDirectory, 0700) == 0;
-    RequireSystem(created || errno == EEXIST, "cannot create offline registration spool");
+    RequireSystem(created || errno == EEXIST,
+                  "cannot create offline registration spool");
   }
   Descriptor directory(openat(authority, kRegistrationDirectory,
-      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
   if (directory.Get() < 0 && errno == ENOENT && !create)
     return -1;
   RequireSystem(directory.Get() >= 0, "cannot open offline registration spool");
   ProtectedDirectory(directory.Get(), true);
   if (created) {
-    RequireSystem(fchown(directory.Get(), 0, 0) == 0 && fchmod(directory.Get(), 0700) == 0,
-        "cannot set new spool metadata");
+    RequireSystem(fchown(directory.Get(), 0, 0) == 0 &&
+                      fchmod(directory.Get(), 0700) == 0,
+                  "cannot set new spool metadata");
     Sync(directory.Get());
   }
   if (create)
@@ -349,36 +413,46 @@ ImageRoot::~ImageRoot() {
     close(directory_);
 }
 
-bool ImageRoot::IsCurrentProcess() const { return pid_ == getpid(); }
-bool ImageRoot::IsOwner() const { return owner_ == g_thread_self(); }
+bool ImageRoot::IsCurrentProcess() const {
+  return pid_ == getpid();
+}
+bool ImageRoot::IsOwner() const {
+  return owner_ == g_thread_self();
+}
 
-int ImageRoot::Open(const std::string& image_root, const std::string& authority_path) {
+int ImageRoot::Open(const std::string& image_root,
+                    const std::string& authority_path) {
   try {
-    Require(directory_ < 0 && lifecycle_ < 0, -EINVAL, "image root is already open");
-    Require(getuid() == 0 && geteuid() == 0, -EACCES, "offline image construction requires root");
+    Require(directory_ < 0 && lifecycle_ < 0, -EINVAL,
+            "image root is already open");
+    Require(getuid() == 0 && geteuid() == 0, -EACCES,
+            "offline image construction requires root");
     auto image_components = Components(image_root);
     auto authority_components = Components(authority_path);
-    Require(!authority_components.empty(), -EINVAL, "authority directory cannot be image root");
+    Require(!authority_components.empty(), -EINVAL,
+            "authority directory cannot be image root");
     Descriptor host(open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
     RequireSystem(host.Get() >= 0, "cannot open host root");
     Descriptor image(Descend(host.Get(), image_components, false));
     Descriptor directory(Descend(image.Get(), authority_components, true));
     ProtectedDirectory(directory.Get(), true);
-    int lifecycle_fd = openat(directory.Get(), "lifecycle.lock",
+    int lifecycle_fd = openat(
+        directory.Get(), "lifecycle.lock",
         O_RDWR | O_CREAT | O_EXCL | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, 0600);
     bool created = lifecycle_fd >= 0;
     if (lifecycle_fd < 0 && errno == EEXIST)
       lifecycle_fd = openat(directory.Get(), "lifecycle.lock",
-          O_RDWR | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+                            O_RDWR | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
     Descriptor lifecycle(lifecycle_fd);
     RequireSystem(lifecycle.Get() >= 0, "cannot open image lifecycle lock");
     struct stat info = {};
     ProtectedFile(lifecycle.Get(), &info);
     Require(flock(lifecycle.Get(), LOCK_EX | LOCK_NB) == 0, -EBUSY,
-        "daemon, installer or another image writer is active");
+            "daemon, installer or another image writer is active");
     if (created)
-      RequireSystem(fchown(lifecycle.Get(), 0, 0) == 0 && fchmod(lifecycle.Get(), 0600) == 0,
-          "cannot set new image lifecycle lock metadata");
+      RequireSystem(fchown(lifecycle.Get(), 0, 0) == 0 &&
+                        fchmod(lifecycle.Get(), 0600) == 0,
+                    "cannot set new image lifecycle lock metadata");
     // Do not change existing target UID/GID, labels or file modes here.
     Sync(lifecycle.Get());
     Sync(directory.Get());
@@ -392,7 +466,8 @@ int ImageRoot::Open(const std::string& image_root, const std::string& authority_
   }
 }
 
-int RegistrationWriter::Open(const std::string& image_root, const std::string& authority_path) {
+int RegistrationWriter::Open(const std::string& image_root,
+                             const std::string& authority_path) {
   return root_.Open(image_root, authority_path);
 }
 
@@ -401,8 +476,10 @@ int RegistrationWriter::Register(const Message& registration) {
   Descriptor directory;
   bool published = false;
   try {
-    Require(IsCurrentProcess() && IsOwner(), -EINVAL, "offline handle belongs to another process or thread");
-    Require(getuid() == 0 && geteuid() == 0, -EACCES, "offline registration requires root");
+    Require(IsCurrentProcess() && IsOwner(), -EINVAL,
+            "offline handle belongs to another process or thread");
+    Require(getuid() == 0 && geteuid() == 0, -EACCES,
+            "offline registration requires root");
     Message value = PublicRegistration(registration);
     std::string name = RecordName(value);
     auto payload = RecordPayload(std::move(value));
@@ -412,11 +489,14 @@ int RegistrationWriter::Register(const Message& registration) {
     for (const auto& record : records) {
       bytes += record.bytes.size();
       if (record.name == name) {
-        Require(record.bytes == payload, -EEXIST, "offline operation payload changed");
+        Require(record.bytes == payload, -EEXIST,
+                "offline operation payload changed");
         published = true;
-        Descriptor existing(openat(directory.Get(), name.c_str(),
-            O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
-        RequireSystem(existing.Get() >= 0, "cannot synchronize existing offline record");
+        Descriptor existing(
+            openat(directory.Get(), name.c_str(),
+                   O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC));
+        RequireSystem(existing.Get() >= 0,
+                      "cannot synchronize existing offline record");
         struct stat info = {};
         ProtectedFile(existing.Get(), &info);
         Sync(existing.Get());
@@ -425,29 +505,36 @@ int RegistrationWriter::Register(const Message& registration) {
         return 0;
       }
     }
-    Require(records.size() < kMaxRegistrations && bytes + payload.size() <= kMaxRegistrationBytes,
-        -ENOSPC, "offline registration spool is full");
+    Require(records.size() < kMaxRegistrations &&
+                bytes + payload.size() <= kMaxRegistrationBytes,
+            -ENOSPC, "offline registration spool is full");
     gchar* uuid = g_uuid_string_random();
-    Require(uuid != nullptr, -ENOMEM, "offline temporary name allocation failed");
+    Require(uuid != nullptr, -ENOMEM,
+            "offline temporary name allocation failed");
     std::unique_ptr<gchar, decltype(&g_free)> owned(uuid, g_free);
     temporary = std::string(".pending-") + uuid;
     Descriptor file(openat(directory.Get(), temporary.c_str(),
-        O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600));
+                           O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC,
+                           0600));
     RequireSystem(file.Get() >= 0, "cannot create offline registration record");
-    RequireSystem(fchown(file.Get(), 0, 0) == 0 && fchmod(file.Get(), 0600) == 0,
+    RequireSystem(
+        fchown(file.Get(), 0, 0) == 0 && fchmod(file.Get(), 0600) == 0,
         "cannot set new offline record metadata");
     size_t offset = 0;
     while (offset < payload.size()) {
-      ssize_t count = write(file.Get(), payload.data() + offset, payload.size() - offset);
+      ssize_t count =
+          write(file.Get(), payload.data() + offset, payload.size() - offset);
       if (count < 0 && errno == EINTR)
         continue;
       RequireSystem(count > 0, "offline registration write failed");
       offset += static_cast<size_t>(count);
     }
     Sync(file.Get());
-    RequireSystem(close(file.Release()) == 0, "cannot finish offline registration record");
-    RequireSystem(renameat(directory.Get(), temporary.c_str(), directory.Get(), name.c_str()) == 0,
-        "cannot publish offline registration record");
+    RequireSystem(close(file.Release()) == 0,
+                  "cannot finish offline registration record");
+    RequireSystem(renameat(directory.Get(), temporary.c_str(), directory.Get(),
+                           name.c_str()) == 0,
+                  "cannot publish offline registration record");
     published = true;
     temporary.clear();
     Sync(directory.Get());
@@ -467,7 +554,7 @@ int RegistrationWriter::Register(const Message& registration) {
 }
 
 int LoadRegistrations(const std::string& authority_dir,
-    std::vector<Message>* registrations, std::string* error) {
+                      std::vector<Message>* registrations, std::string* error) {
   if (!registrations)
     return -EINVAL;
   registrations->clear();
@@ -483,15 +570,18 @@ int LoadRegistrations(const std::string& authority_dir,
     std::vector<Message> result;
     for (auto& record : records)
       result.push_back(std::move(record.registration));
-    std::sort(result.begin(), result.end(), [](const Message& left, const Message& right) {
-      auto key = [](const Message& value) {
-        return std::make_tuple(Get(value, "package"), Get(value, "app"),
-            Get(value, "definition"), Get(value, "expected_generation"),
-            Number(value, "policy_version"), Number(value, "text_revision"),
-            Get(value, "operation_id"));
-      };
-      return key(left) < key(right);
-    });
+    std::sort(
+        result.begin(), result.end(),
+        [](const Message& left, const Message& right) {
+          auto key = [](const Message& value) {
+            return std::make_tuple(
+                Get(value, "package"), Get(value, "app"),
+                Get(value, "definition"), Get(value, "expected_generation"),
+                Number(value, "policy_version"), Number(value, "text_revision"),
+                Get(value, "operation_id"));
+          };
+          return key(left) < key(right);
+        });
     registrations->swap(result);
     return 0;
   } catch (const Failure& failure) {

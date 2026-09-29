@@ -13,15 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 set -eu
-# Only on a selected DEVELOPMENT emulator: temporarily replaces consent's socket.
+# Only on a selected DEVELOPMENT emulator: temporarily replaces consent's
+# socket.
 [ "$(id -u)" = 0 ]
 fixture=/usr/libexec/consent/tests/endpoint-fixture
 client=/usr/libexec/consent/tests/consent-api-test
 systemctl stop consentd.socket consentd.service
 cleanup() {
-  systemctl stop consent-endpoint-other.socket consent-endpoint-other.service 2>/dev/null || true
+  systemctl stop consent-endpoint-other.socket consent-endpoint-other.service \
+  2>/dev/null || true
   rm -f /run/.consentd.sock /run/consent-endpoint-other.sock
-  rm -f /run/systemd/system/consent-endpoint-other.socket /run/systemd/system/consent-endpoint-other.service
+  rm -f /run/systemd/system/consent-endpoint-other.socket \
+  /run/systemd/system/consent-endpoint-other.service
   systemctl daemon-reload
   systemctl start consentd.socket
 }
@@ -47,5 +50,6 @@ mv /run/consent-endpoint-other.sock /run/.consentd.sock
 "$fixture" --probe
 "$client" check --expect-status=-13
 sleep 1
-[ "$(systemctl show consent-endpoint-other.service -p ExecMainStatus --value)" = 0 ]
+[ "$(systemctl show consent-endpoint-other.service -p ExecMainStatus \
+  --value)" = 0 ]
 echo 'PASS renamed systemd socket rejected before hello'

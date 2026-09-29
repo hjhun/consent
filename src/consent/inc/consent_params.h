@@ -88,7 +88,7 @@ CONSENT_API void consent_params_free(consent_params_t* params);
  *     limit.
  */
 CONSENT_API int consent_params_set(consent_params_t* params, const char* key,
-    const char* value);
+                                   const char* value);
 /**
  * @brief Sets a parameter to a canonical signed decimal integer.
  * @since 0.1.0
@@ -111,7 +111,7 @@ CONSENT_API int consent_params_set(consent_params_t* params, const char* key,
  * @see consent_params_set()
  */
 CONSENT_API int consent_params_set_int64(consent_params_t* params,
-    const char* key, int64_t value);
+                                         const char* key, int64_t value);
 /**
  * @brief Selects advisory QUERY or authoritative AUTHORIZE checking.
  * @since 0.1.0
@@ -133,7 +133,7 @@ CONSENT_API int consent_params_set_int64(consent_params_t* params,
  * @see consent_check_mode_e
  */
 CONSENT_API int consent_params_set_check_mode(consent_params_t* params,
-    consent_check_mode_e mode);
+                                              consent_check_mode_e mode);
 /**
  * @brief Atomically appends one required authorization condition.
  * @since 0.1.0
@@ -163,9 +163,9 @@ CONSENT_API int consent_params_set_check_mode(consent_params_t* params,
  * @retval #CONSENT_ERROR_OUT_OF_MEMORY Allocation failed.
  * @retval #CONSENT_ERROR_BUSY The builder field limit was reached.
  */
-CONSENT_API int consent_params_add_requirement(consent_params_t* params,
-    const char* definition, const char* operation, const char* scope,
-    const char* purpose, const char* recipient);
+CONSENT_API int consent_params_add_requirement(
+    consent_params_t* params, const char* definition, const char* operation,
+    const char* scope, const char* purpose, const char* recipient);
 
 /** @} */
 

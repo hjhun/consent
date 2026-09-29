@@ -22,8 +22,8 @@ using consent::api::Guard;
 
 bool Reserved(const std::string& key) {
   return key.empty() || key[0] == '_' || key == "v" || key == "id" ||
-      key == "method" || key == "status" || key == "role" || key == "pid" ||
-      key == "uid" || key == "gid";
+         key == "method" || key == "status" || key == "role" || key == "pid" ||
+         key == "uid" || key == "gid";
 }
 }  // namespace
 
@@ -40,35 +40,43 @@ int consent_params_create(consent_params_t** params) {
   });
 }
 
-void consent_params_free(consent_params_t* params) { delete params; }
+void consent_params_free(consent_params_t* params) {
+  delete params;
+}
 
-int consent_params_set(consent_params_t* params, const char* key, const char* value) {
+int consent_params_set(consent_params_t* params, const char* key,
+                       const char* value) {
   return Guard([&]() -> int {
     if (!params || !key || !value || Reserved(key) ||
         !consent::ValidField(key, value))
       return CONSENT_ERROR_INVALID_PARAMETER;
-    if (!params->values.count(key) && params->values.size() >= consent::kMaxFields - 3)
+    if (!params->values.count(key) &&
+        params->values.size() >= consent::kMaxFields - 3)
       return CONSENT_ERROR_BUSY;
     params->values[key] = value;
     return 0;
   });
 }
 
-int consent_params_set_int64(consent_params_t* params, const char* key, int64_t value) {
+int consent_params_set_int64(consent_params_t* params, const char* key,
+                             int64_t value) {
   return Guard([&]() -> int {
     return consent_params_set(params, key, std::to_string(value).c_str());
   });
 }
 
-int consent_params_set_check_mode(consent_params_t* params, consent_check_mode_e mode) {
+int consent_params_set_check_mode(consent_params_t* params,
+                                  consent_check_mode_e mode) {
   if (mode != CONSENT_CHECK_QUERY && mode != CONSENT_CHECK_AUTHORIZE)
     return CONSENT_ERROR_INVALID_PARAMETER;
-  return consent_params_set(params, "mode", mode == CONSENT_CHECK_QUERY ? "QUERY" : "AUTHORIZE");
+  return consent_params_set(
+      params, "mode", mode == CONSENT_CHECK_QUERY ? "QUERY" : "AUTHORIZE");
 }
 
 int consent_params_add_requirement(consent_params_t* params,
-    const char* definition, const char* operation, const char* scope,
-    const char* purpose, const char* recipient) {
+                                   const char* definition,
+                                   const char* operation, const char* scope,
+                                   const char* purpose, const char* recipient) {
   return Guard([&]() -> int {
     if (!params || !definition || !*definition || !operation || !*operation ||
         !scope || !purpose || !recipient)
@@ -78,10 +86,12 @@ int consent_params_add_requirement(consent_params_t* params,
       return CONSENT_ERROR_INVALID_PARAMETER;
     consent_params updated = *params;
     std::string prefix = "r" + std::to_string(count) + ".";
-    const char* keys[] = {"definition", "operation", "scope", "purpose", "recipient"};
+    const char* keys[] = {"definition", "operation", "scope", "purpose",
+                          "recipient"};
     const char* values[] = {definition, operation, scope, purpose, recipient};
     for (size_t i = 0; i < 5; ++i) {
-      int status = consent_params_set(&updated, (prefix + keys[i]).c_str(), values[i]);
+      int status =
+          consent_params_set(&updated, (prefix + keys[i]).c_str(), values[i]);
       if (status)
         return status;
     }

@@ -22,14 +22,17 @@ int main(int argc, char** argv) {
   consent_params_t* params = NULL;
   int status;
   if (argc != 9) {
-    fprintf(stderr, "Usage: %s PACKAGE APP DEFINITION ENFORCER GENERATION OPERATION_ID POLICY_VERSION TEXT_REVISION\n", argv[0]);
+    fprintf(stderr,
+            "Usage: %s PACKAGE APP DEFINITION ENFORCER GENERATION "
+            "OPERATION_ID POLICY_VERSION TEXT_REVISION\n",
+            argv[0]);
     return 2;
   }
   /* Run as the real authenticated Installer. GENERATION comes from its
    * committed installation authority transaction, not a timestamp or UUID
    * invented by this consumer. The app must belong to this package. */
   status = example_definition(argv[3], argv[4], argv[5], argv[6], argv[7],
-      argv[8], &params);
+                              argv[8], &params);
   if (!status)
     status = consent_client_create(&client);
   if (!status)

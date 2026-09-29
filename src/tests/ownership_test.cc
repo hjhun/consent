@@ -46,9 +46,11 @@ const char* registry_path = nullptr;
 bool registry_open_at_failure = false;
 
 bool HasRegistryDescriptor() noexcept {
-  if (!registry_path) return false;
+  if (!registry_path)
+    return false;
   DIR* directory = opendir("/proc/self/fd");
-  if (!directory) return false;
+  if (!directory)
+    return false;
   bool found = false;
   while (auto* entry = readdir(directory)) {
     char link[512];
@@ -73,7 +75,8 @@ void* operator new(size_t size) {
     throw std::bad_alloc();
   }
   void* pointer = malloc(size ? size : 1);
-  if (!pointer) throw std::bad_alloc();
+  if (!pointer)
+    throw std::bad_alloc();
   return pointer;
 }
 __attribute__((noinline)) void operator delete(void* pointer) noexcept {
@@ -82,7 +85,9 @@ __attribute__((noinline)) void operator delete(void* pointer) noexcept {
 __attribute__((noinline)) void operator delete(void* pointer, size_t) noexcept {
   free(pointer);
 }
-void* operator new[](size_t size) { return ::operator new(size); }
+void* operator new[](size_t size) {
+  return ::operator new(size);
+}
 __attribute__((noinline)) void operator delete[](void* pointer) noexcept {
   free(pointer);
 }
@@ -167,10 +172,12 @@ TEST(Ownership, RealServerAllocationFailureDoesNotReserveAdmission) {
 
 size_t DescriptorCount() {
   DIR* directory = opendir("/proc/self/fd");
-  if (!directory) return 0;
+  if (!directory)
+    return 0;
   size_t count = 0;
   while (auto* entry = readdir(directory)) {
-    if (entry->d_name[0] != '.') ++count;
+    if (entry->d_name[0] != '.')
+      ++count;
   }
   closedir(directory);
   return count;
@@ -199,7 +206,8 @@ TEST(Ownership, DestructorQuitQueuedBeforeIoRunIsNotLost) {
   std::atomic<bool> started{false};
   auto server = std::make_unique<consentd::Server>();
   consentd::ServerTestPeer::StartDelayedIo(*server, started);
-  while (!started.load()) std::this_thread::yield();
+  while (!started.load())
+    std::this_thread::yield();
   const auto before = std::chrono::steady_clock::now();
   server.reset();
   const auto elapsed = std::chrono::steady_clock::now() - before;

@@ -11,26 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-[Unit]
-Description=Isolated argo feature selection coordinator
-Requires=consent-feature-poc.socket consentd-poc.socket
-After=consent-feature-poc.socket consentd-poc.socket
-
-[Service]
-Type=simple
-ExecStart=@CMAKE_INSTALL_FULL_LIBEXECDIR@/consent/poc/consent-mock-argo \
-  feature-serve
-User=root
-Group=root
-CapabilityBoundingSet=CAP_SYS_PTRACE
-AmbientCapabilities=CAP_SYS_PTRACE
-SmackProcessLabel=System
-Sockets=consent-feature-poc.socket
-UMask=0077
-Restart=no
-TimeoutStopSec=10s
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=consent-feature-poc
-NoNewPrivileges=yes
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 80
+SortIncludes: Never
+SortUsingDeclarations: Never
+BreakStringLiterals: false
+ReflowComments: true
+DerivePointerAlignment: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline

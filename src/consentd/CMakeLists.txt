@@ -2,69 +2,122 @@ FILE(GLOB CONSENTD_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cc")
 SET(REPOSITORY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/repository.cc")
 IF(EXISTS "${REPOSITORY_SOURCE}")
   ADD_LIBRARY(consent-storage STATIC "${REPOSITORY_SOURCE}")
-  TARGET_COMPILE_DEFINITIONS(consent-storage PRIVATE
-    CONSENT_LOG_TAG="CONSENTD")
-  TARGET_INCLUDE_DIRECTORIES(consent-storage PUBLIC
-    "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent/inc")
-  TARGET_LINK_LIBRARIES(consent-storage PUBLIC consent-common PkgConfig::SQLITE
-    PkgConfig::CAPI_BASE_COMMON)
+  TARGET_COMPILE_DEFINITIONS(consent-storage PRIVATE CONSENT_LOG_TAG="CONSENTD")
+  TARGET_INCLUDE_DIRECTORIES(
+    consent-storage PUBLIC "${PROJECT_SOURCE_DIR}/src"
+                           "${PROJECT_SOURCE_DIR}/src/consent/inc"
+  )
+  TARGET_LINK_LIBRARIES(
+    consent-storage PUBLIC consent-common PkgConfig::SQLITE
+                           PkgConfig::CAPI_BASE_COMMON
+  )
   LIST(REMOVE_ITEM CONSENTD_SOURCES "${REPOSITORY_SOURCE}")
 ENDIF()
 IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/main.cc")
   ADD_EXECUTABLE(consentd ${CONSENTD_SOURCES})
-  TARGET_INCLUDE_DIRECTORIES(consentd PRIVATE
-    "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent/inc")
-  TARGET_LINK_LIBRARIES(consentd PRIVATE consent-common consent-storage PkgConfig::GLIB
-    PkgConfig::SQLITE PkgConfig::SYSTEMD PkgConfig::PKGMGR Threads::Threads)
-  TARGET_COMPILE_DEFINITIONS(consentd PRIVATE
-    CONSENT_LOG_TAG="CONSENTD"
-    CONSENT_SOCKET_PATH="${CONSENT_SOCKET_PATH}"
-    CONSENT_STATE_DIR="${CONSENT_STATE_DIR}"
-    CONSENT_AUTHORITY_DIR="${CONSENT_AUTHORITY_DIR}"
-    CONSENT_ROLE_CONFIG="${CONSENT_ROLE_CONFIG}"
-    CONSENT_INSTALLATIONS="${CONSENT_INSTALLATIONS}")
-  SET_PROPERTY(TARGET consentd APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie")
+  TARGET_INCLUDE_DIRECTORIES(
+    consentd PRIVATE "${PROJECT_SOURCE_DIR}/src"
+                     "${PROJECT_SOURCE_DIR}/src/consent/inc"
+  )
+  TARGET_LINK_LIBRARIES(
+    consentd
+    PRIVATE consent-common
+            consent-storage
+            PkgConfig::GLIB
+            PkgConfig::SQLITE
+            PkgConfig::SYSTEMD
+            PkgConfig::PKGMGR
+            Threads::Threads
+  )
+  TARGET_COMPILE_DEFINITIONS(
+    consentd
+    PRIVATE CONSENT_LOG_TAG="CONSENTD"
+            CONSENT_SOCKET_PATH="${CONSENT_SOCKET_PATH}"
+            CONSENT_STATE_DIR="${CONSENT_STATE_DIR}"
+            CONSENT_AUTHORITY_DIR="${CONSENT_AUTHORITY_DIR}"
+            CONSENT_ROLE_CONFIG="${CONSENT_ROLE_CONFIG}"
+            CONSENT_INSTALLATIONS="${CONSENT_INSTALLATIONS}"
+  )
+  SET_PROPERTY(
+    TARGET consentd
+    APPEND_STRING
+    PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie"
+  )
   INSTALL(TARGETS consentd RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   IF(CONSENT_BUILD_POC)
     ADD_EXECUTABLE(consentd-poc ${CONSENTD_SOURCES})
-    TARGET_INCLUDE_DIRECTORIES(consentd-poc PRIVATE
-      "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent/inc")
-    TARGET_LINK_LIBRARIES(consentd-poc PRIVATE consent-common consent-storage
-      PkgConfig::GLIB PkgConfig::SQLITE PkgConfig::SYSTEMD PkgConfig::PKGMGR Threads::Threads)
-    TARGET_COMPILE_DEFINITIONS(consentd-poc PRIVATE
-      CONSENT_LOG_TAG="CONSENTD"
-      CONSENT_SOCKET_PATH="${CONSENT_POC_SOCKET_PATH}"
-      CONSENT_STATE_DIR="${CONSENT_POC_STATE_DIR}"
-      CONSENT_AUTHORITY_DIR="${CONSENT_POC_AUTHORITY_DIR}"
-      CONSENT_ROLE_CONFIG="${CONSENT_POC_ROLE_CONFIG}"
-      CONSENT_INSTALLATIONS="${CONSENT_POC_AUTHORITY_DIR}/installations.conf")
-    SET_PROPERTY(TARGET consentd-poc APPEND_STRING PROPERTY LINK_FLAGS
-      " -Wl,--as-needed,--gc-sections -pie")
-    INSTALL(TARGETS consentd-poc RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/poc")
+    TARGET_INCLUDE_DIRECTORIES(
+      consentd-poc PRIVATE "${PROJECT_SOURCE_DIR}/src"
+                           "${PROJECT_SOURCE_DIR}/src/consent/inc"
+    )
+    TARGET_LINK_LIBRARIES(
+      consentd-poc
+      PRIVATE consent-common
+              consent-storage
+              PkgConfig::GLIB
+              PkgConfig::SQLITE
+              PkgConfig::SYSTEMD
+              PkgConfig::PKGMGR
+              Threads::Threads
+    )
+    TARGET_COMPILE_DEFINITIONS(
+      consentd-poc
+      PRIVATE
+        CONSENT_LOG_TAG="CONSENTD"
+        CONSENT_SOCKET_PATH="${CONSENT_POC_SOCKET_PATH}"
+        CONSENT_STATE_DIR="${CONSENT_POC_STATE_DIR}"
+        CONSENT_AUTHORITY_DIR="${CONSENT_POC_AUTHORITY_DIR}"
+        CONSENT_ROLE_CONFIG="${CONSENT_POC_ROLE_CONFIG}"
+        CONSENT_INSTALLATIONS="${CONSENT_POC_AUTHORITY_DIR}/installations.conf"
+    )
+    SET_PROPERTY(
+      TARGET consentd-poc
+      APPEND_STRING
+      PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie"
+    )
+    INSTALL(TARGETS consentd-poc
+            RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/poc"
+    )
   ENDIF()
   IF(CONSENT_BUILD_TEST_DAEMON)
     FOREACH(TEST_DAEMON consentd-test consentd-shutdown-test)
       ADD_EXECUTABLE(${TEST_DAEMON} ${CONSENTD_SOURCES})
-      TARGET_INCLUDE_DIRECTORIES(${TEST_DAEMON} PRIVATE
-        "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/src/consent/inc")
-      TARGET_LINK_LIBRARIES(${TEST_DAEMON} PRIVATE consent-common consent-storage
-        PkgConfig::GLIB PkgConfig::SQLITE PkgConfig::SYSTEMD Threads::Threads)
-      TARGET_COMPILE_DEFINITIONS(${TEST_DAEMON} PRIVATE CONSENT_TEST_BUILD
-        CONSENT_LOG_TAG="CONSENTD"
-        CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
-        CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
-        CONSENT_AUTHORITY_DIR="${CONSENT_TEST_AUTHORITY_DIR}"
-        CONSENT_ROLE_CONFIG="${CONSENT_TEST_ROOT}/roles.conf"
-        CONSENT_INSTALLATIONS="${CONSENT_TEST_AUTHORITY_DIR}/installations.conf")
+      TARGET_INCLUDE_DIRECTORIES(
+        ${TEST_DAEMON} PRIVATE "${PROJECT_SOURCE_DIR}/src"
+                               "${PROJECT_SOURCE_DIR}/src/consent/inc"
+      )
+      TARGET_LINK_LIBRARIES(
+        ${TEST_DAEMON}
+        PRIVATE consent-common consent-storage PkgConfig::GLIB
+                PkgConfig::SQLITE PkgConfig::SYSTEMD Threads::Threads
+      )
+      TARGET_COMPILE_DEFINITIONS(
+        ${TEST_DAEMON}
+        PRIVATE
+          CONSENT_TEST_BUILD
+          CONSENT_LOG_TAG="CONSENTD"
+          CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
+          CONSENT_STATE_DIR="${CONSENT_TEST_STATE_DIR}"
+          CONSENT_AUTHORITY_DIR="${CONSENT_TEST_AUTHORITY_DIR}"
+          CONSENT_ROLE_CONFIG="${CONSENT_TEST_ROOT}/roles.conf"
+          CONSENT_INSTALLATIONS="${CONSENT_TEST_AUTHORITY_DIR}/installations.conf"
+      )
       IF(TEST_DAEMON STREQUAL "consentd-shutdown-test")
-        TARGET_SOURCES(${TEST_DAEMON} PRIVATE
-          "${PROJECT_SOURCE_DIR}/src/tests/repository_shutdown_interposer.cc")
+        TARGET_SOURCES(
+          ${TEST_DAEMON}
+          PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/tests/repository_shutdown_interposer.cc"
+        )
         TARGET_LINK_LIBRARIES(${TEST_DAEMON} PRIVATE ${CMAKE_DL_LIBS})
       ENDIF()
-      SET_PROPERTY(TARGET ${TEST_DAEMON} APPEND_STRING PROPERTY LINK_FLAGS
-        " -Wl,--as-needed,--gc-sections -pie")
+      SET_PROPERTY(
+        TARGET ${TEST_DAEMON}
+        APPEND_STRING
+        PROPERTY LINK_FLAGS " -Wl,--as-needed,--gc-sections -pie"
+      )
       INSTALL(TARGETS ${TEST_DAEMON}
-        RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+              RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
+      )
     ENDFOREACH()
   ENDIF()
 ELSE()

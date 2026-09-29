@@ -20,10 +20,12 @@
 namespace consent {
 namespace approval {
 namespace {
-constexpr std::array<const char*, 7> kContext = {{"approval_version", "request_kind",
-    "selection_id", "selection_revision", "selection_digest", "grant_mode", "duration_ms"}};
-constexpr std::array<const char*, 9> kRow = {{"definition", "policy_version", "scope",
-    "operation", "purpose", "recipient", "holder", "feature_id", "feature_revision"}};
+constexpr std::array<const char*, 7> kContext = {
+    {"approval_version", "request_kind", "selection_id", "selection_revision",
+     "selection_digest", "grant_mode", "duration_ms"}};
+constexpr std::array<const char*, 9> kRow = {
+    {"definition", "policy_version", "scope", "operation", "purpose",
+     "recipient", "holder", "feature_id", "feature_revision"}};
 
 bool Identifier(const std::string& value) {
   if (value.empty() || value.size() > 128)
@@ -37,8 +39,8 @@ bool Identifier(const std::string& value) {
 
 bool Integer(const std::string& value, int64_t minimum, int64_t maximum) {
   int64_t number = 0;
-  return ParseNumber(value, &number) && number >= minimum && number <= maximum &&
-      value == std::to_string(number);
+  return ParseNumber(value, &number) && number >= minimum &&
+         number <= maximum && value == std::to_string(number);
 }
 
 bool Fail(std::string* error, const char* text) {
@@ -58,7 +60,8 @@ void CopyContext(const Message& source, Message* destination) {
 
 bool SameContext(const Message& left, const Message& right) {
   for (const auto* key : kContext) {
-    if (left.count(key) != right.count(key) || Get(left, key) != Get(right, key))
+    if (left.count(key) != right.count(key) ||
+        Get(left, key) != Get(right, key))
       return false;
   }
   return true;
@@ -68,7 +71,8 @@ Message SelectionFields(const Message& request) {
   Message result;
   CopyContext(request, &result);
   result.erase("selection_digest");
-  for (const auto* key : {"subject", "profile", "session", "generation", "count"})
+  for (const auto* key :
+       {"subject", "profile", "session", "generation", "count"})
     result[key] = Get(request, key);
   int64_t count = Number(request, "count", 0);
   if (count < 1 || count > 16)
@@ -90,10 +94,11 @@ std::string SelectionDigest(const Message& request) {
     if (!ValidField(field.first, field.second))
       return {};
     canonical += std::to_string(field.first.size()) + ":" + field.first +
-        std::to_string(field.second.size()) + ":" + field.second;
+                 std::to_string(field.second.size()) + ":" + field.second;
   }
-  gchar* digest = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      reinterpret_cast<const guchar*>(canonical.data()), canonical.size());
+  gchar* digest = g_compute_checksum_for_data(
+      G_CHECKSUM_SHA256, reinterpret_cast<const guchar*>(canonical.data()),
+      canonical.size());
   std::string result(digest);
   g_free(digest);
   return result;
@@ -107,14 +112,17 @@ bool Validate(const Message& request, std::string* error) {
     }
     for (int i = 0; i < 16; ++i) {
       std::string prefix = "r" + std::to_string(i) + ".";
-      if (request.count(prefix + "feature_id") || request.count(prefix + "feature_revision") ||
-          request.count(prefix + "grant_mode") || request.count(prefix + "duration_ms"))
+      if (request.count(prefix + "feature_id") ||
+          request.count(prefix + "feature_revision") ||
+          request.count(prefix + "grant_mode") ||
+          request.count(prefix + "duration_ms"))
         return Fail(error, "feature context requires version 1");
     }
     return true;
   }
   if (Get(request, "approval_version") != "1" ||
-      (Get(request, "request_kind") != "PREAPPROVAL" && Get(request, "request_kind") != "TASK") ||
+      (Get(request, "request_kind") != "PREAPPROVAL" &&
+       Get(request, "request_kind") != "TASK") ||
       !Identifier(Get(request, "selection_id")) ||
       !Integer(Get(request, "selection_revision"), 1, INT64_MAX) ||
       !Integer(Get(request, "count"), 1, 16))
@@ -128,18 +136,20 @@ bool Validate(const Message& request, std::string* error) {
   const auto mode = Get(request, "grant_mode");
   if (mode != "ONCE" && mode != "SESSION" && mode != "TIMED")
     return Fail(error, "invalid selected approval period");
-  if (mode == "TIMED" ? !Integer(Get(request, "duration_ms"), 100, 3600000) :
-      request.count("duration_ms") != 0)
+  if (mode == "TIMED" ? !Integer(Get(request, "duration_ms"), 100, 3600000)
+                      : request.count("duration_ms") != 0)
     return Fail(error, "invalid selected approval duration");
   if (mode == "SESSION" && (Get(request, "session").empty() ||
-      !Integer(Get(request, "generation"), 1, INT64_MAX)))
+                            !Integer(Get(request, "generation"), 1, INT64_MAX)))
     return Fail(error, "session approval requires active session context");
   for (int i = 0; i < Number(request, "count"); ++i) {
     std::string prefix = "r" + std::to_string(i) + ".";
     if (!Identifier(Get(request, prefix + "feature_id")) ||
         !Integer(Get(request, prefix + "feature_revision"), 1, INT64_MAX) ||
         !Integer(Get(request, prefix + "policy_version"), 1, INT64_MAX))
-      return Fail(error, "feature selection requires explicit policy and feature revisions");
+      return Fail(
+          error,
+          "feature selection requires explicit policy and feature revisions");
   }
   const auto digest = Get(request, "selection_digest");
   if (digest.size() != 64 || digest != SelectionDigest(request))
@@ -148,10 +158,11 @@ bool Validate(const Message& request, std::string* error) {
 }
 
 bool Covers(const Message& request, const std::string& mode, int64_t expires,
-    int64_t now) {
+            int64_t now) {
   if (expires != 0 && expires <= now)
     return false;
-  if (Get(request, "approval_version") != "1" || Get(request, "request_kind") == "TASK")
+  if (Get(request, "approval_version") != "1" ||
+      Get(request, "request_kind") == "TASK")
     return true;
   const auto selected = Get(request, "grant_mode");
   if (selected == "ONCE" || mode == "PERSISTENT")

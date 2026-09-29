@@ -70,4 +70,5 @@ fi
 [ -z "$(systemctl show -p DropInPaths --value consentd-poc.service)" ]
 state=$(systemctl show -p ActiveState --value consentd-poc.socket)
 [ "$state" = inactive ] || [ "$state" = failed ]
-echo 'PASS executed injected socket-start failure; probe cleanup stopped units and removed owned observe override'
+echo \
+  'PASS executed injected socket-start failure; probe cleanup stopped units and removed owned observe override'

@@ -26,39 +26,52 @@ using consent::api::Submit;
 extern "C" {
 
 int consent_request(consent_client_h client, const consent_params_t* params,
-    unsigned int wait_timeout_ms, consent_result_t** result) {
-  return Guard([&]() { return Call(client, "request", params, wait_timeout_ms, result); });
+                    unsigned int wait_timeout_ms, consent_result_t** result) {
+  return Guard([&]() {
+    return Call(client, "request", params, wait_timeout_ms, result);
+  });
 }
 
 int consent_check(consent_client_h client, const consent_params_t* params,
-    unsigned int wait_timeout_ms, consent_result_t** result) {
-  return Guard([&]() { return Call(client, "check", params, wait_timeout_ms, result); });
+                  unsigned int wait_timeout_ms, consent_result_t** result) {
+  return Guard(
+      [&]() { return Call(client, "check", params, wait_timeout_ms, result); });
 }
 
-int consent_request_async(consent_client_h client, const consent_params_t* params,
-    consent_result_cb callback, void* user_data, consent_async_id_t* operation) {
-  return Guard([&]() { return Submit(client, "request", params, callback, user_data, operation); });
+int consent_request_async(consent_client_h client,
+                          const consent_params_t* params,
+                          consent_result_cb callback, void* user_data,
+                          consent_async_id_t* operation) {
+  return Guard([&]() {
+    return Submit(client, "request", params, callback, user_data, operation);
+  });
 }
 
 int consent_check_async(consent_client_h client, const consent_params_t* params,
-    consent_result_cb callback, void* user_data, consent_async_id_t* operation) {
-  return Guard([&]() { return Submit(client, "check", params, callback, user_data, operation); });
+                        consent_result_cb callback, void* user_data,
+                        consent_async_id_t* operation) {
+  return Guard([&]() {
+    return Submit(client, "check", params, callback, user_data, operation);
+  });
 }
 
-int consent_async_detach(consent_client_h client, consent_async_id_t operation) {
+int consent_async_detach(consent_client_h client,
+                         consent_async_id_t operation) {
   return Guard([&]() -> int {
     int status = consent::api::OnlineStatus(client);
     return status ? status : client->impl->Detach(operation);
   });
 }
 
-int consent_get_request_result(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+int consent_get_request_result(consent_client_h client,
+                               const consent_params_t* params,
+                               consent_result_t** result) {
   return Guard([&]() { return Call(client, "result", params, 5000, result); });
 }
 
-int consent_cancel_request(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+int consent_cancel_request(consent_client_h client,
+                           const consent_params_t* params,
+                           consent_result_t** result) {
   return Guard([&]() { return Call(client, "cancel", params, 5000, result); });
 }
 

@@ -38,7 +38,8 @@ swap_started=0
 original_service=$(systemctl show "$service" -p ActiveState --value)
 original_socket=$(systemctl show "$socket" -p ActiveState --value)
 case "$original_service:$original_socket" in
-  active:active|active:inactive|inactive:active|inactive:inactive|failed:active|failed:inactive) ;;
+  active:active|active:inactive|inactive:active|\
+    inactive:inactive|failed:active|failed:inactive) ;;
   *) echo 'FAIL units are transitioning; retry after they settle' >&2; exit 1 ;;
 esac
 exists() { [ -e "$1" ] || [ -L "$1" ]; }
@@ -52,11 +53,13 @@ stop() {
   [ "$(systemctl show "$socket" -p ActiveState --value 9<&-)" = inactive ]
 }
 reset_failure() {
-  reset_state=$(systemctl show "$service" -p ActiveState --value 9<&-) || return 1
+  reset_state=$(systemctl show "$service" -p ActiveState --value 9<&-) || \
+  return 1
   case "$reset_state" in
     inactive) ;; # Inactive units may already have been garbage-collected.
     failed) systemctl reset-failed "$service" 9<&- ;;
-    *) echo "FAIL unexpected state before startup: $reset_state" >&2; return 1 ;;
+    *) echo "FAIL unexpected state before startup: $reset_state" >&2; return \
+  1 ;;
   esac
 }
 start() { systemctl start "$socket" "$service" 9<&-; }
@@ -89,16 +92,22 @@ cleanup() {
   trap - EXIT
   trap '' HUP INT TERM
   if ! stop; then
-    echo "FAIL could not confirm daemon/socket stopped; stores left in place, backups retained at $fixture" >&2
-    restore_logging || echo "FAIL could not restore isolated logging: $logging_dropin" >&2
+    echo \
+  "FAIL could not confirm daemon/socket stopped; stores left in place, backups retained at $fixture" >&2
+    restore_logging || echo \
+  "FAIL could not restore isolated logging: $logging_dropin" >&2
     exec 9<&-
     exit 1
   fi
   if [ "$swap_started" = 1 ]; then
-    if ! restore_store "$state" "$fixture/original-state" "$fixture/result-state" "$original_state_present" ||
-       ! restore_store "$inventory" "$fixture/original-authority" "$fixture/result-authority" "$original_inventory_present"; then
-      echo "FAIL store restoration incomplete; retained evidence/backups at $fixture" >&2
-      restore_logging || echo "FAIL could not restore isolated logging: $logging_dropin" >&2
+    if ! restore_store "$state" "$fixture/original-state" \
+  "$fixture/result-state" "$original_state_present" ||
+       ! restore_store "$inventory" "$fixture/original-authority" \
+  "$fixture/result-authority" "$original_inventory_present"; then
+      echo \
+  "FAIL store restoration incomplete; retained evidence/backups at $fixture" >&2
+      restore_logging || echo \
+  "FAIL could not restore isolated logging: $logging_dropin" >&2
       exec 9<&-
       exit 1
     fi
@@ -117,7 +126,8 @@ cleanup() {
   if [ "$original_service" = active ]; then
     systemctl start "$service" || exit 1
   fi
-  echo "Offline fixture evidence retained: $fixture; original stores and active units restored"
+  echo \
+  "Offline fixture evidence retained: $fixture; original stores and active units restored"
   exit "$saved_status"
 }
 trap cleanup EXIT
@@ -160,10 +170,13 @@ stage() {
   stage_root=$1 stage_package=$2 stage_app=$3 stage_generation=$4
   stage_operation=$5 stage_definition=$6 stage_policy=$7 stage_text=$8
   shift 8
-  "$api" 9<&- register "$stage_package" "$stage_app" --offline-image-root="$stage_root" \
+  "$api" 9<&- register "$stage_package" "$stage_app" \
+  --offline-image-root="$stage_root" \
     operation_id="$stage_operation" expected_generation="$stage_generation" \
-    definition="$stage_definition" enforcer=scenario policy_version="$stage_policy" text_revision="$stage_text" \
-    level=1 modes=PERSISTENT default_locale=en message.en.title=Allow message.en.body=Read \
+    definition="$stage_definition" enforcer=scenario \
+  policy_version="$stage_policy" text_revision="$stage_text" \
+    level=1 modes=PERSISTENT default_locale=en message.en.title=Allow \
+  message.en.body=Read \
     "$@"
 }
 query() {
@@ -176,37 +189,53 @@ query() {
 assert_db() {
   stop
   [ "$(sqlite3 -readonly "$state/consent.db" 'PRAGMA integrity_check;')" = ok ]
-  [ "$(sqlite3 -readonly "$state/consent.db" 'SELECT count(*) FROM grants;')" = 0 ]
+  [ "$(sqlite3 -readonly "$state/consent.db" 'SELECT count(*) FROM grants;')" \
+  = 0 ]
   echo 'PASS offline import creates no user approvals; integrity=ok'
 }
 # This CLI provisions installation identity only; every definition is staged by
 # the public consent_register API in the separately linked C executable.
-generation=$("$authority" 9<&- --image-root "$image" begin demo.package offline-begin absent)
-"$authority" 9<&- --image-root "$image" attach demo.package demo.app offline-app1 "$generation"
-"$authority" 9<&- --image-root "$image" attach demo.package demo.app2 offline-app2 "$generation"
-"$authority" 9<&- --image-root "$image" commit demo.package offline-commit "$generation"
-other=$("$authority" 9<&- --image-root "$image" begin offline.other other-begin absent)
-"$authority" 9<&- --image-root "$image" attach offline.other offline.otherapp other-app "$other"
-"$authority" 9<&- --image-root "$image" commit offline.other other-commit "$other"
+generation=$("$authority" 9<&- --image-root "$image" begin demo.package \
+  offline-begin absent)
+"$authority" 9<&- --image-root "$image" attach demo.package demo.app \
+  offline-app1 "$generation"
+"$authority" 9<&- --image-root "$image" attach demo.package demo.app2 \
+  offline-app2 "$generation"
+"$authority" 9<&- --image-root "$image" commit demo.package offline-commit \
+  "$generation"
+other=$("$authority" 9<&- --image-root "$image" begin offline.other \
+  other-begin absent)
+"$authority" 9<&- --image-root "$image" attach offline.other offline.otherapp \
+  other-app "$other"
+"$authority" 9<&- --image-root "$image" commit offline.other other-commit \
+  "$other"
 # Deliberately create the newest revision first; import order must be numeric.
-stage "$image" demo.package demo.app "$generation" offline-high demo.offline 2 2 --repeat=2
+stage "$image" demo.package demo.app "$generation" offline-high demo.offline \
+  2 2 --repeat=2
 stage "$image" demo.package demo.app "$generation" offline-low demo.offline 1 1
-stage "$image" demo.package demo.app2 "$generation" offline-second demo.offline.second 1 1
-stage "$image" offline.other offline.otherapp "$other" offline-other other.offline 1 1
-stage "$image" demo.package demo.app stale-generation offline-stale demo.offline.stale 1 1
-stage "$image" demo.package demo.app "$generation" offline-high demo.changed 2 2 \
+stage "$image" demo.package demo.app2 "$generation" offline-second \
+  demo.offline.second 1 1
+stage "$image" offline.other offline.otherapp "$other" offline-other \
+  other.offline 1 1
+stage "$image" demo.package demo.app stale-generation offline-stale \
+  demo.offline.stale 1 1
+stage "$image" demo.package demo.app "$generation" offline-high demo.changed \
+  2 2 \
   --expect-status=-2147483644
 "$api" 9<&- check --offline-image-root="$image" --expect-status=-38
-"$api" 9<&- update demo.package demo.app --offline-image-root="$image" --expect-status=-38
+"$api" 9<&- update demo.package demo.app --offline-image-root="$image" \
+  --expect-status=-38
 [ ! -e "$image$state" ]
 [ ! -e /tmp/consent-test/consent.sock ]
-echo 'PASS socket-absent public C consent_register STAGED, exact retry/conflict, unsupported methods, no DB'
+echo \
+  'PASS socket-absent public C consent_register STAGED, exact retry/conflict, unsupported methods, no DB'
 # Simulate publishing the built image into this isolated target's fixed paths.
 # Preserve both previous test stores verbatim and restore them on every exit.
 # Set the phase before either rename; cleanup discovers completed moves from
 # backup existence even if a signal arrives between mv and the next command.
 swap_started=1
-if [ "$original_state_present" = 1 ]; then mv "$state" "$fixture/original-state"; fi
+if [ "$original_state_present" = 1 ]; then mv "$state" \
+  "$fixture/original-state"; fi
 mv "$inventory" "$fixture/original-authority"
 mv "$image$inventory" "$inventory"
 # Startup must reject invalid authority before creating any policy database.
@@ -214,7 +243,8 @@ mv "$image$inventory" "$inventory"
 cp "$inventory/installations.conf" "$fixture/valid-installations.conf"
 reject_authority_startup() {
   invalid_kind=$1
-  cursor_output=$(journalctl -b -u "$service" -n 1 --show-cursor --no-pager -o cat 9<&-)
+  cursor_output=$(journalctl -b -u "$service" -n 1 --show-cursor --no-pager \
+  -o cat 9<&-)
   journal_cursor=$(printf '%s\n' "$cursor_output" | sed -n 's/^-- cursor: //p')
   [ -n "$journal_cursor" ]
   authority_inode=$(stat -c '%d:%i' "$inventory/installations.conf")
@@ -226,21 +256,25 @@ reject_authority_startup() {
   # Cancel Restart=on-failure before restoring bytes or inspecting the database.
   stop
   [ ! -e "$state/consent.db" ] && [ ! -L "$state/consent.db" ]
-  journalctl -b -u "$service" --after-cursor="$journal_cursor" --no-pager -o cat 9<&- \
+  journalctl -b -u "$service" --after-cursor="$journal_cursor" --no-pager -o \
+  cat 9<&- \
     > "$fixture/journal-$invalid_kind.txt"
-  grep -F 'event=database-open-failed reason=offline-authority-preflight status=-22' \
+  grep -F \
+  'event=database-open-failed reason=offline-authority-preflight status=-22' \
     "$fixture/journal-$invalid_kind.txt"
   [ "$(stat -c '%d:%i' "$inventory/installations.conf")" = "$authority_inode" ]
   prepared_metadata=$(stat -c '%d:%i:%u:%g:%a' "$inventory/installations.conf")
   # Overwrite only bytes through the same inode. Keep the helper-normalized
   # ownership, permissions and System SMACK xattr intact.
   cat "$fixture/valid-installations.conf" > "$inventory/installations.conf"
-  [ "$(stat -c '%d:%i:%u:%g:%a' "$inventory/installations.conf")" = "$prepared_metadata" ]
+  [ "$(stat -c '%d:%i:%u:%g:%a' "$inventory/installations.conf")" = \
+  "$prepared_metadata" ]
   expected_hash=$(sha256sum "$fixture/valid-installations.conf")
   actual_hash=$(sha256sum "$inventory/installations.conf")
   [ "${expected_hash%% *}" = "${actual_hash%% *}" ]
   reset_failure
-  echo "PASS $invalid_kind authority rejected before database creation; valid bytes restored"
+  echo \
+  "PASS $invalid_kind authority rejected before database creation; valid bytes restored"
 }
 printf '[malformed\n' > "$inventory/installations.conf"
 reject_authority_startup malformed
@@ -254,8 +288,10 @@ query demo.offline.stale DENIED
 # The live daemon holds SH lifecycle. An explicit offline handle must not turn
 # a running target into a second writer; existing metadata is unchanged.
 metadata_before=$(stat -c '%u:%g:%a' "$inventory/lifecycle.lock")
-"$api" 9<&- register demo.package demo.app --offline-image-root=/ --expect-status=-16
-if "$authority" 9<&- --image-root / begin demo.package busy-operation "$generation"; then
+"$api" 9<&- register demo.package demo.app --offline-image-root=/ \
+  --expect-status=-16
+if "$authority" 9<&- --image-root / begin demo.package busy-operation \
+  "$generation"; then
   echo 'FAIL live authority accepted offline writer' >&2
   exit 1
 fi
@@ -273,10 +309,12 @@ query other.offline CONSENT_REQUIRED
 assert_db
 # An unseen old seed cannot revive a same-generation definition after removal.
 start
-"$api" 9<&- unregister demo.package operation_id=offline-remove expected_generation="$generation"
+"$api" 9<&- unregister demo.package operation_id=offline-remove \
+  expected_generation="$generation"
 stop
 "$api" 9<&- register demo.package demo.app --offline-image-root=/ \
-  operation_id=offline-unseen expected_generation="$generation" definition=demo.offline \
+  operation_id=offline-unseen expected_generation="$generation" \
+  definition=demo.offline \
   enforcer=scenario policy_version=2 text_revision=2 level=1 modes=PERSISTENT \
   default_locale=en message.en.title=Allow message.en.body=Read
 start
@@ -286,10 +324,14 @@ query other.offline CONSENT_REQUIRED
 assert_db
 # A new real installation generation permits new registration, while immutable
 # old-generation records stay inactive and the other package remains valid.
-next=$("$authority" 9<&- --image-root / begin demo.package offline-reinstall "$generation")
-"$authority" 9<&- --image-root / attach demo.package demo.app offline-reinstall-app1 "$next"
-"$authority" 9<&- --image-root / attach demo.package demo.app2 offline-reinstall-app2 "$next"
-"$authority" 9<&- --image-root / commit demo.package offline-reinstall-commit "$next"
+next=$("$authority" 9<&- --image-root / begin demo.package offline-reinstall \
+  "$generation")
+"$authority" 9<&- --image-root / attach \
+  demo.package demo.app offline-reinstall-app1 "$next"
+"$authority" 9<&- --image-root / attach \
+  demo.package demo.app2 offline-reinstall-app2 "$next"
+"$authority" 9<&- --image-root / commit \
+  demo.package offline-reinstall-commit "$next"
 stage / demo.package demo.app "$next" offline-new-install demo.offline 2 2
 start
 query demo.offline CONSENT_REQUIRED r0.policy_version=2
@@ -300,4 +342,5 @@ start
 query demo.offline CONSENT_REQUIRED r0.policy_version=2
 query other.offline CONSENT_REQUIRED
 assert_db
-echo 'PASS deterministic revisions, restart/DB-loss dedup, unregister tombstone, stale generation and unrelated package'
+echo \
+  'PASS deterministic revisions, restart/DB-loss dedup, unregister tombstone, stale generation and unrelated package'

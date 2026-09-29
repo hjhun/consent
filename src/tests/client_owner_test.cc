@@ -105,7 +105,8 @@ struct AdmissionBarrier {
     g_mutex_lock(&gate->mutex);
     gate->published = true;
     g_cond_signal(&gate->condition);
-    while (!gate->pumped) g_cond_wait(&gate->condition, &gate->mutex);
+    while (!gate->pumped)
+      g_cond_wait(&gate->condition, &gate->mutex);
     g_mutex_unlock(&gate->mutex);
   }
 };
@@ -132,7 +133,8 @@ TEST(ClientOwner, PublishedCacheHitCannotBecomeRemoteWork) {
   EXPECT_CALL(callback.sink, Call(testing::StrEq("CACHE"))).Times(1);
   std::thread worker([&] {
     g_mutex_lock(&gate.mutex);
-    while (!gate.published) g_cond_wait(&gate.condition, &gate.mutex);
+    while (!gate.published)
+      g_cond_wait(&gate.condition, &gate.mutex);
     g_mutex_unlock(&gate.mutex);
     consent::ClientTestPeer::PumpAndWrite(client);
     g_mutex_lock(&gate.mutex);
@@ -268,7 +270,8 @@ TEST(ClientOwner, ChildAbandonDoesNotCloseReusedDescriptor) {
     consent::ClientTestPeer::Abandon(*client);
     int other = open("/dev/null", O_RDONLY | O_CLOEXEC);
     if (other != pair[0]) {
-      if (dup2(other, pair[0]) != pair[0]) _exit(2);
+      if (dup2(other, pair[0]) != pair[0])
+        _exit(2);
       close(other);
     }
     client.reset();

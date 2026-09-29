@@ -21,13 +21,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CHECK(expression) do { if (!(expression)) { \
-  fprintf(stderr, "FAIL line=%d expression=%s\n", __LINE__, #expression); exit(1); \
-} } while (0)
-#define CALL(expression) do { int call_status = (expression); if (call_status) { \
-  fprintf(stderr, "FAIL line=%d expression=%s status=%d (%s)\n", __LINE__, \
-      #expression, call_status, consent_error_string(call_status)); exit(1); \
-} } while (0)
+#define CHECK(expression)                                                     \
+  do {                                                                        \
+    if (!(expression)) {                                                      \
+      fprintf(stderr, "FAIL line=%d expression=%s\n", __LINE__, #expression); \
+      exit(1);                                                                \
+    }                                                                         \
+  } while (0)
+#define CALL(expression)                                                       \
+  do {                                                                         \
+    int call_status = (expression);                                            \
+    if (call_status) {                                                         \
+      fprintf(stderr, "FAIL line=%d expression=%s status=%d (%s)\n", __LINE__, \
+              #expression, call_status, consent_error_string(call_status));    \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
 
 static consent_client_h client;
 static consent_client_h ui;
@@ -65,10 +74,10 @@ static void completed(int status, const consent_result_t* result, void* data) {
 }
 
 static consent_params_t* query(const char* scope, const char* session,
-    const char* generation) {
+                               const char* generation) {
   consent_params_t* p = params();
-  CHECK(consent_params_add_requirement(p, "demo.read", "read", scope,
-      "answer", "") == 0);
+  CHECK(consent_params_add_requirement(p, "demo.read", "read", scope, "answer",
+                                       "") == 0);
   set(p, "r0.holder", "scenario");
   if (session) {
     set(p, "session", session);
@@ -78,7 +87,7 @@ static consent_params_t* query(const char* scope, const char* session,
 }
 
 static void define(const char* app, const char* definition,
-    const char* operation, const char* generation) {
+                   const char* operation, const char* generation) {
   consent_params_t* p = params();
   set(p, "definition", definition);
   set(p, "expected_generation", generation);
@@ -91,18 +100,20 @@ static void define(const char* app, const char* definition,
   set(p, "retention_ms", "60000");
   set(p, "default_locale", "en");
   set(p, "message.en.title", "Read test resource");
-  set(p, "message.en.body", "Allow this exact scope for the selected duration?");
+  set(p, "message.en.body",
+      "Allow this exact scope for the selected duration?");
   set(p, "message.ko.title", "시험 자원 읽기");
   set(p, "message.ko.body", "표시된 범위를 선택한 기간 동안 허용합니까?");
   CALL(consent_register(client, "demo.package", app, p));
   CALL(consent_register(client, "demo.package", app, p));
   set(p, "message.en.title", "Conflicting duplicate");
-  CHECK(consent_register(client, "demo.package", app, p) == CONSENT_ERROR_CONFLICT);
+  CHECK(consent_register(client, "demo.package", app, p) ==
+        CONSENT_ERROR_CONFLICT);
   consent_params_free(p);
 }
 
 static void approve(const char* scope, const char* mode, const char* session,
-    const char* generation) {
+                    const char* generation) {
   consent_params_t* p = query(scope, session, generation);
   char operation[128];
   snprintf(operation, sizeof(operation), "%s-approval-%u", phase, ++serial);
@@ -117,7 +128,8 @@ static void approve(const char* scope, const char* mode, const char* session,
   set(lookup, "client_request_id", operation);
   consent_result_t* result = NULL;
   int status = CONSENT_ERROR_NOT_FOUND;
-  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND; ++attempt) {
+  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND;
+       ++attempt) {
     g_usleep(10000);
     status = consent_get_request_result(ui, lookup, &result);
   }
@@ -133,16 +145,18 @@ static void approve(const char* scope, const char* mode, const char* session,
   set(lookup, "prompt_token", token);
   set(lookup, "decision", "ALLOWED");
   set(lookup, "grant_mode", mode);
-  if (!strcmp(mode, "TIMED")) set(lookup, "duration_ms", "1000");
+  if (!strcmp(mode, "TIMED"))
+    set(lookup, "duration_ms", "1000");
   CHECK(consent_respond(ui, lookup, &result) == 0);
   consent_result_free(result);
   gint64 deadline = g_get_monotonic_time() + 5000000;
   while (!callbacks && g_get_monotonic_time() < deadline) {
-    while (g_main_context_iteration(NULL, FALSE)) {}
+    while (g_main_context_iteration(NULL, FALSE)) {
+    }
     g_usleep(1000);
   }
   CHECK(callbacks == 1 && callback_status == 0 &&
-      callback_decision == CONSENT_DECISION_ALLOWED);
+        callback_decision == CONSENT_DECISION_ALLOWED);
   g_free(request_id);
   g_free(token);
   consent_params_free(lookup);
@@ -169,7 +183,7 @@ struct race_job {
   struct race_gate* gate;
   consent_client_h handle;
   consent_params_t* request;
-  int kind;  /* 0 authorize, 1 cancel, 2 respond */
+  int kind; /* 0 authorize, 1 cancel, 2 respond */
   int status;
   consent_result_t* result;
 };
@@ -185,7 +199,8 @@ static gpointer race_worker(gpointer value) {
   if (job->kind == 0)
     job->status = consent_check(job->handle, job->request, 5000, &job->result);
   else if (job->kind == 1)
-    job->status = consent_cancel_request(job->handle, job->request, &job->result);
+    job->status =
+        consent_cancel_request(job->handle, job->request, &job->result);
   else
     job->status = consent_respond(job->handle, job->request, &job->result);
   return NULL;
@@ -213,14 +228,16 @@ static void run_race(struct race_job jobs[2]) {
 static void await_decision(consent_decision_e decision) {
   gint64 deadline = g_get_monotonic_time() + 5000000;
   while (!callbacks && g_get_monotonic_time() < deadline) {
-    while (g_main_context_iteration(NULL, FALSE)) {}
+    while (g_main_context_iteration(NULL, FALSE)) {
+    }
     g_usleep(1000);
   }
-  CHECK(callbacks == 1 && callback_status == 0 && callback_decision == decision);
+  CHECK(callbacks == 1 && callback_status == 0 &&
+        callback_decision == decision);
 }
 
 static consent_params_t* pending_request(consent_params_t* request,
-    const char* deadline, int mixed) {
+                                         const char* deadline, int mixed) {
   char id[128];
   snprintf(id, sizeof(id), "%s-pending-%u", phase, ++serial);
   set(request, "client_request_id", id);
@@ -235,14 +252,17 @@ static consent_params_t* pending_request(consent_params_t* request,
   set(lookup, "client_request_id", id);
   consent_result_t* result = NULL;
   int status = CONSENT_ERROR_NOT_FOUND;
-  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND; ++attempt) {
+  for (int attempt = 0; attempt < 100 && status == CONSENT_ERROR_NOT_FOUND;
+       ++attempt) {
     g_usleep(10000);
     status = consent_get_request_result(ui, lookup, &result);
   }
-  CHECK(status == 0 && consent_result_get_decision(result) == CONSENT_DECISION_PENDING);
+  CHECK(status == 0 &&
+        consent_result_get_decision(result) == CONSENT_DECISION_PENDING);
   if (mixed) {
     CHECK(!strcmp(consent_result_get(result, "r0.decision"), "ALLOWED"));
-    CHECK(!strcmp(consent_result_get(result, "r1.decision"), "CONSENT_REQUIRED"));
+    CHECK(
+        !strcmp(consent_result_get(result, "r1.decision"), "CONSENT_REQUIRED"));
   }
   set(lookup, "request_id", consent_result_get(result, "request_id"));
   consent_result_free(result);
@@ -260,7 +280,7 @@ static consent_params_t* pending(const char* scope, const char* deadline) {
 }
 
 static void authorize_definition(const char* definition, const char* scope,
-    consent_decision_e expected) {
+                                 consent_decision_e expected) {
   consent_params_t* p = query(scope, NULL, NULL);
   set(p, "r0.definition", definition);
   set(p, "mode", "AUTHORIZE");
@@ -281,15 +301,19 @@ static void ui_reevaluate(const char* install_generation) {
   define("demo.app", "demo.read", operation, install_generation);
   snprintf(operation, sizeof(operation), "%s-define-b", phase);
   define("demo.app2", "demo.other", operation, install_generation);
-  const char* cases[] = {"revoke", "timed-expiry", "once-consumed", "normal", "denied"};
+  const char* cases[] = {"revoke", "timed-expiry", "once-consumed", "normal",
+                         "denied"};
   for (int test = 0; test < 5; ++test) {
     char scope[128];
     snprintf(scope, sizeof(scope), "%s-%s", phase, cases[test]);
-    approve(scope, test == 1 ? "TIMED" : test == 2 || test == 3 ? "ONCE" :
-        "PERSISTENT", NULL, NULL);
+    approve(scope,
+            test == 1                ? "TIMED"
+            : test == 2 || test == 3 ? "ONCE"
+                                     : "PERSISTENT",
+            NULL, NULL);
     consent_params_t* request = query(scope, NULL, NULL);
     CALL(consent_params_add_requirement(request, "demo.other", "read", scope,
-        "answer", ""));
+                                        "answer", ""));
     set(request, "r1.holder", "scenario");
     consent_params_t* lookup = pending_request(request, "5000", 1);
     consent_result_t* result = NULL;
@@ -304,9 +328,11 @@ static void ui_reevaluate(const char* install_generation) {
     } else if (test == 2) {
       authorize_definition("demo.read", scope, CONSENT_DECISION_ALLOWED);
     }
-    if (test == 4) set(lookup, "decision", "DENIED");
-    consent_decision_e expected = test == 3 ? CONSENT_DECISION_ALLOWED :
-        test == 4 ? CONSENT_DECISION_DENIED : CONSENT_DECISION_INVALIDATED;
+    if (test == 4)
+      set(lookup, "decision", "DENIED");
+    consent_decision_e expected = test == 3   ? CONSENT_DECISION_ALLOWED
+                                  : test == 4 ? CONSENT_DECISION_DENIED
+                                              : CONSENT_DECISION_INVALIDATED;
     const char* expected_a = test == 3 ? "ALLOWED" : "CONSENT_REQUIRED";
     const char* expected_b = test == 4 ? "DENIED" : "ALLOWED";
     char* expected_reason = NULL;
@@ -332,24 +358,29 @@ static void ui_reevaluate(const char* install_generation) {
     CHECK(consent_respond(ui, lookup, &result) == -ESTALE);
     if (test != 4) {
       authorize_definition("demo.other", scope, CONSENT_DECISION_ALLOWED);
-      authorize_definition("demo.other", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+      authorize_definition("demo.other", scope,
+                           CONSENT_DECISION_CONSENT_REQUIRED);
     } else {
-      authorize_definition("demo.other", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+      authorize_definition("demo.other", scope,
+                           CONSENT_DECISION_CONSENT_REQUIRED);
     }
     if (test == 3) {
       authorize_definition("demo.read", scope, CONSENT_DECISION_ALLOWED);
-      authorize_definition("demo.read", scope, CONSENT_DECISION_CONSENT_REQUIRED);
+      authorize_definition("demo.read", scope,
+                           CONSENT_DECISION_CONSENT_REQUIRED);
       CALL(consent_get_request_result(ui, lookup, &result));
       CHECK(consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
       consent_result_free(result);
     }
     for (int i = 0; i < 20; ++i) {
-      while (g_main_context_iteration(NULL, FALSE)) {}
+      while (g_main_context_iteration(NULL, FALSE)) {
+      }
       g_usleep(1000);
     }
     CHECK(callbacks == 1);
     consent_params_free(lookup);
-    printf("PASS UI current AND: %s, one final callback, no repeat prompt\n", cases[test]);
+    printf("PASS UI current AND: %s, one final callback, no repeat prompt\n",
+           cases[test]);
   }
 }
 
@@ -387,7 +418,9 @@ static void races(void) {
     consent_params_free(jobs[i].request);
   }
   CHECK(allowed == 1);
-  puts("PASS two independent connections: one ONCE winner, stable receipt retry");
+  puts(
+      "PASS two independent connections: one ONCE winner, stable receipt "
+      "retry");
 
   consent_params_t* lookup = pending("cancel-first", "5000");
   consent_result_t* result = NULL;
@@ -408,13 +441,13 @@ static void races(void) {
   consent_params_free(lookup);
 
   lookup = pending("cancel-response-race", "5000");
-  jobs[0] = (struct race_job){ .handle = client, .request = lookup, .kind = 1 };
-  jobs[1] = (struct race_job){ .handle = ui, .request = lookup, .kind = 2 };
+  jobs[0] = (struct race_job){.handle = client, .request = lookup, .kind = 1};
+  jobs[1] = (struct race_job){.handle = ui, .request = lookup, .kind = 2};
   run_race(jobs);
   CHECK(jobs[0].status == 0);
   consent_decision_e final = consent_result_get_decision(jobs[0].result);
   CHECK((final == CONSENT_DECISION_CANCELLED && jobs[1].status < 0) ||
-      (final == CONSENT_DECISION_ALLOWED && jobs[1].status == 0));
+        (final == CONSENT_DECISION_ALLOWED && jobs[1].status == 0));
   consent_result_free(jobs[0].result);
   consent_result_free(jobs[1].result);
   await_decision(final);
@@ -430,7 +463,9 @@ static void races(void) {
   consent_params_free(lookup);
   check("cancel-first", CONSENT_DECISION_CONSENT_REQUIRED);
   check("deadline-first", CONSENT_DECISION_CONSENT_REQUIRED);
-  puts("PASS remote cancellation/respond race/deadline with exactly one final callback");
+  puts(
+      "PASS remote cancellation/respond race/deadline with exactly one "
+      "final callback");
 }
 
 static void holder_seed(const char* install_generation) {
@@ -481,9 +516,11 @@ static void holder_reconcile(void) {
   consent_result_free(result);
   set(p, "artifact", artifact);
   set(p, "reconcile", "0");
-  CHECK(consent_data_release(client, p, &result) == CONSENT_ERROR_PERMISSION_DENIED);
+  CHECK(consent_data_release(client, p, &result) ==
+        CONSENT_ERROR_PERMISSION_DENIED);
   set(p, "reconcile", "1");
-  CHECK(consent_data_register(client, p, &result) == CONSENT_ERROR_PERMISSION_DENIED);
+  CHECK(consent_data_register(client, p, &result) ==
+        CONSENT_ERROR_PERMISSION_DENIED);
   set(p, "success", "0");
   CALL(consent_data_release(client, p, &result));
   CHECK(!strcmp(consent_result_get(result, "state"), "CLEANUP_FAILED"));
@@ -503,7 +540,9 @@ static void holder_reconcile(void) {
   consent_result_free(result);
   consent_params_free(p);
   g_free(artifact);
-  puts("PASS new holder process: pending discovery, blocked reuse, failed cleanup/retry/ACK");
+  puts(
+      "PASS new holder process: pending discovery, blocked reuse, failed "
+      "cleanup/retry/ACK");
 }
 
 static void cleanup_pages(const char* install_generation) {
@@ -558,8 +597,7 @@ static void cleanup_pages(const char* install_generation) {
     CHECK(count == (pages == 2 ? 1u : 48u));
     g_free(cursor);
     cursor = field(result, "next_cursor");
-    CHECK(!strcmp(consent_result_get(result, "more"),
-        pages == 2 ? "0" : "1"));
+    CHECK(!strcmp(consent_result_get(result, "more"), pages == 2 ? "0" : "1"));
     for (unsigned index = 0; index < count; ++index) {
       char key[48];
       snprintf(key, sizeof(key), "a%u.artifact", index);
@@ -610,17 +648,20 @@ static void cleanup_pages(const char* install_generation) {
 
 int main(int argc, char** argv) {
   if (argc != 3 && argc != 4) {
-    fprintf(stderr,
+    fprintf(
+        stderr,
         "Usage: %s basic|cleanup-pages|persistent|recovered|races|"
         "holder-seed|holder-reconcile|reinstalled|ui-reevaluate|"
         "shutdown-seed|shutdown-revoke|shutdown-result GENERATION [SCOPE]\n",
         argv[0]);
     return 2;
   }
-  snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1], g_get_monotonic_time());
+  snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1],
+           g_get_monotonic_time());
   CHECK(consent_client_create(&client) == 0);
   CHECK(consent_client_create(&ui) == 0);
-  if (!strcmp(argv[1], "shutdown-seed") || !strcmp(argv[1], "shutdown-revoke") ||
+  if (!strcmp(argv[1], "shutdown-seed") ||
+      !strcmp(argv[1], "shutdown-revoke") ||
       !strcmp(argv[1], "shutdown-result")) {
     CHECK(argc == 4);
     if (!strcmp(argv[1], "shutdown-seed")) {
@@ -632,13 +673,18 @@ int main(int argc, char** argv) {
       consent_params_t* p = params();
       set(p, "definition", "demo.read");
       consent_result_t* result = NULL;
-      CHECK(consent_revoke(client, p, &result) == CONSENT_ERROR_OUTCOME_UNKNOWN);
+      CHECK(consent_revoke(client, p, &result) ==
+            CONSENT_ERROR_OUTCOME_UNKNOWN);
       CHECK(result == NULL);
       consent_params_free(p);
-      puts("PASS shutdown revoke: disconnected before outcome; restart query required");
+      puts(
+          "PASS shutdown revoke: disconnected before outcome; restart "
+          "query required");
     } else {
       check(argv[3], CONSENT_DECISION_CONSENT_REQUIRED);
-      puts("PASS shutdown restart: definition retained, persistent approval revoked");
+      puts(
+          "PASS shutdown restart: definition retained, persistent approval "
+          "revoked");
     }
     CALL(consent_client_destroy(ui));
     CALL(consent_client_destroy(client));
@@ -660,12 +706,15 @@ int main(int argc, char** argv) {
     check("persistent-scope", CONSENT_DECISION_CONSENT_REQUIRED);
     CALL(consent_client_destroy(ui));
     CALL(consent_client_destroy(client));
-    puts("PASS reinstall: two apps registered in new generation without old grants");
+    puts(
+        "PASS reinstall: two apps registered in new generation without old "
+        "grants");
     return 0;
   }
   if (!strcmp(argv[1], "persistent") || !strcmp(argv[1], "recovered")) {
-    check("persistent-scope", !strcmp(argv[1], "persistent") ?
-        CONSENT_DECISION_ALLOWED : CONSENT_DECISION_CONSENT_REQUIRED);
+    check("persistent-scope", !strcmp(argv[1], "persistent")
+                                  ? CONSENT_DECISION_ALLOWED
+                                  : CONSENT_DECISION_CONSENT_REQUIRED);
     printf("PASS %s\n", argv[1]);
     consent_client_destroy(ui);
     consent_client_destroy(client);
@@ -685,8 +734,10 @@ int main(int argc, char** argv) {
     return 0;
   }
   if (!strcmp(argv[1], "holder-seed") || !strcmp(argv[1], "holder-reconcile")) {
-    if (!strcmp(argv[1], "holder-seed")) holder_seed(argv[2]);
-    else holder_reconcile();
+    if (!strcmp(argv[1], "holder-seed"))
+      holder_seed(argv[2]);
+    else
+      holder_reconcile();
     CALL(consent_client_destroy(ui));
     CALL(consent_client_destroy(client));
     return 0;
@@ -740,7 +791,8 @@ int main(int argc, char** argv) {
   CHECK(!strcmp(consent_result_get(result, "state"), "CLOSING"));
   consent_result_free(result);
   consent_params_t* q = query("session-scope", session, generation);
-  CHECK(consent_check(client, q, 5000, &result) == CONSENT_ERROR_SESSION_CLOSED);
+  CHECK(consent_check(client, q, 5000, &result) ==
+        CONSENT_ERROR_SESSION_CLOSED);
   consent_params_free(q);
   set(p, "artifact", artifact);
   CHECK(consent_data_release(client, p, &result) == 0);
@@ -755,6 +807,8 @@ int main(int argc, char** argv) {
   g_free(artifact);
   CHECK(consent_client_destroy(ui) == 0);
   CHECK(consent_client_destroy(client) == 0);
-  puts("PASS basic: registration/retry, SYNC/ASYNC, UI, authorization, session, artifact cleanup");
+  puts(
+      "PASS basic: registration/retry, SYNC/ASYNC, UI, authorization, "
+      "session, artifact cleanup");
   return 0;
 }

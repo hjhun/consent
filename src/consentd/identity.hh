@@ -54,7 +54,8 @@ struct ProcessIdentity {
 };
 
 // Configuration is loaded once, before accepting clients. Never trust a role
-// supplied in a protocol message; the immutable Peer is derived from the socket.
+// supplied in a protocol message; the immutable Peer is derived from the
+// socket.
 class IdentityPolicy {
  public:
   bool Load(const std::string& path, std::string* error);
@@ -88,7 +89,8 @@ bool ValidatePackageGeneration(const std::string& package,
 // schema, protection and I/O failures remain errors, never deferred records.
 int CheckOfflineAuthority();
 int ValidateOfflineInstallation(const std::string& package,
-    const std::string& app, const std::string& generation);
+                                const std::string& app,
+                                const std::string& generation);
 
 }  // namespace consentd
 #endif  // CONSENTD_IDENTITY_HH_

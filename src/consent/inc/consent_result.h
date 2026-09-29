@@ -61,7 +61,7 @@ CONSENT_API void consent_result_free(consent_result_t* result);
  * @see consent_result_cb
  */
 CONSENT_API int consent_result_clone(const consent_result_t* result,
-    consent_result_t** copy);
+                                     consent_result_t** copy);
 /**
  * @brief Reads a result's decision without transferring ownership.
  * @since 0.1.0
@@ -76,8 +76,8 @@ CONSENT_API int consent_result_clone(const consent_result_t* result,
  * @return The decision, or #CONSENT_DECISION_UNKNOWN.
  * @see consent_check()
  */
-CONSENT_API consent_decision_e consent_result_get_decision(
-    const consent_result_t* result);
+CONSENT_API consent_decision_e
+consent_result_get_decision(const consent_result_t* result);
 /**
  * @brief Borrows a named string field from a result.
  * @since 0.1.0
@@ -95,7 +95,7 @@ CONSENT_API consent_decision_e consent_result_get_decision(
  * @see consent_result_clone()
  */
 CONSENT_API const char* consent_result_get(const consent_result_t* result,
-    const char* key);
+                                           const char* key);
 /**
  * @brief Returns the number of fields in a result.
  * @since 0.1.0
@@ -129,7 +129,8 @@ CONSENT_API size_t consent_result_size(const consent_result_t* result);
  *     invalid.
  */
 CONSENT_API int consent_result_get_at(const consent_result_t* result,
-    size_t index, const char** key, const char** value);
+                                      size_t index, const char** key,
+                                      const char** value);
 
 /** @} */
 

@@ -148,7 +148,8 @@ static void approve(const char* scope, const char* mode, const char* session,
   set(lookup, "prompt_token", token);
   set(lookup, "decision", "ALLOWED");
   set(lookup, "grant_mode", mode);
-  if (!strcmp(mode, "TIMED")) set(lookup, "duration_ms", "1000");
+  if (!strcmp(mode, "TIMED"))
+    set(lookup, "duration_ms", "1000");
   CHECK(consent_respond(ui, lookup, &result) == 0);
   consent_result_free(result);
   gint64 deadline = g_get_monotonic_time() + 5000000;

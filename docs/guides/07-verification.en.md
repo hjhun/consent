@@ -1512,13 +1512,13 @@ is the isolated static archive variant, not the production shared library.
 
 | Work | Current evidence | Remaining work |
 | --- | --- | --- |
-| Internal cleanup/ownership/DLOG/GIO | Build30/32/35 scoped target evidence | Separate mechanical 80-column checkpoint |
+| Internal cleanup/ownership/DLOG/GIO/style | Build30/32/35/36 scoped target evidence | Final authoritative regression |
 | Registry total-loss helper | Guide09 proposal and read-only source investigation | Concrete trusted-source/marker/lifecycle design review, implementation and tests |
 | External product integration | Actual source and installed-package investigation | Installer lifecycle and authenticated role/provider/history/model adapters |
 | Final validation | Increment-specific evidence above | Authoritative final-source storage interruption/deletion/reboot and CEP A-01–A-63 audit |
 
-Earlier pending statements describe their historical checkpoints. None of the
-remaining rows is claimed complete by the Build35 increment.
+Earlier pending statements describe their historical checkpoints. The Build36
+section below updates the style row; other remaining rows are still open.
 
 The separate `performance-controlled-cache35` comparison uses the same
 Build35 daemon (`75ae7a17`) for before34/after35 clients, with two alternating
@@ -1527,3 +1527,43 @@ CPU2.16/2.17 versus2.11/2.15s and RSS7816/7884 versus7912/7896KiB show small
 variation, not a broad performance improvement. The focused change avoids the
 cache-only I/O wake as verified by owner6; further speculative optimization
 is deferred in favor of the remaining implementation and final audit.
+
+## Build36 mechanical style checkpoint (2026-09-30)
+
+Release7 frozen tree `99abb4cea73186fbda07859641dcba0069d979cd`
+contains 229 files. Its archive, byte manifest and target GBS export match in
+`/var/tmp/consent-artifacts/gbs-build-36`. GBS exit0 and CTest25 comprise
+21 PASS, four explicit root SKIP and zero FAIL (16.80 s). Only the tests RPM
+requires GTest/GMock. Formatting preserves include/using order, decoded native
+literals, generated IDL bytes, Python/C# structure and values, XML values and
+GLib INI values. Frozen host proofs are in
+`/var/tmp/consent-review-20260929/build36-*`; they supplement target tests.
+Diagnostic line numbers and macro stringification can move. Thirty lines in
+twelve project files remain above 80 columns because they contain indivisible
+quoted shell/SQL arguments, CMake arguments, INI values, JSON IDL strings or a
+service-unit path. Splitting them needs separate behavior review.
+
+`/var/tmp/consent-artifacts/emulator-build-36` records the ordinary matching
+five-RPM Release6-to-7 upgrade and eleven packaged test fixtures with service
+exit0. Six fresh isolated API phases (basic, cache, cleanup97, wire,
+shutdown and DB drain) report phase PASS and service0. The formatted offline
+and platform-offline scripts pass actual target setup and teardown. The PoC
+registration service installs the current TPK with matching digest and app ID;
+the injected socket-start failure fixture removes its own override. Host .NET
+UI unit tests pass five groups, and GBS produces both UI and negative TPKs.
+
+RPM metadata lists 147 regular payloads; 146 installed hashes match. The one
+different `/etc/consent-poc/roles.conf` is preserved by `%config(noreplace)`.
+The installed public ABI remains 42 versioned symbols. The production service
+runs as security_fw UID402 with state mode700 and DB mode600. Default-deny actor
+PID3588992/UID0 gets negative UNKNOWN and NULL handles for both constructors;
+daemon PID3587308 instances1/2 reject that PID/UID for lack of a live trusted
+identity. This is connection/hello failure, not a policy response. DLOG records
+actor PID3587548 with literal `100%`, CONSENT/INFO and source line160; no global
+log clear was used. `systemctl show` parsed the changed PoC unit arguments.
+The target lacks `systemd-analyze`, so no verify-tool PASS is claimed.
+
+Build35 performance tool bytes remain frozen. Formatting changed Build36 tool
+bytes, so Build35 numbers are not a same-source Build36 performance pair. This
+checkpoint does not complete registry-loss recovery, product Installer/role
+integration or the authoritative final storage/reboot/CEP audit.

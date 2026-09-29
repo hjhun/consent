@@ -32,7 +32,8 @@ struct CleanupCursor {
 };
 
 std::string CleanupScope(const std::string& holder, const std::string& instance,
-    const std::string& subject, const std::string& profile, bool reconcile);
+                         const std::string& subject, const std::string& profile,
+                         bool reconcile);
 
 }  // namespace consent
 #endif  // CONSENT_COMMON_CLEANUP_CURSOR_HH_

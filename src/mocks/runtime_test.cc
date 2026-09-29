@@ -61,14 +61,18 @@ class InputFixture final {
 int main() {
   try {
     InputFixture input;
-    const std::string valid = "[mock]\nid=fixture\nexpect_status=-13\ntimeout_ms=1000\n"
+    const std::string valid =
+        "[mock]\nid=fixture\nexpect_status=-13\ntimeout_ms=1000\n"
         "[params]\nsubject=사용자\nr0.scope=30\nr0.recipient=sink{name}%<tag>\n";
     input.Write(valid);
     auto command = Load("probe-request", input.path);
-    Require(command.name == "probe-request" && Get(command.options, "expect_status") == "-13" &&
-        Get(command.fields, "subject") == "사용자" && Get(command.fields, "r0.recipient") == "sink{name}%<tag>",
-        "parser must preserve UTF-8 and literal template-looking values");
-    Require(Json("a\n\"\\\t") == "\"a\\u000a\\\"\\\\\\u0009\"",
+    Require(command.name == "probe-request" &&
+                Get(command.options, "expect_status") == "-13" &&
+                Get(command.fields, "subject") == "사용자" &&
+                Get(command.fields, "r0.recipient") == "sink{name}%<tag>",
+            "parser must preserve UTF-8 and literal template-looking values");
+    Require(
+        Json("a\n\"\\\t") == "\"a\\u000a\\\"\\\\\\u0009\"",
         "JSONL output must escape control characters, quotes and backslashes");
     input.Reject(valid + "r0.scope=90\n");
     input.Reject(valid + "[params]\nr1.scope=1\n");
@@ -82,20 +86,24 @@ int main() {
     input.Reject(valid + std::string(1, '\0'));
     input.Reject(valid + std::string(1, static_cast<char>(0xff)));
     input.Reject(std::string(kInputLimit + 1, 'x'));
-    input.Reject("[mock]\nid=fixture\npayload=" + std::string(4097, 'x') + '\n');
+    input.Reject("[mock]\nid=fixture\npayload=" + std::string(4097, 'x') +
+                 '\n');
     std::string many = "[mock]\nid=fixture\n[params]\n";
     for (unsigned index = 0; index < 241; ++index)
       many += "key" + std::to_string(index) + "=value\n";
     input.Reject(many);
     input.Write(valid);
     const std::string link = input.directory + "/link.ini";
-    Require(symlink(input.path.c_str(), link.c_str()) == 0, "create CLI symlink fixture");
+    Require(symlink(input.path.c_str(), link.c_str()) == 0,
+            "create CLI symlink fixture");
     InputFixture::RejectPath(link);
     const std::string pipe = input.directory + "/pipe.ini";
     Require(mkfifo(pipe.c_str(), 0600) == 0, "create nonblocking FIFO fixture");
     InputFixture::RejectPath(pipe);
     InputFixture::RejectPath("relative.ini");
-    std::puts("PASS bounded mock INI parser, duplicate/unknown fields, UTF-8, JSONL escaping, symlink and FIFO rejection");
+    std::puts(
+        "PASS bounded mock INI parser, duplicate/unknown fields, UTF-8, "
+        "JSONL escaping, symlink and FIFO rejection");
     return 0;
   } catch (const std::exception& error) {
     std::fprintf(stderr, "FAIL mock input fixture: %s\n", error.what());

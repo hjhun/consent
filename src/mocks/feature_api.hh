@@ -21,10 +21,12 @@
 #include <stdexcept>
 
 namespace consent_mock {
-using Params = std::unique_ptr<consent_params_t, decltype(&consent_params_free)>;
+using Params =
+    std::unique_ptr<consent_params_t, decltype(&consent_params_free)>;
 inline Params Parameters(const Message& message) {
   consent_params_t* value = nullptr;
-  if (consent_params_create(&value)) throw std::bad_alloc();
+  if (consent_params_create(&value))
+    throw std::bad_alloc();
   Params output(value, consent_params_free);
   for (const auto& field : message)
     if (consent_params_set(value, field.first.c_str(), field.second.c_str()))
@@ -36,26 +38,32 @@ inline Message Copy(const consent_result_t* result) {
   for (size_t i = 0; result && i < consent_result_size(result); ++i) {
     const char* key = nullptr;
     const char* value = nullptr;
-    if (!consent_result_get_at(result, i, &key, &value) && key && value) output[key] = value;
+    if (!consent_result_get_at(result, i, &key, &value) && key && value)
+      output[key] = value;
   }
   return output;
 }
-using Api = int (*)(consent_client_h, const consent_params_t*, consent_result_t**);
-inline int Invoke(consent_client_h client, Api api, const Message& request, Message* output) {
+using Api = int (*)(consent_client_h, const consent_params_t*,
+                    consent_result_t**);
+inline int Invoke(consent_client_h client, Api api, const Message& request,
+                  Message* output) {
   auto parameters = Parameters(request);
   consent_result_t* result = nullptr;
   int status = api(client, parameters.get(), &result);
-  std::unique_ptr<consent_result_t, decltype(&consent_result_free)> owned(result, consent_result_free);
+  std::unique_ptr<consent_result_t, decltype(&consent_result_free)> owned(
+      result, consent_result_free);
   *output = Copy(owned.get());
   return status;
 }
-inline int Check(consent_client_h client, const Message& request, Message* output) {
+inline int Check(consent_client_h client, const Message& request,
+                 Message* output) {
   auto parameters = Parameters(request);
   consent_result_t* result = nullptr;
   int status = consent_check(client, parameters.get(), 5000, &result);
-  std::unique_ptr<consent_result_t, decltype(&consent_result_free)> owned(result, consent_result_free);
+  std::unique_ptr<consent_result_t, decltype(&consent_result_free)> owned(
+      result, consent_result_free);
   *output = Copy(owned.get());
   return status;
 }
-}
+}  // namespace consent_mock
 #endif

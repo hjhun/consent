@@ -26,8 +26,10 @@
 
 namespace consent_mock {
 using consent::Message;
-constexpr const char* kFeatureDirectory = "/opt/var/lib/consent-feature-runtime";
-constexpr const char* kFeatureSocket = "/opt/var/lib/consent-feature-runtime/argo.sock";
+constexpr const char* kFeatureDirectory =
+    "/opt/var/lib/consent-feature-runtime";
+constexpr const char* kFeatureSocket =
+    "/opt/var/lib/consent-feature-runtime/argo.sock";
 #ifndef CONSENT_FEATURE_ARGO_PATH
 #define CONSENT_FEATURE_ARGO_PATH "/usr/libexec/consent/poc/consent-mock-argo"
 #endif
@@ -56,13 +58,15 @@ bool Identifier(const std::string& input);
 std::string Json(const std::string& value);
 std::string JsonFields(const Message& values);
 std::string ContextDigest(const Message& values);
-std::string CatalogJson(const std::string& revision, const std::string& epoch = "");
+std::string CatalogJson(const std::string& revision,
+                        const std::string& epoch = "");
 int Protected(const std::string& path, bool directory = false);
-int ConnectSocket(int fd, const sockaddr* address, socklen_t size, int timeout_ms);
+int ConnectSocket(int fd, const sockaddr* address, socklen_t size,
+                  int timeout_ms);
 int VerifyWorkerParent(int fd, pid_t expected_pid);
 int CreateWorkerChannel(int sockets[2]);
 void WorkerDiagnostic(const char* stage, int status, pid_t child = 0,
-    const char* generated_path = nullptr) noexcept;
+                      const char* generated_path = nullptr) noexcept;
 int SendFrame(int fd, const Message& message, int timeout_ms = 3000);
 int ReceiveFrame(int fd, Message* message, int timeout_ms = 3000);
 
@@ -73,6 +77,7 @@ class Peer final {
   bool Authenticate(int socket, bool ui, int* error = nullptr);
   bool Alive() const;
   std::string Instance() const;
+
  private:
   pid_t pid_ = -1;
   uid_t uid_ = 0;

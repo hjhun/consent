@@ -33,12 +33,13 @@
 #include <cstring>
 #include <thread>
 
-#define CHECK(expression) do { \
-  if (!(expression)) { \
-    fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expression); \
-    abort(); \
-  } \
-} while (0)
+#define CHECK(expression)                                                   \
+  do {                                                                      \
+    if (!(expression)) {                                                    \
+      fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #expression); \
+      abort();                                                              \
+    }                                                                       \
+  } while (0)
 
 // Fault only the API calling thread; the I/O fixture remains runnable.
 thread_local int allocation_budget = -1;
@@ -53,11 +54,23 @@ __attribute__((noinline)) void* operator new(std::size_t size) {
     return value;
   throw std::bad_alloc();
 }
-__attribute__((noinline)) void* operator new[](std::size_t size) { return ::operator new(size); }
-__attribute__((noinline)) void operator delete(void* value) noexcept { free(value); }
-__attribute__((noinline)) void operator delete[](void* value) noexcept { free(value); }
-__attribute__((noinline)) void operator delete(void* value, std::size_t) noexcept { free(value); }
-__attribute__((noinline)) void operator delete[](void* value, std::size_t) noexcept { free(value); }
+__attribute__((noinline)) void* operator new[](std::size_t size) {
+  return ::operator new(size);
+}
+__attribute__((noinline)) void operator delete(void* value) noexcept {
+  free(value);
+}
+__attribute__((noinline)) void operator delete[](void* value) noexcept {
+  free(value);
+}
+__attribute__((noinline)) void operator delete(void* value,
+                                               std::size_t) noexcept {
+  free(value);
+}
+__attribute__((noinline)) void operator delete[](void* value,
+                                                 std::size_t) noexcept {
+  free(value);
+}
 
 namespace {
 pid_t test_parent = 0;
@@ -116,13 +129,21 @@ void Serve(int listener) {
     uint64_t reply_revision = revision;
     if (scenario == "invalidate") {
       ++revision;
-      if (!Send(fd, {{"v", "1"}, {"id", "0"}, {"method", "event"}, {"event", "invalidate"},
-          {"epoch", "test-epoch"}, {"revision", std::to_string(revision)}}))
+      if (!Send(fd, {{"v", "1"},
+                     {"id", "0"},
+                     {"method", "event"},
+                     {"event", "invalidate"},
+                     {"epoch", "test-epoch"},
+                     {"revision", std::to_string(revision)}}))
         break;
     }
-    consent::Message reply{{"v", "1"}, {"method", "reply"}, {"id", consent::Get(input, "id")},
-        {"status", "0"}, {"epoch", "test-epoch"},
-        {"revision", std::to_string(reply_revision)}, {"decision", "ALLOWED"}};
+    consent::Message reply{{"v", "1"},
+                           {"method", "reply"},
+                           {"id", consent::Get(input, "id")},
+                           {"status", "0"},
+                           {"epoch", "test-epoch"},
+                           {"revision", std::to_string(reply_revision)},
+                           {"decision", "ALLOWED"}};
     if (method == "hello" && approval_capability)
       reply["approval_version"] = "1";
     if (method == "request") {
@@ -214,50 +235,64 @@ void ApprovalAdmission(int listener, bool capability) {
       CHECK(source && !strcmp(source, "DAEMON"));
       consent_result_free(result);
     } else {
-      CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !result && requests == before);
+      CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !result &&
+            requests == before);
     }
   }
   Callback callback;
   consent_async_id_t operation = 99;
-  int status = consent_request_async(client, params, Result, &callback, &operation);
+  int status =
+      consent_request_async(client, params, Result, &callback, &operation);
   if (capability) {
     CHECK(!status && operation);
     callback.returned = true;
     DispatchUntil(&callback);
     CHECK(!callback.status && requests == before + 3);
   } else {
-    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation && !callback.count);
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation &&
+          !callback.count);
   }
   result = nullptr;
   status = consent_check(client, params, 2000, &result);
   if (capability) {
-    CHECK(!status && result && consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
+    CHECK(!status && result &&
+          consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED);
     consent_result_free(result);
   } else {
     CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !result);
   }
   Callback check_callback;
   operation = 99;
-  status = consent_check_async(client, params, Result, &check_callback, &operation);
+  status =
+      consent_check_async(client, params, Result, &check_callback, &operation);
   if (capability) {
     CHECK(!status && operation);
     check_callback.returned = true;
     DispatchUntil(&check_callback);
-    CHECK(!check_callback.status && check_callback.decision == CONSENT_DECISION_ALLOWED);
+    CHECK(!check_callback.status &&
+          check_callback.decision == CONSENT_DECISION_ALLOWED);
   } else {
-    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation && !check_callback.count);
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation &&
+          !check_callback.count);
   }
   CHECK(!consent_params_set(params, "approval_version", "01"));
   result = nullptr;
-  CHECK(consent_request(client, params, 2000, &result) == CONSENT_ERROR_INVALID_PARAMETER && !result);
+  CHECK(consent_request(client, params, 2000, &result) ==
+            CONSENT_ERROR_INVALID_PARAMETER &&
+        !result);
   Callback invalid;
   operation = 99;
   CHECK(consent_request_async(client, params, Result, &invalid, &operation) ==
-      CONSENT_ERROR_INVALID_PARAMETER && !operation && !invalid.count);
-  CHECK(consent_check(client, params, 2000, &result) == CONSENT_ERROR_INVALID_PARAMETER && !result);
+            CONSENT_ERROR_INVALID_PARAMETER &&
+        !operation && !invalid.count);
+  CHECK(consent_check(client, params, 2000, &result) ==
+            CONSENT_ERROR_INVALID_PARAMETER &&
+        !result);
   CHECK(consent_check_async(client, params, Result, &invalid, &operation) ==
-      CONSENT_ERROR_INVALID_PARAMETER && !operation && !invalid.count);
-  // Rejected async admissions must not leave a callback queued on the dispatcher.
+            CONSENT_ERROR_INVALID_PARAMETER &&
+        !operation && !invalid.count);
+  // Rejected async admissions must not leave a callback queued on the
+  // dispatcher.
   callback.returned = true;
   check_callback.returned = true;
   invalid.returned = true;
@@ -272,7 +307,9 @@ void ApprovalAdmission(int listener, bool capability) {
   CHECK(!consent_client_destroy(client));
   server.join();
   approval_capability = true;
-  printf("PASS selected approval %s: SYNC/ASYNC request/check admission and cache isolation\n",
+  printf(
+      "PASS selected approval %s: SYNC/ASYNC request/check admission and "
+      "cache isolation\n",
       capability ? "capable daemon" : "old daemon rejection");
 }
 
@@ -280,11 +317,13 @@ void EndpointPolicy() {
   struct sockaddr_un address = {};
   address.sun_family = AF_UNIX;
   strcpy(address.sun_path, "/run/.consentd.sock");
-  socklen_t size = offsetof(struct sockaddr_un, sun_path) + strlen(address.sun_path) + 1;
+  socklen_t size =
+      offsetof(struct sockaddr_un, sun_path) + strlen(address.sun_path) + 1;
   const char label[] = "System::Privileged";
   auto matches = [&](pid_t pid, uid_t uid, size_t label_size) {
-    return consent::MatchActivatedPeer(pid, uid, address, size, label, label_size,
-        "/run/.consentd.sock", "System::Privileged");
+    return consent::MatchActivatedPeer(pid, uid, address, size, label,
+                                       label_size, "/run/.consentd.sock",
+                                       "System::Privileged");
   };
   CHECK(matches(1, 0, sizeof(label)));
   CHECK(matches(1, 0, sizeof(label) - 1));
@@ -301,12 +340,12 @@ void EndpointPolicy() {
 
 void Protocol() {
   auto hello = consent::Encode({{"id", "1"}, {"method", "hello"}, {"v", "1"}});
-  const uint8_t vector[] = {0, 0, 0, 34, 0, 0, 0, 1, 0, 0, 0, 1,
-      0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 6, 'h', 'e', 'l', 'l', 'o', 0,
-      0, 0, 0, 0, 0, 0, 0, 0};
+  const uint8_t vector[] = {0,   0,   0,   34, 0, 0, 0, 1, 0, 0, 0, 1,   0,
+                            0,   0,   0,   0,  0, 0, 1, 0, 0, 0, 6, 'h', 'e',
+                            'l', 'l', 'o', 0,  0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(hello == std::vector<uint8_t>(vector, vector + sizeof(vector)));
-  consent::Message message{{"v", "1"}, {"method", "hello"}, {"id", "1"},
-      {"text", "동의"}};
+  consent::Message message{
+      {"v", "1"}, {"method", "hello"}, {"id", "1"}, {"text", "동의"}};
   auto frame = consent::Encode(message);
   consent::Message decoded;
   CHECK(consent::FrameSize(frame.data()) == frame.size() - 4);
@@ -316,7 +355,8 @@ void Protocol() {
   message["bad key"] = "x";
   CHECK(consent::Encode(message).empty());
   int64_t number;
-  CHECK(consent::ParseNumber("-9223372036854775808", &number) && number == INT64_MIN);
+  CHECK(consent::ParseNumber("-9223372036854775808", &number) &&
+        number == INT64_MIN);
   CHECK(!consent::ParseNumber("9223372036854775808", &number));
   CHECK(!consent::ParseNumber("1junk", &number));
   CHECK(!consent::ParseNumber("+1", &number));
@@ -352,12 +392,12 @@ void Protocol() {
   malformed[37] = 0xff;  // Array count exceeds bounded remaining fields.
   CHECK(!consent::Decode(malformed.data() + 4, malformed.size() - 4, &decoded));
   malformed = hello;
-  malformed[36] = 1;  // Legal maximum count=256 with zero remaining field bytes.
+  malformed[36] =
+      1;  // Legal maximum count=256 with zero remaining field bytes.
   malformed[37] = 0;
   largest_allocation = 0;
   CHECK(!consent::Decode(malformed.data() + 4, malformed.size() - 4, &decoded));
   CHECK(largest_allocation < 4096);  // Rejected before a Field[256] allocation.
-
 }
 }  // namespace
 
@@ -371,7 +411,8 @@ int main(int argc, char** argv) {
   // An exclusive lock makes this fixture refuse another running test/daemon.
   if (mkdir("/tmp/consent-test", 0700) && errno != EEXIST)
     return 1;
-  int lock = open("/tmp/consent-test/client-test.lock", O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+  int lock = open("/tmp/consent-test/client-test.lock",
+                  O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB))
     return 1;
   struct stat existing = {};
@@ -384,7 +425,8 @@ int main(int argc, char** argv) {
   struct sockaddr_un address = {};
   address.sun_family = AF_UNIX;
   strcpy(address.sun_path, kEndpoint);
-  CHECK(!bind(listener, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)));
+  CHECK(!bind(listener, reinterpret_cast<struct sockaddr*>(&address),
+              sizeof(address)));
   CHECK(!listen(listener, 4));
   ApprovalAdmission(listener, false);
   ApprovalAdmission(listener, true);
@@ -393,9 +435,12 @@ int main(int argc, char** argv) {
   CHECK(!consent_client_create(&client));
   consent_params_t* params = nullptr;
   CHECK(!consent_params_create(&params));
-  CHECK(consent_params_set(params, "_role", "argo") == CONSENT_ERROR_INVALID_PARAMETER);
-  CHECK(consent_params_set(params, "role", "argo") == CONSENT_ERROR_INVALID_PARAMETER);
-  CHECK(!consent_params_add_requirement(params, "calendar.read", "read", "today", "answer", ""));
+  CHECK(consent_params_set(params, "_role", "argo") ==
+        CONSENT_ERROR_INVALID_PARAMETER);
+  CHECK(consent_params_set(params, "role", "argo") ==
+        CONSENT_ERROR_INVALID_PARAMETER);
+  CHECK(!consent_params_add_requirement(params, "calendar.read", "read",
+                                        "today", "answer", ""));
   CHECK(!consent_params_set_check_mode(params, CONSENT_CHECK_QUERY));
   consent_result_t* result = nullptr;
   CHECK(!consent_check(client, params, 2000, &result));
@@ -406,21 +451,25 @@ int main(int argc, char** argv) {
     CHECK(!consent_params_set(params, "scenario", scenario));
     Callback callback;
     consent_async_id_t operation;
-    int status = !strcmp(scenario, "pending") ?
-        consent_request_async(client, params, Result, &callback, &operation) :
-        consent_check_async(client, params, Result, &callback, &operation);
+    int status = !strcmp(scenario, "pending")
+                     ? consent_request_async(client, params, Result, &callback,
+                                             &operation)
+                     : consent_check_async(client, params, Result, &callback,
+                                           &operation);
     CHECK(!status && !callback.count);
     callback.returned = true;
     DispatchUntil(&callback);
     CHECK(!callback.status);
-    CHECK(callback.decision == (!strcmp(scenario, "deny") ?
-        CONSENT_DECISION_DENIED : CONSENT_DECISION_ALLOWED));
+    CHECK(callback.decision == (!strcmp(scenario, "deny")
+                                    ? CONSENT_DECISION_DENIED
+                                    : CONSENT_DECISION_ALLOWED));
   }
   // Exercise the native Parcel envelope and signed-int client boundary,
   // including the module range's INT_MIN value, in SYNC and ASYNC replies.
-  for (int error : {CONSENT_ERROR_PROTOCOL, CONSENT_ERROR_OUTCOME_UNKNOWN,
-      CONSENT_ERROR_SESSION_INACTIVE, CONSENT_ERROR_SESSION_CLOSED,
-      CONSENT_ERROR_CONFLICT, CONSENT_ERROR_STORAGE}) {
+  for (int error :
+       {CONSENT_ERROR_PROTOCOL, CONSENT_ERROR_OUTCOME_UNKNOWN,
+        CONSENT_ERROR_SESSION_INACTIVE, CONSENT_ERROR_SESSION_CLOSED,
+        CONSENT_ERROR_CONFLICT, CONSENT_ERROR_STORAGE}) {
     CHECK(!consent_params_set(params, "scenario", "module-error"));
     CHECK(!consent_params_set_int64(params, "test-status", error));
     result = nullptr;
@@ -431,7 +480,7 @@ int main(int argc, char** argv) {
     callback.returned = true;
     DispatchUntil(&callback);
     CHECK(callback.count == 1 && callback.status == error &&
-        callback.decision == CONSENT_DECISION_UNKNOWN);
+          callback.decision == CONSENT_DECISION_UNKNOWN);
   }
   // Repeated persistent request is local until a revision invalidates it.
   CHECK(!consent_params_set(params, "scenario", "cache"));
@@ -445,7 +494,8 @@ int main(int argc, char** argv) {
   consent_result_free(result);
   Callback cached_callback;
   consent_async_id_t cached_operation;
-  CHECK(!consent_request_async(client, params, Result, &cached_callback, &cached_operation));
+  CHECK(!consent_request_async(client, params, Result, &cached_callback,
+                               &cached_operation));
   CHECK(!cached_callback.count);
   cached_callback.returned = true;
   DispatchUntil(&cached_callback);
@@ -503,14 +553,17 @@ int main(int argc, char** argv) {
   CHECK(!consent_check_async(client, params, Result, &detached, &operation));
   CHECK(!consent_async_detach(client, operation));
   detached.returned = true;
-  while (g_main_context_iteration(nullptr, FALSE)) {}
+  while (g_main_context_iteration(nullptr, FALSE)) {
+  }
   CHECK(!detached.count);
   // Bound accepted jobs even if the dispatcher is never iterated.
   consent_async_id_t operations[64];
   Callback backlog;
   for (size_t i = 0; i < 64; ++i)
-    CHECK(!consent_check_async(client, params, Result, &backlog, &operations[i]));
-  CHECK(consent_check_async(client, params, Result, &backlog, &operation) == CONSENT_ERROR_BUSY);
+    CHECK(
+        !consent_check_async(client, params, Result, &backlog, &operations[i]));
+  CHECK(consent_check_async(client, params, Result, &backlog, &operation) ==
+        CONSENT_ERROR_BUSY);
   for (auto id : operations)
     CHECK(!consent_async_detach(client, id));
   // Failed admission never leaves a callback or a published operation.
@@ -529,13 +582,15 @@ int main(int argc, char** argv) {
       CHECK(!status);
       CHECK(!consent_async_detach(client, operation));
     }
-    while (g_main_context_iteration(nullptr, FALSE)) {}
+    while (g_main_context_iteration(nullptr, FALSE)) {
+    }
     CHECK(!faulted.count);
   }
   CHECK(failed_allocations > 5);
   if (test_fork) {
-    // Saturate the parent's handle limit. A child must reset the inherited count
-    // and discard callbacks from a parent's context before touching its mutexes.
+    // Saturate the parent's handle limit. A child must reset the inherited
+    // count and discard callbacks from a parent's context before touching its
+    // mutexes.
     consent_client_h extra[15] = {};
     std::vector<std::thread> extra_servers;
     for (auto& handle : extra) {
@@ -552,7 +607,8 @@ int main(int argc, char** argv) {
     CHECK(child >= 0);
     if (!child) {
       alarm(10);
-      while (g_main_context_iteration(nullptr, FALSE)) {}
+      while (g_main_context_iteration(nullptr, FALSE)) {
+      }
       CHECK(!inherited.count);
       CHECK(consent_client_destroy(client) == CONSENT_ERROR_INVALID_PARAMETER);
       consent_client_h fresh = nullptr;
@@ -584,6 +640,10 @@ int main(int argc, char** argv) {
   close(listener);
   unlink(kEndpoint);
   close(lock);
-  printf("PASS client: framing, UTF-8, duplicate rejection, async ordering, pending polling, cache invalidation, timeout, detach, bounds, callback shutdown, allocation failure, fork=%s\n", test_fork ? "verified" : "skipped");
+  printf(
+      "PASS client: framing, UTF-8, duplicate rejection, async ordering, "
+      "pending polling, cache invalidation, timeout, detach, bounds, "
+      "callback shutdown, allocation failure, fork=%s\n",
+      test_fork ? "verified" : "skipped");
   return 0;
 }

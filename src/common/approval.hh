@@ -30,7 +30,7 @@ bool Validate(const Message& request, std::string* error = nullptr);
 void CopyContext(const Message& source, Message* destination);
 bool SameContext(const Message& left, const Message& right);
 bool Covers(const Message& request, const std::string& mode, int64_t expires,
-    int64_t now);
+            int64_t now);
 
 }  // namespace approval
 }  // namespace consent

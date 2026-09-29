@@ -28,13 +28,15 @@ class Descriptor final {
  public:
   explicit Descriptor(int value = -1) noexcept : value_(value) {}
   ~Descriptor() {
-    if (value_ >= 0) close(value_);
+    if (value_ >= 0)
+      close(value_);
   }
   Descriptor(const Descriptor&) = delete;
   Descriptor& operator=(const Descriptor&) = delete;
   int Get() const noexcept { return value_; }
   void Reset(int value = -1) noexcept {
-    if (value_ >= 0) close(value_);
+    if (value_ >= 0)
+      close(value_);
     value_ = value;
   }
   int Release() noexcept {
@@ -81,7 +83,8 @@ class Admission final {
       --count_;
   }
   ~Admission() {
-    if (held_) --count_;
+    if (held_)
+      --count_;
   }
   Admission(const Admission&) = delete;
   Admission& operator=(const Admission&) = delete;

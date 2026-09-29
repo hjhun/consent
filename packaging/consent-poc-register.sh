@@ -70,4 +70,5 @@ printf '%s\n' "$digest" > "$temporary"
 chmod 0600 "$temporary"
 mv -f "$temporary" "$state/installed.sha256"
 trap - EXIT HUP INT TERM
-echo 'PASS consent PoC UI package registered globally; consent setup remains explicit'
+echo \
+  'PASS consent PoC UI package registered globally; consent setup remains explicit'

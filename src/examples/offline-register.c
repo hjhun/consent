@@ -22,14 +22,17 @@ int main(int argc, char** argv) {
   consent_params_t* params = NULL;
   int status;
   if (argc != 10) {
-    fprintf(stderr, "Usage: %s IMAGE_ROOT PACKAGE APP DEFINITION ENFORCER GENERATION OPERATION_ID POLICY_VERSION TEXT_REVISION\n", argv[0]);
+    fprintf(stderr,
+            "Usage: %s IMAGE_ROOT PACKAGE APP DEFINITION ENFORCER "
+            "GENERATION OPERATION_ID POLICY_VERSION TEXT_REVISION\n",
+            argv[0]);
     return 2;
   }
   /* Explicit image construction only. Real/effective UID must be root. Use
    * the image Installer's stable committed generation and registration ID.
    * Neither a failed online call nor this example creates that authority. */
   status = example_definition(argv[4], argv[5], argv[6], argv[7], argv[8],
-      argv[9], &params);
+                              argv[9], &params);
   if (!status)
     status = consent_client_create_offline_registration(argv[1], &client);
   if (!status)
@@ -37,7 +40,9 @@ int main(int argc, char** argv) {
   if (status)
     example_error("offline register", status);
   else
-    puts("STAGED: durable definition only; startup identity/generation validation is still required.");
+    puts(
+        "STAGED: durable definition only; startup identity/generation "
+        "validation is still required.");
   consent_params_free(params);
   if (client) {
     int destroy_status = consent_client_destroy(client);

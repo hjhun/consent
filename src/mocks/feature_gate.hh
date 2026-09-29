@@ -38,21 +38,22 @@ class FeatureGate final {
   // 0 arms the gate; 1 skips the other configured test stage; negative errno
   // fails closed. The root-protected selector exists only in this test build.
   int Arm(const std::string& receipt, const std::string& operation_id,
-      const std::string& feature_id, const std::string& job_id);
+          const std::string& feature_id, const std::string& job_id);
   // A data-use permit is an existing artifact, not a new acquisition receipt.
   int ArmReuse(const std::string& artifact, const std::string& session,
-      const std::string& generation, const std::string& context_digest,
-      const std::string& operation_id, const std::string& feature_id,
-      const std::string& job_id);
+               const std::string& generation, const std::string& context_digest,
+               const std::string& operation_id, const std::string& feature_id,
+               const std::string& job_id);
   // 0: waiting; 1: explicitly released; negative errno: fail closed.
   int Poll();
   // Record cancellation and close the FIFO; repeated calls do nothing.
   void Cancel() noexcept;
 
  private:
-  int Begin(const char* stage, const char* proof_kind, const std::string& proof_id,
-      const std::string& operation_id, const std::string& feature_id,
-      const std::string& job_id, const std::string& proof_fields);
+  int Begin(const char* stage, const char* proof_kind,
+            const std::string& proof_id, const std::string& operation_id,
+            const std::string& feature_id, const std::string& job_id,
+            const std::string& proof_fields);
   int Publish(const char* name, const char* state) noexcept;
   void Close() noexcept;
   int directory_ = -1;

@@ -21,8 +21,8 @@
 namespace consent {
 
 int CleanupSweep(Message input, CleanupProgress* progress,
-    const std::function<int(const Message&, Message*)>& fetch,
-    const std::function<int(const std::string&)>& cleanup) {
+                 const std::function<int(const Message&, Message*)>& fetch,
+                 const std::function<int(const std::string&)>& cleanup) {
   if (!progress)
     return -EINVAL;
   input.erase("cursor");
@@ -49,8 +49,8 @@ int CleanupSweep(Message input, CleanupProgress* progress,
         (more == "0" && !cursor.empty()))
       return -EPROTO;
     for (int64_t index = 0; index < count; ++index) {
-      const auto artifact = Get(result,
-          "a" + std::to_string(index) + ".artifact");
+      const auto artifact =
+          Get(result, "a" + std::to_string(index) + ".artifact");
       if (artifact.empty())
         return -EPROTO;
       status = cleanup(artifact);

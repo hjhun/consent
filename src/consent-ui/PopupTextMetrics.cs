@@ -15,19 +15,28 @@
  */
 namespace ConsentUI;
 
-internal static class PopupTextMetrics
-{
+internal static class PopupTextMetrics {
   public const float Width = 752;
   public const float Height = 290;
   public const float FontPixels = 24;
-  public static bool HeightFits(float height) => float.IsFinite(height) && height > 0 && height <= Height;
-  public static bool GlyphFits(float width) => float.IsFinite(width) && width >= 0 && width <= Width;
+  public static bool HeightFits(float height) =>
+      float.IsFinite(height) && height > 0 && height <= Height;
+  public static bool GlyphFits(float width) =>
+      float.IsFinite(width) && width >= 0 && width <= Width;
 }
 
-internal enum UiPhase { Create, InitialLaunch, NativeFetch, PromptDisplay, PageNavigation, Response }
+internal enum UiPhase {
+  Create,
+  InitialLaunch,
+  NativeFetch,
+  PromptDisplay,
+  PageNavigation,
+  Response
+}
 internal enum UiFailureReason { TextHeight, GlyphWidth }
-internal sealed class UiFailure : Exception
-{
+internal sealed class UiFailure : Exception {
   public UiFailureReason Reason { get; }
-  public UiFailure(UiFailureReason reason) : base(reason.ToString()) { Reason = reason; }
+  public UiFailure(UiFailureReason reason) : base(reason.ToString()) {
+    Reason = reason;
+  }
 }

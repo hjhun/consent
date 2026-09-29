@@ -20,12 +20,14 @@
 
 /* Helpers for these executable examples, not additions to the public ABI. */
 int example_requirement(const char* subject, const char* profile,
-    const char* definition, const char* revision, const char* scope,
-    const char* purpose, const char* recipient, const char* session,
-    const char* generation, consent_params_t** params);
+                        const char* definition, const char* revision,
+                        const char* scope, const char* purpose,
+                        const char* recipient, const char* session,
+                        const char* generation, consent_params_t** params);
 int example_definition(const char* definition, const char* enforcer,
-    const char* generation, const char* operation_id, const char* policy_version,
-    const char* text_revision, consent_params_t** params);
+                       const char* generation, const char* operation_id,
+                       const char* policy_version, const char* text_revision,
+                       consent_params_t** params);
 void example_error(const char* operation, int status);
 const char* example_decision(const consent_result_t* result);
 

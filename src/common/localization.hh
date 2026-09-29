@@ -26,15 +26,18 @@ namespace localization {
 // Successful output assignment is atomic; failure leaves outputs unchanged.
 bool IsDefinitionField(const std::string& key);
 bool IsPolicyField(const std::string& key);
-bool ValidateDefinition(const Message& definition, std::string* error = nullptr);
+bool ValidateDefinition(const Message& definition,
+                        std::string* error = nullptr);
 bool ValidateArguments(const Message& definition, const Message& request,
-    size_t requirement, std::string* error = nullptr);
+                       size_t requirement, std::string* error = nullptr);
 bool AppendArguments(const Message& definition, const Message& request,
-    size_t requirement, Message* prompt, std::string* error = nullptr);
+                     size_t requirement, Message* prompt,
+                     std::string* error = nullptr);
 bool SelectLocale(const Message& definition, const std::string& requested,
-    std::string* selected, std::string* error = nullptr);
+                  std::string* selected, std::string* error = nullptr);
 bool FormatPrompt(const Message& prompt, size_t requirement,
-    const std::string& field, std::string* formatted, std::string* error = nullptr);
+                  const std::string& field, std::string* formatted,
+                  std::string* error = nullptr);
 
 }  // namespace localization
 }  // namespace consent

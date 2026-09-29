@@ -26,13 +26,19 @@ extern "C" {
  * Every call authenticates the fixed argo peer; errors leave *json NULL. */
 FEATURE_API int consent_feature_catalog(char** json);
 FEATURE_API int consent_feature_status(char** json);
-FEATURE_API int consent_feature_select(const char* feature_ids, const char* mode,
-    unsigned int duration_ms, const char* coordinator_epoch, const char* catalog_revision, const char* expected_revision,
-    const char* command_id, char** json);
-FEATURE_API int consent_feature_preapprove(const char* coordinator_epoch, const char* catalog_revision, const char* expected_revision,
-    const char* command_id, char** json);
+FEATURE_API int consent_feature_select(
+    const char* feature_ids, const char* mode, unsigned int duration_ms,
+    const char* coordinator_epoch, const char* catalog_revision,
+    const char* expected_revision, const char* command_id, char** json);
+FEATURE_API int consent_feature_preapprove(const char* coordinator_epoch,
+                                           const char* catalog_revision,
+                                           const char* expected_revision,
+                                           const char* command_id, char** json);
 FEATURE_API int consent_feature_task(const char* task_id, const char* task_mode,
-    const char* coordinator_epoch, const char* catalog_revision, const char* expected_revision, const char* command_id, char** json);
+                                     const char* coordinator_epoch,
+                                     const char* catalog_revision,
+                                     const char* expected_revision,
+                                     const char* command_id, char** json);
 FEATURE_API void consent_feature_free(char* json);
 
 #ifdef __cplusplus

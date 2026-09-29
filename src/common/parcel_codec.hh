@@ -28,7 +28,7 @@ namespace wire {
 
 inline bool ValidString(const std::string& value, size_t maximum) {
   return value.size() <= maximum && value.find('\0') == std::string::npos &&
-      g_utf8_validate(value.c_str(), value.size(), nullptr);
+         g_utf8_validate(value.c_str(), value.size(), nullptr);
 }
 
 class Writer final {
@@ -53,15 +53,17 @@ class Writer final {
     return true;
   }
   bool String(const std::string& value, size_t maximum) {
-    if (!ValidString(value, maximum) || !Room(sizeof(uint32_t) + value.size() + 1))
+    if (!ValidString(value, maximum) ||
+        !Room(sizeof(uint32_t) + value.size() + 1))
       return false;
     parcel_->WriteString(value);
     return true;
   }
+
  private:
   bool Room(size_t size) const {
     return parcel_ && parcel_->GetDataSize() <= 65536 &&
-        size <= 65536 - parcel_->GetDataSize();
+           size <= 65536 - parcel_->GetDataSize();
   }
   tizen_base::Parcel* parcel_;
 };
@@ -93,6 +95,7 @@ class Reader final {
     value->assign(bytes, length - 1);
     return true;
   }
+
  private:
   bool Remaining(size_t size) const {
     if (!parcel_ || parcel_->GetReader() > parcel_->GetDataSize())

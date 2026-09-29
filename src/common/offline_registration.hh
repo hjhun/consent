@@ -35,8 +35,8 @@ class ImageRoot final {
   ~ImageRoot();
   ImageRoot(const ImageRoot&) = delete;
   ImageRoot& operator=(const ImageRoot&) = delete;
-  int Open(const std::string& image_root,
-      const std::string& authority_path = "/opt/var/lib/consent-authority");
+  int Open(const std::string& image_root, const std::string& authority_path =
+                                              "/opt/var/lib/consent-authority");
   int DirectoryFd() const { return directory_; }
   bool IsCurrentProcess() const;
   bool IsOwner() const;
@@ -50,8 +50,8 @@ class ImageRoot final {
 
 class RegistrationWriter final {
  public:
-  int Open(const std::string& image_root,
-      const std::string& authority_path = "/opt/var/lib/consent-authority");
+  int Open(const std::string& image_root, const std::string& authority_path =
+                                              "/opt/var/lib/consent-authority");
   // Accepts public definition fields, operation_id, expected_generation and
   // optional method=register only. -EEXIST means a stable operation conflict;
   // -EINPROGRESS means publication occurred but durability is uncertain.
@@ -68,7 +68,8 @@ class RegistrationWriter final {
 // empty; all other uncertain/malformed state fails without partial output.
 // Production callers hold their existing shared/exclusive lifecycle lock.
 int LoadRegistrations(const std::string& authority_dir,
-    std::vector<Message>* registrations, std::string* error = nullptr);
+                      std::vector<Message>* registrations,
+                      std::string* error = nullptr);
 
 }  // namespace offline
 }  // namespace consent

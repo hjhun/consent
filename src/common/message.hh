@@ -36,7 +36,7 @@ constexpr size_t kMaxValueSize = 8192;
 constexpr size_t kMaxRequirements = 16;
 
 inline std::string Get(const Message& message, const std::string& key,
-    const std::string& fallback = "") {
+                       const std::string& fallback = "") {
   auto it = message.find(key);
   return it == message.end() ? fallback : it->second;
 }
@@ -58,13 +58,14 @@ inline bool ParseNumber(const std::string& value, int64_t* output) {
       return false;
     number = number * 10 + digit;
   }
-  *output = negative ? (number == maximum ? INT64_MIN : -static_cast<int64_t>(number)) :
-      static_cast<int64_t>(number);
+  *output =
+      negative ? (number == maximum ? INT64_MIN : -static_cast<int64_t>(number))
+               : static_cast<int64_t>(number);
   return true;
 }
 
 inline int64_t Number(const Message& message, const std::string& key,
-    int64_t fallback = 0) {
+                      int64_t fallback = 0) {
   int64_t value;
   return ParseNumber(Get(message, key), &value) ? value : fallback;
 }
@@ -83,14 +84,15 @@ inline bool ValidField(const std::string& key, const std::string& value) {
 
 inline uint32_t FrameSize(const uint8_t* header) {
   return (static_cast<uint32_t>(header[0]) << 24) |
-      (static_cast<uint32_t>(header[1]) << 16) |
-      (static_cast<uint32_t>(header[2]) << 8) | header[3];
+         (static_cast<uint32_t>(header[1]) << 16) |
+         (static_cast<uint32_t>(header[2]) << 8) | header[3];
 }
 
 /* Encode uses the IDL-generated native Parcelable envelope. The owned result
  * includes the four-byte network-order length. Empty means invalid input. */
 inline std::vector<uint8_t> Encode(const Message& message) {
-  if (message.empty() || message.size() > kMaxFields || Get(message, "v") != "1")
+  if (message.empty() || message.size() > kMaxFields ||
+      Get(message, "v") != "1")
     return {};
   for (const auto& field : message) {
     if (!ValidField(field.first, field.second))
@@ -101,7 +103,9 @@ inline std::vector<uint8_t> Encode(const Message& message) {
   envelope.method = Get(message, "method");
   if (envelope.method.empty() || envelope.method.size() > 128)
     return {};
-  envelope.kind = envelope.method == "reply" ? 2 : envelope.method == "event" ? 3 : 1;
+  envelope.kind = envelope.method == "reply"   ? 2
+                  : envelope.method == "event" ? 3
+                                               : 1;
   int64_t correlation = -1;
   if (!ParseNumber(Get(message, "id"), &correlation) || correlation < 0 ||
       (envelope.kind != 3 && correlation == 0) ||
@@ -110,13 +114,15 @@ inline std::vector<uint8_t> Encode(const Message& message) {
   envelope.correlation = static_cast<uint64_t>(correlation);
   int64_t status = 0;
   if (envelope.kind == 2) {
-    if (!ParseNumber(Get(message, "status"), &status) || status > 0 || status < INT32_MIN)
+    if (!ParseNumber(Get(message, "status"), &status) || status > 0 ||
+        status < INT32_MIN)
       return {};
   } else if (message.count("status")) {
     return {};
   }
   envelope.status = static_cast<int32_t>(status);
-  // u32 version, u32 kind, u64 correlation, string method, i32 status, u32 count.
+  // u32 version, u32 kind, u64 correlation, string method, i32 status, u32
+  // count.
   size_t size = 29 + envelope.method.size();
   for (const auto& field : message) {
     if (field.first == "v" || field.first == "id" || field.first == "method" ||
@@ -137,7 +143,8 @@ inline std::vector<uint8_t> Encode(const Message& message) {
   frame[3] = size & 0xff;
   // Borrow already allocated bounded storage. Avoid an unbounded Parcel growth
   // path, and do not require the capacity constructor added in Tizen 11.
-  tizen_base::Parcel parcel(frame.data() + 4, static_cast<uint32_t>(size), false, false);
+  tizen_base::Parcel parcel(frame.data() + 4, static_cast<uint32_t>(size),
+                            false, false);
   parcel.Clear();
   parcel.SetByteOrder(true);
   try {
@@ -171,11 +178,12 @@ inline bool Decode(const uint8_t* data, size_t size, Message* output) {
       envelope.fields.size() > kMaxFields - (envelope.kind == 2 ? 4 : 3))
     return false;
   if (envelope.kind == 1) {
-    if (!envelope.correlation || envelope.status || envelope.method == "reply" ||
-        envelope.method == "event")
+    if (!envelope.correlation || envelope.status ||
+        envelope.method == "reply" || envelope.method == "event")
       return false;
   } else if (envelope.kind == 2) {
-    if (!envelope.correlation || envelope.method != "reply" || envelope.status > 0)
+    if (!envelope.correlation || envelope.method != "reply" ||
+        envelope.status > 0)
       return false;
   } else if (envelope.kind == 3) {
     if (envelope.correlation || envelope.method != "event" || envelope.status)
@@ -183,8 +191,9 @@ inline bool Decode(const uint8_t* data, size_t size, Message* output) {
   } else {
     return false;
   }
-  Message message{{"v", "1"}, {"id", std::to_string(envelope.correlation)},
-      {"method", envelope.method}};
+  Message message{{"v", "1"},
+                  {"id", std::to_string(envelope.correlation)},
+                  {"method", envelope.method}};
   if (envelope.kind == 2)
     message["status"] = std::to_string(envelope.status);
   for (auto& field : envelope.fields) {

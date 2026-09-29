@@ -60,13 +60,15 @@ bool Gate() {
       close(release);
     return false;
   }
-  int ready = open(kReady, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+  int ready =
+      open(kReady, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (ready < 0) {
     close(release);
     return false;
   }
   char marker[96];
-  int size = snprintf(marker, sizeof(marker), "pid=%ld state=before-commit\n", static_cast<long>(getpid()));
+  int size = snprintf(marker, sizeof(marker), "pid=%ld state=before-commit\n",
+                      static_cast<long>(getpid()));
   int written = 0;
   while (written < size) {
     ssize_t count = write(ready, marker + written, size - written);
@@ -105,23 +107,32 @@ bool Gate() {
 
 }  // namespace
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_step(sqlite3_stmt* statement) {
+extern "C" __attribute__((visibility("default"))) int sqlite3_step(
+    sqlite3_stmt* statement) {
   using Step = int (*)(sqlite3_stmt*);
-  static Step real_step = reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
+  static Step real_step =
+      reinterpret_cast<Step>(dlsym(RTLD_NEXT, "sqlite3_step"));
   if (!real_step)
     _exit(99);
   int result = real_step(statement);
   const char* sql = sqlite3_sql(statement);
-  if (!gate_used && result == SQLITE_DONE && sqlite3_changes(sqlite3_db_handle(statement)) > 0 && sql &&
-      std::strstr(sql, "UPDATE grants SET revoked=1 WHERE definition=? AND subject=?") == sql)
+  if (!gate_used && result == SQLITE_DONE &&
+      sqlite3_changes(sqlite3_db_handle(statement)) > 0 && sql &&
+      std::strstr(
+          sql,
+          "UPDATE grants SET revoked=1 WHERE definition=? AND subject=?") ==
+          sql)
     revoke_started = true;
   return result;
 }
 
-extern "C" __attribute__((visibility("default"))) int sqlite3_exec(sqlite3* database, const char* sql,
+extern "C" __attribute__((visibility("default"))) int sqlite3_exec(
+    sqlite3* database, const char* sql,
     int (*callback)(void*, int, char**, char**), void* data, char** error) {
-  using Exec = int (*)(sqlite3*, const char*, int (*)(void*, int, char**, char**), void*, char**);
-  static Exec real_exec = reinterpret_cast<Exec>(dlsym(RTLD_NEXT, "sqlite3_exec"));
+  using Exec = int (*)(sqlite3*, const char*,
+                       int (*)(void*, int, char**, char**), void*, char**);
+  static Exec real_exec =
+      reinterpret_cast<Exec>(dlsym(RTLD_NEXT, "sqlite3_exec"));
   if (!real_exec)
     _exit(99);
   if (revoke_started && !gate_used && std::strcmp(sql, "COMMIT") == 0) {

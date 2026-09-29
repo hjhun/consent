@@ -39,7 +39,8 @@ if [ "$action" = --capture ]; then
   exit 0
 fi
 case "$action" in *[!a-zA-Z0-9_-]*|'') exit 2;; esac
-case "$binary" in /usr/libexec/consent/tests/consent-performance*) ;; *) exit 2;; esac
+case "$binary" in /usr/libexec/consent/tests/consent-performance*) ;; *) exit \
+  2;; esac
 [ -f "$binary" ] && [ ! -L "$binary" ]
 [ "$(stat -c '%u:%g:%a' "$binary")" = 0:0:755 ]
 attempt=/opt/var/lib/consent-perf-attempt-$action

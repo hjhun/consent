@@ -1412,13 +1412,13 @@ RSS8020/7812KiB, idle proxy1/1은 Build34 대비 일률적 개선 근거가 아�
 
 | 작업 | 현재 근거 | 남은 작업 |
 | --- | --- | --- |
-| 내부 cleanup/ownership/DLOG/GIO | Build30/32/35 범위별 target 근거 | 별도 mechanical80열 checkpoint |
+| 내부 cleanup/ownership/DLOG/GIO/style | Build30/32/35/36 범위별 target 근거 | 최종 authoritative 회귀 |
 | Registry 전손 helper | Guide09 제안과 read-only source 조사 | 구체 trusted-source/marker/lifecycle 설계 검토, 구현과 시험 |
 | 외부 제품 통합 | 실제 source 및 installed package 조사 | Installer lifecycle 및 인증 role/provider/history/model adapter |
 | 최종 검증 | 위 증분별 근거 | authoritative final-source storage 중단/삭제/reboot 및 CEP A-01–A-63 감사 |
 
-앞선 pending 문장은 당시 역사적 checkpoint 상태입니다. Build35 증분으로
-남은 작업을 완료했다고 주장하지 않습니다.
+앞선 pending 문장은 당시 역사적 checkpoint 상태입니다. 아래 Build36 절이
+style 행을 갱신하지만 다른 남은 작업은 여전히 진행 중입니다.
 
 별도 `performance-controlled-cache35`는 동일 Build35 daemon(`75ae7a17`)에
 before34/after35 client를 각각 두 번 교차 실행합니다. 모두9 metrics와 동일
@@ -1426,3 +1426,42 @@ seed/source 집계 조건으로 PASS입니다. CPU2.16/2.17→2.11/2.15s,
 RSS7816/7884→7912/7896KiB는 작은 편차이며 광범위한 성능 개선 주장은 하지 않습니다.
 이번 변경의 cache-only I/O wake 생략은 owner6으로 검증했습니다. 추가 추측성
 최적화 대신 남은 구현과 최종 감사로 진행합니다.
+
+## Build36 기계적 스타일 checkpoint (2026-09-30)
+
+Release7 frozen tree `99abb4cea73186fbda07859641dcba0069d979cd`의
+229파일 archive·byte manifest·target GBS export가 일치하며 근거는
+`/var/tmp/consent-artifacts/gbs-build-36`에 있습니다. GBS exit0, CTest25는
+21 PASS/root4 명시적 SKIP/0 FAIL(16.80초)입니다. GTest/GMock 의존성은 tests
+RPM에만 있습니다. Include/using 순서, native decoded literal, 생성 IDL byte,
+Python/C# 구문과 값, XML 값, GLib INI 값을 보존했습니다. Frozen host 보조
+증명은 `/var/tmp/consent-review-20260929/build36-*`에 있으며 target 시험의
+대체 근거가 아닙니다. 진단 line과 macro stringification은 이동할 수 있습니다.
+프로젝트 파일12개의30줄은 분할하기 어려운 shell/SQL quoted argument,
+CMake 인자, INI 값, JSON IDL 문자열, service-unit path 때문에 80열을
+넘습니다. 추가 분할에는 별도 동작 검토가 필요합니다.
+
+`/var/tmp/consent-artifacts/emulator-build-36`에는 정상 matching5 RPM
+Release6→7 upgrade와 packaged test fixture11개의 service exit0가
+있습니다. Fresh isolated basic/cache/cleanup97/wire/shutdown/DB drain 여섯
+API 단계는 phase PASS/service0입니다. Format된 offline/platform-offline
+script도 target setup·teardown 실행에 통과했습니다. PoC registration service는
+현재 TPK digest와 app ID를 일치시켜 등록했고, socket-start 실패 fixture는
+자신의 override를 정리합니다. Host .NET UI unit 다섯 그룹이 통과하고,
+GBS는 실제 UI·negative TPK 두 개를 만듭니다.
+
+RPM metadata regular147개 중 installed146개 hash가 일치합니다. 나머지
+`/etc/consent-poc/roles.conf`는 `%config(noreplace)`로 보존됩니다. Installed
+public ABI는 versioned symbol42개입니다. Production service는 security_fw
+UID402, state mode700, DB mode600입니다. Default-deny actor PID3588992/UID0의
+두 constructor는 negative UNKNOWN/NULL이고 daemon PID3587308 instance1/2는
+같은 PID/UID를 live trusted identity 없음으로 거부합니다. 이는 connection/
+hello 실패이며 정책 응답이 아닙니다. DLOG에는 actor PID3587548의 literal
+`100%`, CONSENT/INFO/source160이 남았으며 전역 log clear는 하지 않았습니다.
+`systemctl show`는 변경된 PoC unit 인자를 파싱했습니다. Target에는
+`systemd-analyze`가 없어 verify 도구 PASS는 주장하지 않습니다.
+
+Build35 성능 도구 byte는 그대로 보존합니다. Format으로 Build36 도구 byte가
+바뀌었으므로 Build35 수치를 Build36 동일-source 성능쌍으로 주장하지
+않습니다. 이 checkpoint로 registry 전손 복구, 제품 Installer/role 연결,
+최종 authoritative storage/reboot/CEP 감사를 완료한 것은 아닙니다.

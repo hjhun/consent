@@ -27,12 +27,13 @@ using consent::api::Call;
 using consent::Message;
 
 int Register(consent_client_h client, const char* package, const char* app,
-    const consent_params_t* params) {
+             const consent_params_t* params) {
   if (client && client->offline &&
       (!client->offline->IsCurrentProcess() || !client->offline->IsOwner()))
     return CONSENT_ERROR_INVALID_PARAMETER;
   if (!client || !package || !*package || !app || !*app || !params ||
-      !consent::ValidField("package", package) || !consent::ValidField("app", app))
+      !consent::ValidField("package", package) ||
+      !consent::ValidField("app", app))
     return CONSENT_ERROR_INVALID_PARAMETER;
   Message message = params->values;
   message["method"] = "register";
@@ -54,12 +55,13 @@ int Register(consent_client_h client, const char* package, const char* app,
 extern "C" {
 
 int consent_register(consent_client_h client, const char* package_name,
-    const char* app_id, const consent_params_t* params) {
-  return Guard([&]() { return Register(client, package_name, app_id, params); });
+                     const char* app_id, const consent_params_t* params) {
+  return Guard(
+      [&]() { return Register(client, package_name, app_id, params); });
 }
 
 int consent_update(consent_client_h client, const char* package_name,
-    const char* app_id, const consent_params_t* params) {
+                   const char* app_id, const consent_params_t* params) {
   int status = consent::api::OnlineStatus(client);
   if (status)
     return status;
@@ -67,7 +69,7 @@ int consent_update(consent_client_h client, const char* package_name,
 }
 
 int consent_unregister(consent_client_h client, const char* package_name,
-    const consent_params_t* params) {
+                       const consent_params_t* params) {
   return Guard([&]() -> int {
     int status = consent::api::OnlineStatus(client);
     if (status)
@@ -85,7 +87,7 @@ int consent_unregister(consent_client_h client, const char* package_name,
 }
 
 int consent_revoke(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+                   consent_result_t** result) {
   return Guard([&]() { return Call(client, "revoke", params, 5000, result); });
 }
 

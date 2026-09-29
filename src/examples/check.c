@@ -24,14 +24,17 @@ int main(int argc, char** argv) {
   int exit_status = 1;
   int status;
   if (argc != 10 && argc != 12) {
-    fprintf(stderr, "Usage: %s SUBJECT PROFILE DEFINITION POLICY_VERSION SCOPE PURPOSE RECIPIENT OPERATION_ID STEP_ID [SESSION GENERATION]\n", argv[0]);
+    fprintf(stderr,
+            "Usage: %s SUBJECT PROFILE DEFINITION POLICY_VERSION SCOPE "
+            "PURPOSE RECIPIENT OPERATION_ID STEP_ID [SESSION GENERATION]\n",
+            argv[0]);
     return 2;
   }
   /* The process must be an authenticated checker/cm/ce/holder with enforcer
    * delegation. IDs identify one real execution, and must survive retries. */
   status = example_requirement(argv[1], argv[2], argv[3], argv[4], argv[5],
-      argv[6], argv[7], argc == 12 ? argv[10] : NULL,
-      argc == 12 ? argv[11] : NULL, &params);
+                               argv[6], argv[7], argc == 12 ? argv[10] : NULL,
+                               argc == 12 ? argv[11] : NULL, &params);
   if (!status)
     status = consent_client_create(&client);
   if (!status)

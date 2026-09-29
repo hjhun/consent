@@ -70,7 +70,7 @@ bool Locale(const std::string& value) {
 
 bool Text(const std::string& value, size_t maximum) {
   return value.size() <= maximum && value.find('\0') == std::string::npos &&
-      g_utf8_validate(value.data(), value.size(), nullptr);
+         g_utf8_validate(value.data(), value.size(), nullptr);
 }
 
 bool Integer(const std::string& value, int64_t* number) {
@@ -78,7 +78,7 @@ bool Integer(const std::string& value, int64_t* number) {
 }
 
 bool Placeholders(const std::string& text, std::set<std::string>* names,
-    std::string* error) {
+                  std::string* error) {
   if (text.empty() || !Text(text, kMaxTemplate))
     return Error(error, "invalid localized template");
   for (size_t position = 0; position < text.size(); ++position) {
@@ -100,7 +100,8 @@ bool Placeholders(const std::string& text, std::set<std::string>* names,
   return true;
 }
 
-bool ParseSchema(const Message& definition, Schema* schema, std::string* error) {
+bool ParseSchema(const Message& definition, Schema* schema,
+                 std::string* error) {
   if (definition.size() > kMaxFields)
     return Error(error, "definition field limit exceeded");
   bool typed = definition.count("template_version") != 0;
@@ -135,7 +136,8 @@ bool ParseSchema(const Message& definition, Schema* schema, std::string* error) 
       return Error(error, "unsupported parameter source");
     if (parameter.type == "integer") {
       if ((parameter.source != "scope" && parameter.source != "retention_ms") ||
-          fields.size() != 4 || !Integer(Get(fields, "min"), &parameter.minimum) ||
+          fields.size() != 4 ||
+          !Integer(Get(fields, "min"), &parameter.minimum) ||
           !Integer(Get(fields, "max"), &parameter.maximum) ||
           parameter.minimum > parameter.maximum)
         return Error(error, "invalid integer parameter schema");
@@ -154,20 +156,23 @@ bool ParseSchema(const Message& definition, Schema* schema, std::string* error) 
   return true;
 }
 
-bool Value(const Parameter& parameter, const std::string& value, std::string* error) {
+bool Value(const Parameter& parameter, const std::string& value,
+           std::string* error) {
   if (parameter.type == "string") {
     if (!Text(value, parameter.max_bytes))
       return Error(error, "string argument exceeds schema or is not UTF-8");
   } else {
     int64_t number = 0;
-    if (!Integer(value, &number) || number < parameter.minimum || number > parameter.maximum)
-      return Error(error, "integer argument is not canonical or outside schema");
+    if (!Integer(value, &number) || number < parameter.minimum ||
+        number > parameter.maximum)
+      return Error(error,
+                   "integer argument is not canonical or outside schema");
   }
   return true;
 }
 
 bool MessageLocales(const Message& definition, const Schema& schema,
-    std::set<std::string>* registered, std::string* error) {
+                    std::set<std::string>* registered, std::string* error) {
   std::map<std::string, Message> locales;
   size_t count = 0;
   for (const auto& field : definition) {
@@ -175,7 +180,8 @@ bool MessageLocales(const Message& definition, const Schema& schema,
       continue;
     auto remainder = field.first.substr(8);
     auto separator = remainder.rfind('.');
-    if (separator == std::string::npos || !Locale(remainder.substr(0, separator)))
+    if (separator == std::string::npos ||
+        !Locale(remainder.substr(0, separator)))
       return Error(error, "invalid message locale");
     auto name = remainder.substr(separator + 1);
     if (name != "title" && name != "body")
@@ -207,7 +213,8 @@ bool MessageLocales(const Message& definition, const Schema& schema,
     if (!Starts(field.first, "locale_fallback."))
       continue;
     auto alias = field.first.substr(16);
-    if (!Locale(alias) || registered->count(alias) || !registered->count(field.second))
+    if (!Locale(alias) || registered->count(alias) ||
+        !registered->count(field.second))
       return Error(error, "locale fallback must name a registered locale");
     aliases.insert(std::move(alias));
   }
@@ -221,31 +228,37 @@ bool MessageLocales(const Message& definition, const Schema& schema,
 bool CallerArguments(const Message& request, std::string* error) {
   for (const auto& field : request) {
     auto separator = field.first.find('.');
-    bool row = field.first.size() > 1 && field.first[0] == 'r' &&
+    bool row =
+        field.first.size() > 1 && field.first[0] == 'r' &&
         separator != std::string::npos && separator > 1 &&
-        std::all_of(field.first.begin() + 1, field.first.begin() + separator,
+        std::all_of(
+            field.first.begin() + 1, field.first.begin() + separator,
             [](unsigned char character) { return g_ascii_isdigit(character); });
     auto property = row ? field.first.substr(separator + 1) : field.first;
     if (field.first == "display_args" || Starts(field.first, "display_args.") ||
-        (row && (property == "display_args" || Starts(property, "display_args.") ||
-                 Starts(property, "arg"))))
+        (row && (property == "display_args" ||
+                 Starts(property, "display_args.") || Starts(property, "arg"))))
       return Error(error, "caller-supplied display arguments are forbidden");
   }
   return true;
 }
 
-bool Arguments(const Message& definition, const Message& request, size_t requirement,
-    Schema* schema, Message* values, std::string* error) {
+bool Arguments(const Message& definition, const Message& request,
+               size_t requirement, Schema* schema, Message* values,
+               std::string* error) {
   if (requirement >= kMaxRequirements || request.size() > kMaxFields ||
-      !CallerArguments(request, error) || !ParseSchema(definition, schema, error))
+      !CallerArguments(request, error) ||
+      !ParseSchema(definition, schema, error))
     return Error(error, "invalid template argument context");
   auto row = "r" + std::to_string(requirement) + ".";
   for (const auto& entry : *schema) {
     const auto& parameter = entry.second;
-    if (parameter.source != "retention_ms" && !request.count(row + parameter.source))
+    if (parameter.source != "retention_ms" &&
+        !request.count(row + parameter.source))
       return Error(error, "required template source field is missing");
-    std::string value = parameter.source == "retention_ms" ?
-        Get(definition, "retention_ms", "0") : Get(request, row + parameter.source);
+    std::string value = parameter.source == "retention_ms"
+                            ? Get(definition, "retention_ms", "0")
+                            : Get(request, row + parameter.source);
     if (!Value(parameter, value, error))
       return false;
     if (values)
@@ -255,7 +268,7 @@ bool Arguments(const Message& definition, const Message& request, size_t require
 }
 
 bool Render(const std::string& text, const Message& values,
-    std::string* formatted, std::string* error) {
+            std::string* formatted, std::string* error) {
   std::string rendered;
   size_t position = 0;
   while (position < text.size()) {
@@ -269,7 +282,8 @@ bool Render(const std::string& text, const Message& values,
     size_t close = text.find('}', begin + 1);
     // Placeholders() already checked both template fields and names.
     auto value = values.find(text.substr(begin + 1, close - begin - 1));
-    if (value == values.end() || value->second.size() > kMaxRendered - rendered.size())
+    if (value == values.end() ||
+        value->second.size() > kMaxRendered - rendered.size())
       return Error(error, "rendered argument missing or output too large");
     rendered.append(value->second);  // Plain text, never recursively parsed.
     position = close + 1;
@@ -302,13 +316,13 @@ bool ValidateDefinition(const Message& definition, std::string* error) {
 }
 
 bool ValidateArguments(const Message& definition, const Message& request,
-    size_t requirement, std::string* error) {
+                       size_t requirement, std::string* error) {
   Schema schema;
   return Arguments(definition, request, requirement, &schema, nullptr, error);
 }
 
 bool AppendArguments(const Message& definition, const Message& request,
-    size_t requirement, Message* prompt, std::string* error) {
+                     size_t requirement, Message* prompt, std::string* error) {
   if (!prompt)
     return Error(error, "missing prompt output");
   Schema schema;
@@ -335,7 +349,7 @@ bool AppendArguments(const Message& definition, const Message& request,
 }
 
 bool SelectLocale(const Message& definition, const std::string& requested,
-    std::string* selected, std::string* error) {
+                  std::string* selected, std::string* error) {
   if (!selected || !Locale(requested))
     return Error(error, "invalid requested locale");
   Schema schema;
@@ -360,8 +374,9 @@ bool SelectLocale(const Message& definition, const std::string& requested,
   return true;
 }
 
-bool FormatPrompt(const Message& prompt, size_t requirement, const std::string& field,
-    std::string* formatted, std::string* error) {
+bool FormatPrompt(const Message& prompt, size_t requirement,
+                  const std::string& field, std::string* formatted,
+                  std::string* error) {
   int64_t count = 0;
   if (!formatted || (field != "title" && field != "body") ||
       prompt.size() > kMaxFields || !Integer(Get(prompt, "count"), &count) ||
@@ -399,12 +414,14 @@ bool FormatPrompt(const Message& prompt, size_t requirement, const std::string& 
     const auto prefix = row + "arg";
     if (item.first.compare(0, prefix.size(), prefix) != 0)
       continue;
-    if (item.first == row + "arg_count" && prompt.count(row + "template_version"))
+    if (item.first == row + "arg_count" &&
+        prompt.count(row + "template_version"))
       continue;
     auto separator = item.first.find('.', prefix.size());
     int64_t index = -1;
     if (separator == std::string::npos ||
-        !Integer(item.first.substr(prefix.size(), separator - prefix.size()), &index) ||
+        !Integer(item.first.substr(prefix.size(), separator - prefix.size()),
+                 &index) ||
         index < 0 || index >= arguments)
       return Error(error, "unexpected prompt argument field");
     auto property = item.first.substr(separator + 1);

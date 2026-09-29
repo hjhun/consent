@@ -96,7 +96,7 @@ CONSENT_API int consent_client_create(consent_client_h* client);
  * @see consent_client_destroy()
  */
 CONSENT_API int consent_client_create_with_context(GMainContext* context,
-    consent_client_h* client);
+                                                   consent_client_h* client);
 
 /**
  * @brief Creates a root-only handle for image-time definition staging.
@@ -138,8 +138,8 @@ CONSENT_API int consent_client_create_with_context(GMainContext* context,
  * @see consent_register()
  * @see consent_client_destroy()
  */
-CONSENT_API int consent_client_create_offline_registration(const char* image_root,
-    consent_client_h* client);
+CONSENT_API int consent_client_create_offline_registration(
+    const char* image_root, consent_client_h* client);
 /**
  * @brief Destroys a client and suppresses its queued callbacks.
  * @since 0.1.0
@@ -156,7 +156,8 @@ CONSENT_API int consent_client_create_offline_registration(const char* image_roo
  *     user_data only after its callback has finished or delivery has been
  *     suppressed.
  *
- * @param[in] client The handle to destroy. It becomes invalid on successful destruction.
+ * @param[in] client The handle to destroy. It becomes invalid on successful
+ * destruction.
  *
  * @return @c 0 on success, otherwise a negative error value from
  *     #consent_error_e.

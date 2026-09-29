@@ -38,7 +38,8 @@
 #include <utility>
 
 #ifndef CONSENT_INSTALLATIONS
-#define CONSENT_INSTALLATIONS "/opt/var/lib/consent-authority/installations.conf"
+#define CONSENT_INSTALLATIONS \
+  "/opt/var/lib/consent-authority/installations.conf"
 #endif
 
 namespace {
@@ -92,21 +93,22 @@ bool CheckUid(pid_t pid, uid_t expected) {
       continue;
     std::istringstream values(line.substr(4));
     unsigned long real = 0, effective = 0, saved = 0, fs = 0;
-    return (values >> real >> effective >> saved >> fs) &&
-        real == expected && effective == expected && saved == expected &&
-        fs == expected;
+    return (values >> real >> effective >> saved >> fs) && real == expected &&
+           effective == expected && saved == expected && fs == expected;
   }
   return false;
 }
 
-bool ReadKeyFile(const std::string& path, GKeyFile* file, size_t limit = 65536) {
+bool ReadKeyFile(const std::string& path, GKeyFile* file,
+                 size_t limit = 65536) {
   int fd = consentd::OpenProtected(path);
   if (fd < 0)
     return false;
   consent::Descriptor descriptor(fd);
   auto content = ReadFd(fd, limit);
-  return !content.empty() && g_key_file_load_from_data(file, content.data(),
-      content.size(), G_KEY_FILE_NONE, nullptr);
+  return !content.empty() &&
+         g_key_file_load_from_data(file, content.data(), content.size(),
+                                   G_KEY_FILE_NONE, nullptr);
 }
 
 int ReadOfflineAuthority(GKeyFile* file) {
@@ -121,7 +123,7 @@ int ReadOfflineAuthority(GKeyFile* file) {
     return -EACCES;
   consent::Descriptor directory_owner(directory);
   int fd = openat(directory, path.substr(separator + 1).c_str(),
-      O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+                  O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
   int saved = errno;
   directory_owner.Reset();
   if (fd < 0)
@@ -131,8 +133,8 @@ int ReadOfflineAuthority(GKeyFile* file) {
   int result = 0;
   if (fstat(fd, &info) < 0)
     result = -errno;
-  else if (!S_ISREG(info.st_mode) || info.st_nlink != 1 ||
-      info.st_uid != 0 || (info.st_mode & 0022))
+  else if (!S_ISREG(info.st_mode) || info.st_nlink != 1 || info.st_uid != 0 ||
+           (info.st_mode & 0022))
     result = -EACCES;
   else if (info.st_size <= 0 || info.st_size > 1048576)
     result = -EINVAL;
@@ -154,7 +156,8 @@ int ReadOfflineAuthority(GKeyFile* file) {
     }
     content.append(buffer, static_cast<size_t>(count));
   }
-  if (close(descriptor.Release()) < 0 && result == 0) result = -errno;
+  if (close(descriptor.Release()) < 0 && result == 0)
+    result = -errno;
   if (result != 0)
     return result;
   if (content.empty() || content.find('\0') != std::string::npos ||
@@ -179,13 +182,14 @@ int ReadOfflineAuthority(GKeyFile* file) {
       continue;
     }
     auto state = consentd::KeyValue(file, groups[i], "state");
-    valid = valid && (state == "active" || state == "pending" || state == "removed");
+    valid = valid &&
+            (state == "active" || state == "pending" || state == "removed");
     if (group.compare(0, 8, "package ") == 0) {
       valid = valid && group.size() > 8 && group.size() <= 263;
     } else {
       auto owner = consentd::KeyValue(file, groups[i], "package");
       valid = valid && !group.empty() && group.size() <= 255 &&
-          !owner.empty() && owner.size() <= 255;
+              !owner.empty() && owner.size() <= 255;
     }
   }
   if (!valid)
@@ -217,8 +221,8 @@ int OpenProtected(const std::string& path, bool directory) {
     if (next < 0)
       return -1;
     struct stat st = {};
-    bool valid = fstat(next, &st) == 0 && st.st_uid == 0 &&
-        (st.st_mode & 0022) == 0;
+    bool valid =
+        fstat(next, &st) == 0 && st.st_uid == 0 && (st.st_mode & 0022) == 0;
 #ifdef CONSENT_TEST_BUILD
     // Only this sticky ancestor is permitted for the isolated test prefix.
     if (offset == 1 && part == "tmp" && !last && st.st_uid == 0 &&
@@ -232,7 +236,8 @@ int OpenProtected(const std::string& path, bool directory) {
       return -1;
     }
     current.Reset(next);
-    if (last) return current.Release();
+    if (last)
+      return current.Release();
     offset = end + 1;
   }
   return -1;
@@ -345,7 +350,7 @@ bool IdentityPolicy::Authenticate(int fd, Peer* peer, ProcessIdentity* process,
   int exe = open(proc_exe.c_str(), O_RDONLY | O_CLOEXEC);
   struct stat st = {};
   bool valid = exe >= 0 && fstat(exe, &st) == 0 && st.st_uid == 0 &&
-      !(st.st_mode & 0022) && S_ISREG(st.st_mode) && st.st_nlink == 1;
+               !(st.st_mode & 0022) && S_ISREG(st.st_mode) && st.st_nlink == 1;
   if (exe >= 0)
     close(exe);
   if (!valid) {
@@ -364,8 +369,8 @@ bool IdentityPolicy::Authenticate(int fd, Peer* peer, ProcessIdentity* process,
     *peer = rule.peer;
     peer->pid = pid;
     peer->gid = gid;
-    peer->instance = std::to_string(pid) + ":" +
-        std::to_string(process->start_time);
+    peer->instance =
+        std::to_string(pid) + ":" + std::to_string(process->start_time);
     if (IsAlive(*peer, *process))
       return true;
     break;
@@ -392,14 +397,16 @@ bool IdentityPolicy::IsAlive(const Peer& peer,
     return false;
   int current = OpenProtected(process.executable);
   bool valid = current >= 0 && fstat(current, &st) == 0 &&
-      st.st_dev == process.device && st.st_ino == process.inode;
+               st.st_dev == process.device && st.st_ino == process.inode;
   if (current >= 0)
     close(current);
   return valid && StartTime(peer.pid) == process.start_time;
 }
 
 bool IdentityPolicy::Allows(const Peer& peer, const std::string& method) {
-  auto role = [&peer](const char* value) { return peer.roles.count(value) != 0; };
+  auto role = [&peer](const char* value) {
+    return peer.roles.count(value) != 0;
+  };
   if (method == "hello")
     return !peer.roles.empty();
   if (method == "register" || method == "update" || method == "unregister")
@@ -426,15 +433,16 @@ bool IdentityPolicy::Allows(const Peer& peer, const std::string& method) {
 
 bool GetInstallationIdentity(const std::string& package, const std::string& app,
                              std::string* identity) {
-  if (package.empty() || app.empty() || package.size() > 255 || app.size() > 255)
+  if (package.empty() || app.empty() || package.size() > 255 ||
+      app.size() > 255)
     return false;
 #ifndef CONSENT_TEST_BUILD
   pkgmgrinfo_appinfo_h handle = nullptr;
   if (pkgmgrinfo_appinfo_get_appinfo(app.c_str(), &handle) != 0)
     return false;
   char* actual = nullptr;
-  bool valid = pkgmgrinfo_appinfo_get_pkgid(handle, &actual) == 0 &&
-      actual && package == actual;
+  bool valid = pkgmgrinfo_appinfo_get_pkgid(handle, &actual) == 0 && actual &&
+               package == actual;
   pkgmgrinfo_appinfo_destroy_appinfo(handle);
   if (!valid)
     return false;
@@ -494,9 +502,10 @@ int CheckOfflineAuthority() {
 }
 
 int ValidateOfflineInstallation(const std::string& package,
-    const std::string& app, const std::string& generation) {
-  if (package.empty() || app.empty() || package.size() > 255 || app.size() > 255 ||
-      generation.empty() || generation.size() > 128)
+                                const std::string& app,
+                                const std::string& generation) {
+  if (package.empty() || app.empty() || package.size() > 255 ||
+      app.size() > 255 || generation.empty() || generation.size() > 128)
     return -EINVAL;
   std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> inventory(
       g_key_file_new(), g_key_file_unref);
@@ -528,8 +537,8 @@ int ValidateOfflineInstallation(const std::string& package,
   if (pkgmgrinfo_appinfo_get_appinfo(app.c_str(), &handle) != 0)
     return -ESTALE;
   char* actual = nullptr;
-  bool valid = pkgmgrinfo_appinfo_get_pkgid(handle, &actual) == 0 &&
-      actual && package == actual;
+  bool valid = pkgmgrinfo_appinfo_get_pkgid(handle, &actual) == 0 && actual &&
+               package == actual;
   pkgmgrinfo_appinfo_destroy_appinfo(handle);
   if (!valid)
     return -ESTALE;

@@ -33,8 +33,9 @@ class Client final {
   bool IsCurrentProcess() const;
   int Call(Message message, unsigned timeout_ms, Message* result);
   int Submit(Message message, consent_result_cb callback, void* data,
-      uint64_t* operation);
+             uint64_t* operation);
   int Detach(uint64_t operation);
+
  private:
   friend class ClientTestPeer;
   struct State;

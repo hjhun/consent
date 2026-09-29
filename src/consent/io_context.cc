@@ -40,7 +40,8 @@ GSource* ReadySource(GMainContext* context, GSourceFunc function, void* data) {
   return source;
 }
 void Destroy(GSource*& source) noexcept {
-  if (!source) return;
+  if (!source)
+    return;
   g_source_destroy(source);
   g_source_unref(source);
   source = nullptr;
@@ -75,7 +76,8 @@ void IoContext::Abandon() noexcept {
   thread_ = nullptr;
 }
 bool IoContext::Start() noexcept {
-  if (pid_ != getpid() || thread_) return false;
+  if (pid_ != getpid() || thread_)
+    return false;
   GError* error = nullptr;
   thread_ = g_thread_try_new(
       "consent-io",
@@ -91,28 +93,33 @@ bool IoContext::Start() noexcept {
   return thread_ != nullptr;
 }
 void IoContext::Wake() noexcept {
-  if (pid_ != getpid()) return;
+  if (pid_ != getpid())
+    return;
   g_source_set_ready_time(wake_, 0);
   g_main_context_wakeup(context_);
 }
 void IoContext::Stop() noexcept {
-  if (pid_ != getpid()) return;
+  if (pid_ != getpid())
+    return;
   stopping_.store(true);
   Wake();
 }
 void IoContext::Join() noexcept {
-  if (pid_ != getpid() || !thread_) return;
+  if (pid_ != getpid() || !thread_)
+    return;
   // Delivery belongs to a different context; no user callback runs here.
   g_assert(thread_ != g_thread_self());
   g_thread_join(thread_);
   thread_ = nullptr;
 }
 void IoContext::Deadline(gint64 when) noexcept {
-  if (pid_ == getpid()) g_source_set_ready_time(deadline_, when);
+  if (pid_ == getpid())
+    g_source_set_ready_time(deadline_, when);
 }
 gboolean IoContext::Dispatch(gpointer data) noexcept {
   auto* self = static_cast<IoContext*>(data);
-  if (self->pid_ != getpid()) return G_SOURCE_REMOVE;
+  if (self->pid_ != getpid())
+    return G_SOURCE_REMOVE;
   // Disarm before inspecting work. An admission after the snapshot retains
   // its new ready_time=0; callback return never overwrites that signal.
   g_source_set_ready_time(g_main_current_source(), -1);
@@ -132,7 +139,8 @@ gboolean IoContext::Dispatch(gpointer data) noexcept {
   return G_SOURCE_CONTINUE;
 }
 bool IoContext::Wait(GSocket* socket, unsigned timeout_ms) {
-  if (pid_ != getpid() || thread_ || stopping_.load()) return false;
+  if (pid_ != getpid() || thread_ || stopping_.load())
+    return false;
   struct Waiter {
     GMainLoop* loop;
     bool ready = false;

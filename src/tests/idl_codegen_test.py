@@ -36,7 +36,9 @@ class CodegenTest(unittest.TestCase):
         self.schema = json.loads(IDL.read_text(encoding="utf-8"))
 
     def test_deterministic_output_and_atomic_rejection(self):
-        with tempfile.TemporaryDirectory(prefix="consent-idl-test-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="consent-idl-test-"
+        ) as directory:
             output = Path(directory) / "wire.hh"
             command = [sys.executable, str(COMPILER), str(IDL), str(output)]
             subprocess.run(command, check=True)
@@ -45,12 +47,18 @@ class CodegenTest(unittest.TestCase):
             self.assertEqual(expected, output.read_bytes())
             self.assertEqual(stamp, output.stat().st_mtime_ns)
             text = expected.decode("utf-8")
-            self.assertIn("class Envelope final : public tizen_base::Parcelable", text)
-            self.assertIn("ReadFromParcel(tizen_base::Parcel* parcel) override", text)
+            self.assertIn(
+                "class Envelope final : public tizen_base::Parcelable", text
+            )
+            self.assertIn(
+                "ReadFromParcel(tizen_base::Parcel* parcel) override", text
+            )
             invalid = Path(directory) / "bad.json"
             invalid.write_text('{"namespace":"one", "namespace":"two"}')
-            result = subprocess.run([sys.executable, str(COMPILER), str(invalid),
-                                     str(output)], capture_output=True)
+            result = subprocess.run(
+                [sys.executable, str(COMPILER), str(invalid), str(output)],
+                capture_output=True,
+            )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(expected, output.read_bytes())
 
@@ -60,9 +68,13 @@ class CodegenTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             compiler.generate(self.schema)
         with self.assertRaises(ValueError):
-            json.loads('{"x":1,"x":2}', object_pairs_hook=compiler.unique_object)
+            json.loads(
+                '{"x":1,"x":2}', object_pairs_hook=compiler.unique_object
+            )
         schema = json.loads(IDL.read_text())
-        schema["records"][0]["fields"].append(copy.deepcopy(schema["records"][0]["fields"][0]))
+        schema["records"][0]["fields"].append(
+            copy.deepcopy(schema["records"][0]["fields"][0])
+        )
         with self.assertRaises(ValueError):
             compiler.generate(schema)
 
@@ -100,30 +112,59 @@ class CodegenTest(unittest.TestCase):
 
     def test_transitive_size_and_array_bounds(self):
         schema = copy.deepcopy(self.schema)
-        schema["records"] = [{"name": "Leaf", "fields": [{"name": "value", "type": "u64"}]}]
+        schema["records"] = [
+            {"name": "Leaf", "fields": [{"name": "value", "type": "u64"}]}
+        ]
         for index in range(40):
             previous = schema["records"][-1]["name"]
-            schema["records"].append({"name": "Branch" + str(index), "fields": [
-                {"name": "left", "type": previous},
-                {"name": "right", "type": previous}]})
+            schema["records"].append(
+                {
+                    "name": "Branch" + str(index),
+                    "fields": [
+                        {"name": "left", "type": previous},
+                        {"name": "right", "type": previous},
+                    ],
+                }
+            )
         with self.assertRaisesRegex(ValueError, "transitive"):
             compiler.generate(schema)
-        schema["records"] = [{"name": "Leaf", "fields": [
-            {"name": "value", "type": "string", "max_bytes": 65536}]},
-            {"name": "Many", "fields": [
-                {"name": "values", "type": "array", "element": "Leaf", "max_count": 4096}]}]
+        schema["records"] = [
+            {
+                "name": "Leaf",
+                "fields": [
+                    {"name": "value", "type": "string", "max_bytes": 65536}
+                ],
+            },
+            {
+                "name": "Many",
+                "fields": [
+                    {
+                        "name": "values",
+                        "type": "array",
+                        "element": "Leaf",
+                        "max_count": 4096,
+                    }
+                ],
+            },
+        ]
         with self.assertRaisesRegex(ValueError, "transitive"):
             compiler.generate(schema)
         layout = compiler.validate(self.schema)
         self.assertEqual(layout["Field"]["minimum"], 11)
         text = compiler.generate(self.schema)
-        check = text.index("count_fields > (parcel->GetDataSize() - parcel->GetReader()) / 11")
-        self.assertLess(check, text.index("decoded.fields.resize(count_fields)"))
+        check = text.index(
+            "count_fields > (parcel->GetDataSize() - parcel->GetReader()) / 11"
+        )
+        self.assertLess(
+            check, text.index("decoded.fields.resize(count_fields)")
+        )
 
     def test_license_metadata(self):
-        for mutate in [lambda s: s.pop("license"),
-                       lambda s: s["license"].update(spdx="Unknown"),
-                       lambda s: s["license"].update(notice="Apache-2.0")]:
+        for mutate in [
+            lambda s: s.pop("license"),
+            lambda s: s["license"].update(spdx="Unknown"),
+            lambda s: s["license"].update(notice="Apache-2.0"),
+        ]:
             schema = copy.deepcopy(self.schema)
             mutate(schema)
             with self.assertRaises(ValueError):

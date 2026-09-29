@@ -29,7 +29,8 @@ using consent::api::Call;
 extern "C" {
 
 int consent_prompt_format(const consent_result_t* prompt,
-    unsigned int requirement_index, const char* field, char** formatted) {
+                          unsigned int requirement_index, const char* field,
+                          char** formatted) {
   if (formatted)
     *formatted = nullptr;
   return Guard([&]() -> int {
@@ -37,7 +38,7 @@ int consent_prompt_format(const consent_result_t* prompt,
       return CONSENT_ERROR_INVALID_PARAMETER;
     std::string value;
     if (!consent::localization::FormatPrompt(prompt->values, requirement_index,
-            field, &value))
+                                             field, &value))
       return CONSENT_ERROR_INVALID_PARAMETER;
     auto* output = static_cast<char*>(std::malloc(value.size() + 1));
     if (!output)
@@ -49,12 +50,12 @@ int consent_prompt_format(const consent_result_t* prompt,
 }
 
 int consent_get_prompt(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+                       consent_result_t** result) {
   return Guard([&]() { return Call(client, "prompt", params, 5000, result); });
 }
 
 int consent_respond(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+                    consent_result_t** result) {
   return Guard([&]() { return Call(client, "respond", params, 5000, result); });
 }
 

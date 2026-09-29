@@ -34,8 +34,8 @@ struct CleanupProgress {
 // Page errors stop the sweep. Individual deletion/ACK errors are remembered
 // while later entries/pages are still attempted. Retry failures in a new sweep.
 int CleanupSweep(Message input, CleanupProgress* progress,
-    const std::function<int(const Message&, Message*)>& fetch,
-    const std::function<int(const std::string&)>& cleanup);
+                 const std::function<int(const Message&, Message*)>& fetch,
+                 const std::function<int(const std::string&)>& cleanup);
 
 }  // namespace consent
 #endif  // CONSENT_COMMON_CLEANUP_SWEEP_HH_

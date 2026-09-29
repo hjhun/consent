@@ -79,7 +79,8 @@ extern "C" {
  * @see consent_unregister()
  */
 CONSENT_API int consent_register(consent_client_h client,
-    const char* package_name, const char* app_id, const consent_params_t* params);
+                                 const char* package_name, const char* app_id,
+                                 const consent_params_t* params);
 /**
  * @brief Updates a definition through the online registration contract.
  * @since 0.1.0
@@ -110,7 +111,8 @@ CONSENT_API int consent_register(consent_client_h client,
  * @see consent_register()
  */
 CONSENT_API int consent_update(consent_client_h client,
-    const char* package_name, const char* app_id, const consent_params_t* params);
+                               const char* package_name, const char* app_id,
+                               const consent_params_t* params);
 /**
  * @brief Removes all active definitions belonging to a package.
  * @since 0.1.0
@@ -144,7 +146,8 @@ CONSENT_API int consent_update(consent_client_h client,
  * @see consent_register()
  */
 CONSENT_API int consent_unregister(consent_client_h client,
-    const char* package_name, const consent_params_t* params);
+                                   const char* package_name,
+                                   const consent_params_t* params);
 /**
  * @brief Revokes grants for a definition and subject/profile.
  * @since 0.1.0
@@ -177,7 +180,8 @@ CONSENT_API int consent_unregister(consent_client_h client,
  * @see consent_data_release()
  */
 CONSENT_API int consent_revoke(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                               const consent_params_t* params,
+                               consent_result_t** result);
 
 /** @} */
 

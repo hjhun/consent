@@ -24,29 +24,38 @@ using consent::api::Call;
 
 extern "C" {
 
-int consent_data_register(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
-  return Guard([&]() { return Call(client, "data_register", params, 5000, result); });
+int consent_data_register(consent_client_h client,
+                          const consent_params_t* params,
+                          consent_result_t** result) {
+  return Guard(
+      [&]() { return Call(client, "data_register", params, 5000, result); });
 }
 
-int consent_data_register_derived(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
-  return Guard([&]() { return Call(client, "data_derived", params, 5000, result); });
+int consent_data_register_derived(consent_client_h client,
+                                  const consent_params_t* params,
+                                  consent_result_t** result) {
+  return Guard(
+      [&]() { return Call(client, "data_derived", params, 5000, result); });
 }
 
-int consent_data_release(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
-  return Guard([&]() { return Call(client, "data_release", params, 5000, result); });
+int consent_data_release(consent_client_h client,
+                         const consent_params_t* params,
+                         consent_result_t** result) {
+  return Guard(
+      [&]() { return Call(client, "data_release", params, 5000, result); });
 }
 
-int consent_cleanup_get_state(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
+int consent_cleanup_get_state(consent_client_h client,
+                              const consent_params_t* params,
+                              consent_result_t** result) {
   return Guard([&]() { return Call(client, "cleanup", params, 5000, result); });
 }
 
-int consent_cleanup_get_pending(consent_client_h client, const consent_params_t* params,
-    consent_result_t** result) {
-  return Guard([&]() { return Call(client, "cleanup_list", params, 5000, result); });
+int consent_cleanup_get_pending(consent_client_h client,
+                                const consent_params_t* params,
+                                consent_result_t** result) {
+  return Guard(
+      [&]() { return Call(client, "cleanup_list", params, 5000, result); });
 }
 
 }  // extern "C"

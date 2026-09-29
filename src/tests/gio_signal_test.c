@@ -18,14 +18,17 @@
 #include <stdio.h>
 #include <unistd.h>
 
-static void Handler(int signal_number) { (void)signal_number; }
+static void Handler(int signal_number) {
+  (void)signal_number;
+}
 int main(void) {
   // This executable is a dedicated process-global behavior probe. It never
   // saves/restores a handler around application GIO calls in production.
   struct sigaction before = {0}, after = {0};
   before.sa_handler = Handler;
   sigemptyset(&before.sa_mask);
-  if (sigaction(SIGPIPE, &before, NULL)) return 1;
+  if (sigaction(SIGPIPE, &before, NULL))
+    return 1;
   GError* error = NULL;
   GSocket* socket = g_socket_new(G_SOCKET_FAMILY_UNIX, G_SOCKET_TYPE_STREAM,
                                  G_SOCKET_PROTOCOL_DEFAULT, &error);

@@ -31,7 +31,8 @@ inline bool RegistrationName(const std::string& name) {
   if (name.size() != 71 || name.compare(64, 7, ".parcel") != 0)
     return false;
   for (size_t i = 0; i < 64; ++i) {
-    if (!((name[i] >= '0' && name[i] <= '9') || (name[i] >= 'a' && name[i] <= 'f')))
+    if (!((name[i] >= '0' && name[i] <= '9') ||
+          (name[i] >= 'a' && name[i] <= 'f')))
       return false;
   }
   return true;
@@ -46,7 +47,7 @@ inline bool PendingRegistrationName(const std::string& name) {
       if (ch != '-')
         return false;
     } else if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
-        (ch >= 'A' && ch <= 'F'))) {
+                 (ch >= 'A' && ch <= 'F'))) {
       return false;
     }
   }

@@ -17,57 +17,72 @@ using System.Runtime.InteropServices;
 
 namespace ConsentUI;
 
-internal interface IFeatureBackend
-{
+internal interface IFeatureBackend {
   FeatureCatalog Catalog();
   FeatureStatus Status();
-  FeatureStatus Select(string ids, string mode, uint duration, string epoch, string catalog, string revision, string command);
-  FeatureStatus Preapprove(string epoch, string catalog, string revision, string command);
-  FeatureStatus Task(string taskId, string taskMode, string epoch, string catalog, string revision, string command);
+  FeatureStatus Select(string ids, string mode, uint duration, string epoch,
+                       string catalog, string revision, string command);
+  FeatureStatus Preapprove(string epoch, string catalog, string revision,
+                           string command);
+  FeatureStatus Task(string taskId, string taskMode, string epoch,
+                     string catalog, string revision, string command);
 }
 
-internal sealed class FeatureApi : IFeatureBackend
-{
+internal sealed class FeatureApi : IFeatureBackend {
   private const string Library = "libconsent-feature-poc.so.0";
   private delegate int Call(out IntPtr result);
-  private static string Invoke(Call call)
-  {
+  private static string Invoke(Call call) {
     IntPtr value = IntPtr.Zero;
-    try
-    {
+    try {
       int status = call(out value);
-      if (status != 0) throw new NativeFailure(status);
-      return Marshal.PtrToStringUTF8(value) ?? throw new InvalidOperationException("Missing feature response");
+      if (status != 0)
+        throw new NativeFailure(status);
+      return Marshal.PtrToStringUTF8(value) ??
+             throw new InvalidOperationException("Missing feature response");
+    } finally {
+      consent_feature_free(value);
     }
-    finally { consent_feature_free(value); }
   }
   public FeatureCatalog Catalog() => new(Invoke(consent_feature_catalog));
   public FeatureStatus Status() => new(Invoke(consent_feature_status));
-  public FeatureStatus Select(string ids, string mode, uint duration, string epoch, string catalog, string revision, string command) =>
-      new(Invoke((out IntPtr result) => consent_feature_select(ids, mode, duration, epoch, catalog, revision, command, out result)));
-  public FeatureStatus Preapprove(string epoch, string catalog, string revision, string command) =>
-      new(Invoke((out IntPtr result) => consent_feature_preapprove(epoch, catalog, revision, command, out result)));
-  public FeatureStatus Task(string taskId, string taskMode, string epoch, string catalog, string revision, string command) =>
-      new(Invoke((out IntPtr result) => consent_feature_task(taskId, taskMode, epoch, catalog, revision, command, out result)));
+  public FeatureStatus Select(string ids, string mode, uint duration,
+                              string epoch, string catalog, string revision,
+                              string command) =>
+      new(Invoke((out IntPtr result) =>
+                     consent_feature_select(ids, mode, duration, epoch, catalog,
+                                            revision, command, out result)));
+  public FeatureStatus Preapprove(string epoch, string catalog, string revision,
+                                  string command) =>
+      new(Invoke((out IntPtr result) => consent_feature_preapprove(
+                     epoch, catalog, revision, command, out result)));
+  public FeatureStatus Task(string taskId, string taskMode, string epoch,
+                            string catalog, string revision, string command) =>
+      new(Invoke((out IntPtr result) => consent_feature_task(taskId, taskMode,
+                                                             epoch, catalog,
+                                                             revision, command,
+                                                             out result)));
 
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   private static extern int consent_feature_catalog(out IntPtr result);
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
   private static extern int consent_feature_status(out IntPtr result);
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  private static extern int consent_feature_select([MarshalAs(UnmanagedType.LPUTF8Str)] string ids,
+  private static extern int consent_feature_select(
+      [MarshalAs(UnmanagedType.LPUTF8Str)] string ids,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string mode, uint duration,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string epoch,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string catalog,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string revision,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string command, out IntPtr result);
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  private static extern int consent_feature_preapprove([MarshalAs(UnmanagedType.LPUTF8Str)] string epoch,
+  private static extern int consent_feature_preapprove(
+      [MarshalAs(UnmanagedType.LPUTF8Str)] string epoch,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string catalog,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string revision,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string command, out IntPtr result);
   [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
-  private static extern int consent_feature_task([MarshalAs(UnmanagedType.LPUTF8Str)] string taskId,
+  private static extern int consent_feature_task(
+      [MarshalAs(UnmanagedType.LPUTF8Str)] string taskId,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string taskMode,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string epoch,
       [MarshalAs(UnmanagedType.LPUTF8Str)] string catalog,

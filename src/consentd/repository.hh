@@ -29,10 +29,10 @@ namespace consentd {
 // There are no callbacks into other daemon threads while a transaction is held.
 class Repository final {
  public:
-  using InstallationValidator = std::function<bool(const std::string&,
-      const std::string&, const std::string&)>;
-  using OfflineInstallationValidator = std::function<int(const std::string&,
-      const std::string&, const std::string&)>;
+  using InstallationValidator = std::function<bool(
+      const std::string&, const std::string&, const std::string&)>;
+  using OfflineInstallationValidator = std::function<int(
+      const std::string&, const std::string&, const std::string&)>;
 
   // Keep typed authority failures strict across startup Open, every import and
   // the final Snapshot. The repository must outlive this DB-executor scope.
@@ -68,7 +68,8 @@ class Repository final {
   // Internal startup import only: caller has verified a protected root spool.
   // This is never dispatched from IPC and does not manufacture an Installer
   // peer. The repository independently revalidates current installation state.
-  consent::Message ImportOfflineRegistration(const consent::Message& validated_record);
+  consent::Message ImportOfflineRegistration(
+      const consent::Message& validated_record);
   consent::Message Snapshot();
   // Internal DB-executor maintenance, never an IPC method. One transaction
   // compacts at most 128 records while retaining retry and cleanup evidence.

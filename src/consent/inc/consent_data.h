@@ -70,7 +70,8 @@ extern "C" {
  * @pre The caller must have the holder role and delegated subject/profile.
  */
 CONSENT_API int consent_data_register(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                      const consent_params_t* params,
+                                      consent_result_t** result);
 /**
  * @brief Registers data derived from existing in-memory artifacts.
  * @since 0.1.0
@@ -107,7 +108,8 @@ CONSENT_API int consent_data_register(consent_client_h client,
  * @pre The caller must have the holder role and delegated subject/profile.
  */
 CONSENT_API int consent_data_register_derived(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                              const consent_params_t* params,
+                                              consent_result_t** result);
 /**
  * @brief Acknowledges actual holder cleanup of an artifact.
  * @since 0.1.0
@@ -146,7 +148,8 @@ CONSENT_API int consent_data_register_derived(consent_client_h client,
  * @see consent_cleanup_get_pending()
  */
 CONSENT_API int consent_data_release(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                     const consent_params_t* params,
+                                     consent_result_t** result);
 /**
  * @brief Reads session cleanup progress.
  * @since 0.1.0
@@ -181,7 +184,8 @@ CONSENT_API int consent_data_release(consent_client_h client,
  * @see consent_data_release()
  */
 CONSENT_API int consent_cleanup_get_state(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                          const consent_params_t* params,
+                                          consent_result_t** result);
 /**
  * @brief Lists cleanup still owed by the authenticated holder.
  * @since 0.1.0
@@ -226,7 +230,8 @@ CONSENT_API int consent_cleanup_get_state(consent_client_h client,
  * @see consent_data_release()
  */
 CONSENT_API int consent_cleanup_get_pending(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                            const consent_params_t* params,
+                                            consent_result_t** result);
 
 /** @} */
 

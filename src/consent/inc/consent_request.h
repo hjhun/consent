@@ -21,7 +21,8 @@
 /**
  * @defgroup CONSENT_REQUEST_MODULE Requests and checks
  * @ingroup CONSENT_MODULE
- * @brief Approval requests, authoritative checks and local callback registration.
+ * @brief Approval requests, authoritative checks and local callback
+ * registration.
  * @{
  */
 
@@ -86,8 +87,9 @@ extern "C" {
  * @see consent_get_request_result()
  */
 CONSENT_API int consent_request(consent_client_h client,
-    const consent_params_t* params, unsigned int wait_timeout_ms,
-    consent_result_t** result);
+                                const consent_params_t* params,
+                                unsigned int wait_timeout_ms,
+                                consent_result_t** result);
 /**
  * @brief Queries or authorizes all required conditions without opening UI.
  * @since 0.1.0
@@ -136,8 +138,9 @@ CONSENT_API int consent_request(consent_client_h client,
  * @see consent_get_request_result()
  */
 CONSENT_API int consent_check(consent_client_h client,
-    const consent_params_t* params, unsigned int wait_timeout_ms,
-    consent_result_t** result);
+                              const consent_params_t* params,
+                              unsigned int wait_timeout_ms,
+                              consent_result_t** result);
 /**
  * @brief Queues an approval request on the client dispatcher.
  * @since 0.1.0
@@ -182,8 +185,10 @@ CONSENT_API int consent_check(consent_client_h client,
  * @see consent_client_destroy()
  */
 CONSENT_API int consent_request_async(consent_client_h client,
-    const consent_params_t* params, consent_result_cb callback, void* user_data,
-    consent_async_id_t* operation);
+                                      const consent_params_t* params,
+                                      consent_result_cb callback,
+                                      void* user_data,
+                                      consent_async_id_t* operation);
 /**
  * @brief Queues an advisory or authoritative check without opening UI.
  * @since 0.1.0
@@ -229,8 +234,9 @@ CONSENT_API int consent_request_async(consent_client_h client,
  * @see consent_client_destroy()
  */
 CONSENT_API int consent_check_async(consent_client_h client,
-    const consent_params_t* params, consent_result_cb callback, void* user_data,
-    consent_async_id_t* operation);
+                                    const consent_params_t* params,
+                                    consent_result_cb callback, void* user_data,
+                                    consent_async_id_t* operation);
 /**
  * @brief Suppresses a pending local asynchronous callback.
  * @since 0.1.0
@@ -256,7 +262,7 @@ CONSENT_API int consent_check_async(consent_client_h client,
  *     ID.
  */
 CONSENT_API int consent_async_detach(consent_client_h client,
-    consent_async_id_t operation);
+                                     consent_async_id_t operation);
 
 /**
  * @brief Retrieves a request's stored decision.
@@ -291,7 +297,8 @@ CONSENT_API int consent_async_detach(consent_client_h client,
  * @see consent_check()
  */
 CONSENT_API int consent_get_request_result(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                           const consent_params_t* params,
+                                           consent_result_t** result);
 /**
  * @brief Cancels an owned approval request if it is still pending.
  * @since 0.1.0
@@ -325,7 +332,8 @@ CONSENT_API int consent_get_request_result(consent_client_h client,
  * @see consent_revoke()
  */
 CONSENT_API int consent_cancel_request(consent_client_h client,
-    const consent_params_t* params, consent_result_t** result);
+                                       const consent_params_t* params,
+                                       consent_result_t** result);
 
 /** @} */
 
