@@ -111,7 +111,30 @@ source/RPM과 빌드 로그는 `/var/tmp/consent-artifacts/gbs-build-24`에 보�
 이 target fixture는 격리 state와 주입한 SQLite 오류를 사용하므로 실제 저장 공간
 소진·기기 쓰기 실패·전원 차단 동작까지 입증하지 않습니다.
 
-## Registry 유실 복구 설계 — 미구현
+## Registry 유실 복구와 bootstrap 경계
+
+Build43(Release11)은 root 보호 bootstrap receipt와 `LoadRegistrations` 전
+admission 차단을 구현했습니다. Fresh 설치는 systemd invocation을 한 번
+claim하며 daemon은 unit, cgroup, 정확한 MainPID를 검증합니다. 초기화된
+receipt와 신뢰 가능한 registry가 있을 때 DB만 유실되면 새 DB incarnation과
+durable `cleanup_unknown=1`로 자동 복구합니다. Registry 또는 receipt 유실,
+부분 fresh claim, recovery-required receipt에서는 admission을 거부합니다.
+계획된 복구 계약은 검증된 최신 desired-definition source 전체를 요구합니다.
+현재 production `--begin`은 recovery ID를 검사한 뒤 source를 읽지 않고
+저장소 변경 없이 missing-source 오류를 반환합니다. Helper는 SQLite를
+직접 쓰지 않습니다. DB와
+registry가 모두 없다는 사실만으로 fresh 설치로 판단하지 않습니다.
+
+Build43 emulator의 isolated bootstrap·POC classification fixture가
+통과했습니다. Release7→8 transaction 후 production·POC receipt가 모두
+INITIALIZED였습니다. POC intact-pair 경로는 코드와 최종 receipt에서
+추론하며 pre-upgrade POC 파일 identity는 캡처하지 않았습니다. Isolated
+POC fixture의 불완전 pair 차단은 실제 absent-state
+POC RPM upgrade 근거가 아닙니다. 신뢰할 desired-state producer,
+import-complete fence, 물리적 holder reconciliation은 미구현입니다.
+Metadata 유실로 과거 approval이나 cleanup 완료를 추정하지 않습니다.
+
+### 향후 registry 전손 복구 설계 — 미구현
 
 현재 구현은 DB가 남아 있는데 definitions registry가 사라지거나 손상되면
 의도적으로 시작을 막습니다. 겉보기에 정상인 DB만으로 독립적인 신뢰 가능한
@@ -139,12 +162,14 @@ desired-state source를 복원하거나 예전 승인의 최신성을 증명할 
    spool만으로 현재 desired state를 알 수 없습니다. registry tombstone이 없으면
    같은 generation에서 제거한 정의를 되살릴 수 있습니다. 신뢰 가능한 입력이
    없으면 정의를 사용할 수 없는 상태로 남겨야 합니다.
-5. source/generation 검증과 격리를 완료한 뒤에만 READY를 durable하게 발행합니다.
-   일반 daemon 시작 경로가 새 DB incarnation과 epoch를 만들고 pkgmgr/설치
-   authority를 재검증한 뒤 준비 완료 전에 정의를 import합니다. grant, 소비
-   receipt, session, artifact는 복원하지 않습니다. 보호된 복구 marker를 통해
-   READY 전에 `cleanup_unknown=1`을 DB에 영속화해야 합니다. 그렇지 않으면
-   registry와 DB가 모두 비어 있는 상태를 최초 설치로 잘못 판단합니다.
+5. source/generation 검증과 격리 완료 후에만 helper `SOURCE_READY`를
+   durable하게 발행합니다. 이는 daemon admission 또는 systemd `READY=1`이
+   아닙니다. SQLite는 consentd만 열고 새 DB incarnation을 만듭니다.
+   pkgmgr와 authority를 검증하고 `cleanup_unknown=1`을 영속화하며 모든
+   정의를 import하고 `import_complete=1`을 commit한 후에만 listener,
+   admission, systemd READY를 허용합니다. grant, 소비 receipt, session,
+   artifact는 복원하지 않습니다. 부분 import 중 crash는 계속 차단하고
+   재개할 수 있어야 합니다.
 
 별도의 증거 기반 holder reconciliation 프로토콜로 해제할 수 있을 때까지
 `cleanup_reconciliation_required`를 유지해야 합니다. 새 테이블이 비었다고

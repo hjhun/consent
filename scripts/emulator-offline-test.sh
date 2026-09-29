@@ -19,6 +19,7 @@ set -eu
 tools=/usr/libexec/consent/tests
 api=$tools/consent-api-test-isolated
 authority=$tools/consent-installation-authority-isolated
+bootstrap=$tools/consent-storage-prepare-isolated
 state=/opt/var/lib/consent-test
 inventory=/opt/var/lib/consent-test-authority
 fixture=/opt/var/lib/consent-offline-evidence-$$
@@ -32,6 +33,8 @@ logging_directory_created=0
 [ ! -e "$fixture" ] && [ ! -L "$fixture" ]
 mkdir -m 700 "$fixture"
 mkdir -m 700 "$image"
+mkdir -p "$image/opt/var/lib"
+"$bootstrap" --first-install "--image-root=$image"
 original_state_present=0
 original_inventory_present=0
 swap_started=0
@@ -238,6 +241,21 @@ if [ "$original_state_present" = 1 ]; then mv "$state" \
   "$fixture/original-state"; fi
 mv "$inventory" "$fixture/original-authority"
 mv "$image$inventory" "$inventory"
+mkdir -m 700 "$fixture/pristine-authority"
+cp -Rp "$inventory/." "$fixture/pristine-authority/"
+fresh_attempt() {
+  attempt_name=$1
+  if exists "$state"; then
+    mv "$state" "$fixture/failed-state-$attempt_name"
+  fi
+  mv "$inventory" "$fixture/failed-authority-$attempt_name"
+  "$bootstrap" --first-install
+  for source in "$fixture/pristine-authority"/*; do
+    [ -e "$source" ] || continue
+    [ "${source##*/}" = bootstrap.receipt ] && continue
+    cp -Rp "$source" "$inventory/"
+  done
+}
 # Startup must reject invalid authority before creating any policy database.
 # The helper may prepare/label the state directory but never parses this file.
 cp "$inventory/installations.conf" "$fixture/valid-installations.conf"
@@ -275,6 +293,7 @@ reject_authority_startup() {
   reset_failure
   echo \
   "PASS $invalid_kind authority rejected before database creation; valid bytes restored"
+  fresh_attempt "$invalid_kind"
 }
 printf '[malformed\n' > "$inventory/installations.conf"
 reject_authority_startup malformed

@@ -1512,13 +1512,14 @@ is the isolated static archive variant, not the production shared library.
 
 | Work | Current evidence | Remaining work |
 | --- | --- | --- |
-| Internal cleanup/ownership/DLOG/GIO/style | Build30/32/35/36 scoped target evidence | Final authoritative regression |
-| Registry total-loss helper | Guide09 proposal and read-only source investigation | Concrete trusted-source/marker/lifecycle design review, implementation and tests |
+| Internal cleanup/ownership/DLOG/GIO/style | Build43 scoped GBS/device regression | Final CEP evidence mapping |
+| Registry-loss boundary | Build43 receipt fence and DB-only recovery | Trusted current desired source, total-loss import and holder reconciliation |
 | External product integration | Actual source and installed-package investigation | Installer lifecycle and authenticated role/provider/history/model adapters |
-| Final validation | Increment-specific evidence above | Authoritative final-source storage interruption/deletion/reboot and CEP A-01–A-63 audit |
+| Final validation | Build43 scenarios, fixtures and orderly reboot | Abrupt power-loss proof and CEP A-01–A-63 audit |
 
-Earlier pending statements describe their historical checkpoints. The Build36
-section below updates the style row; other remaining rows are still open.
+Earlier pending statements describe their historical checkpoints. The Build43
+section below updates the implementation and storage rows; the listed remaining
+work is still open.
 
 The separate `performance-controlled-cache35` comparison uses the same
 Build35 daemon (`75ae7a17`) for before34/after35 clients, with two alternating
@@ -1567,3 +1568,81 @@ Build35 performance tool bytes remain frozen. Formatting changed Build36 tool
 bytes, so Build35 numbers are not a same-source Build36 performance pair. This
 checkpoint does not complete registry-loss recovery, product Installer/role
 integration or the authoritative final storage/reboot/CEP audit.
+
+## Build39–43 bootstrap and storage checkpoint (2026-09-30)
+
+Numbered logs under `/var/tmp/consent-artifacts/gbs-build-{38,39,40,41,42,43}`
+retain failures and successful retries. Build38 failed three unused-function
+`-Werror` checks and Build41 failed two checked-write fortify checks. Build39
+had a scenario startup failure and its start probe failed at cycle10;
+Build40 failed at cycle14. Build42's after-exec diagnostic showed eight
+output bytes after five milliseconds at cycle5. A repeated ready/HUP pipe
+loop is the code-based inference; no revents trace was captured. It was not
+a real two-second timeout or MainPID=0 response.
+Build43's deadline/EOF correction preserves exact unit, cgroup and self-PID
+checks. None of those failed runs counts as a PASS.
+
+Build43 Release11 frozen archive SHA256 starts `17425aa2`; its 236 files
+matched the GBS export and worktree at correlation time. These guide edits
+are outside that freeze. GBS exit0 reports CTest26:
+22 PASS, four explicit root SKIP and zero FAIL. The matching five-RPM
+upgrade and 100/100 isolated stop/start cycles passed. The four skipped
+root fixture classes ran separately on the emulator. The isolated bootstrap
+script reports seven PASS, including missing-source no-mutation, DB-only
+recovery, receipt loss and a forged foreign unit with inherited activation
+FD. The isolated POC classification script reports three PASS, including
+exact ExecStartPre refusal and unchanged real POC files. This does not prove
+an actual absent-state POC Release7 upgrade or a clean production first-install
+RPM transaction.
+
+Fresh isolated `basic` and sixteen scenario phases each report internal
+`SCENARIO_EXIT=0`, phase PASS and SDB exit0. Seventeen packaged native
+fixtures report service exit0. The frozen offline-image script reports
+`OFFLINE_EXIT=0`; the production platform-offline script reports
+`OFFLINE_PLATFORM_EXIT=0`, validates real pkgmgr identity and restores the
+original production DB, registry, authority and receipt inodes. Neither
+fixture supplies a product Installer hook or current desired source for
+total-registry recovery.
+
+The installed RPM metadata lists 151 regular files; 150 target hashes
+match. Only `/etc/consent-poc/roles.conf` differs under
+`%config(noreplace)`. The installed library exports 42 `CONSENT_0.1`
+versioned public symbols. A current packaged API check returns UNKNOWN
+under default deny. A separate legacy constructor probe returns UNKNOWN
+and NULL handles twice for actor PID3622926/UID0; current daemon
+PID3621672 instances2/3 reject the same PID/UID as having no live trusted
+identity. This is connection/hello failure, not a policy decision.
+
+An actual orderly reboot changed boot ID `1842a2f1…` to `e55266b3…`.
+All five Release11 RPMs remained; consentd PID2565 became ready and active.
+Registry and root receipt hashes/inodes stayed unchanged. The DB retained
+its inode but had a different hash after reboot; `PRAGMA integrity_check`
+returned `ok` under `System::Privileged`. SDB root mode had to be restored
+after reboot before protected-file inspection. This proves orderly reboot
+startup/integrity. A separate fresh isolated fixture checked its PERSISTENT
+grant as ALLOWED before a second actual reboot (boot ID `e55266b3…` to
+`75d2b4dc…`). After reboot, the matching frozen script again checked it as
+ALLOWED with DB integrity `ok`; registry and receipt hashes/inodes remained.
+The first attempt failed because `/tmp` was cleared. Re-pushing the frozen
+script produced the successful run. This is an isolated orderly-reboot grant
+test, not abrupt power-loss durability or product role integration.
+Build43 running/stopped DB deletion, stale replacement, corruption,
+shutdown and DB-drain scenario PASS records use isolated state; repository
+crash fixtures use `/tmp`.
+
+Total-registry recovery, physical `cleanup_unknown` resolution, real
+Installer/role-provider/history/model integration and the final CEP
+A-01–A-63 evidence audit remain open. Production `--begin` returns a
+missing-source error without mutation until a validated desired-definition
+producer exists.
+
+Build43 evidence files: `source-correlation.json`, `gbs-success-log.txt`,
+`rpm-upgrade-actual.log`, `isolated-start100-attempt1.log`,
+`bootstrap-device-attempt1.log`, `poc-classify-device-attempt1.log`,
+`packaged-fixtures-actual.log`, `scenario-*-attempt1.log`,
+`offline-image-attempt1.log`, `offline-platform-actual.log`,
+`installed-hash-audit.json`, `installed-abi-symbols.log`,
+`default-deny-probe.log`, `default-deny-daemon.log`, `reboot-before.log`,
+`reboot-after-root.log`, `reboot-integrity-daemon.log`, and
+`reboot-persistent-{before,after}.log`. Each execution log carries an
+internal service/script result; SDB exit alone is not used as PASS.

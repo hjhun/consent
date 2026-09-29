@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    7
+Release:    11
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
@@ -38,6 +38,8 @@ Group:      Application Framework/Daemons
 Requires:   systemd
 Requires(pre): /usr/bin/systemctl
 Requires(post): /usr/bin/systemctl
+Requires(post): /usr/bin/systemd-run
+Requires(post): /usr/bin/rpm
 Requires(preun): /usr/bin/systemctl
 Requires(postun): /usr/bin/systemctl
 
@@ -81,6 +83,8 @@ Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
 Requires(pre): /usr/bin/systemctl
 Requires(post): /usr/bin/systemctl
+Requires(post): /usr/bin/systemd-run
+Requires(post): /usr/bin/rpm
 Requires(preun): /usr/bin/systemctl
 Requires(postun): /usr/bin/systemctl
 
@@ -137,6 +141,19 @@ if [ "$1" -gt 1 ] && [ -d /run/systemd/system ]; then
 fi
 
 %post -n consentd
+if [ "$1" -eq 1 ]; then
+  %{_sbindir}/consent-storage-prepare --first-install || exit 1
+elif [ "$1" -gt 1 ]; then
+  if [ -d /run/systemd/system ] && \
+     [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ]; then
+    systemd-run --quiet --wait --pipe \
+      --unit="consent-migrate-release7-$$" \
+      -p SmackProcessLabel=System::Privileged \
+      %{_sbindir}/consent-storage-prepare --migrate-release7 || exit 1
+  else
+    %{_sbindir}/consent-storage-prepare --migrate-release7 || exit 1
+  fi
+fi
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload
   systemctl start consentd.socket consentd.service || exit 1
@@ -170,6 +187,22 @@ fi
 
 %post poc
 /sbin/ldconfig
+if [ "$1" -eq 1 ]; then
+  %{_libexecdir}/consent/poc/consent-storage-prepare-poc \
+    --first-install || exit 1
+elif [ "$1" -gt 1 ]; then
+  if [ -d /run/systemd/system ] && \
+     [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ]; then
+    systemd-run --quiet --wait --pipe \
+      --unit="consent-poc-migrate-release7-$$" \
+      -p SmackProcessLabel=System::Privileged \
+      %{_libexecdir}/consent/poc/consent-storage-prepare-poc \
+        --migrate-release7 || exit 1
+  else
+    %{_libexecdir}/consent/poc/consent-storage-prepare-poc \
+      --migrate-release7 || exit 1
+  fi
+fi
 if [ -d /run/systemd/system ] && \
    [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ] &&
    [ "$(stat -Lc '%%d:%%i' /)" = \

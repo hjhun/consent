@@ -60,6 +60,7 @@ FOREACH(SOURCE ${TEST_SOURCES})
      OR TEST_NAME STREQUAL "client-io-test"
      OR TEST_NAME STREQUAL "client-owner-test"
      OR TEST_NAME STREQUAL "ownership-test"
+     OR TEST_NAME STREQUAL "recovery-state-test"
   )
     TARGET_LINK_LIBRARIES(
       ${TEST_NAME} PRIVATE PkgConfig::GTEST PkgConfig::GMOCK
@@ -70,10 +71,14 @@ FOREACH(SOURCE ${TEST_SOURCES})
       ${TEST_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc"
     )
   ENDIF()
+  IF(TEST_NAME STREQUAL "storage-prepare-test")
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE PkgConfig::SYSTEMD)
+  ENDIF()
   IF(TEST_NAME STREQUAL "ownership-test")
     TARGET_SOURCES(
       ${TEST_NAME}
       PRIVATE "${PROJECT_SOURCE_DIR}/src/consentd/server.cc"
+              "${PROJECT_SOURCE_DIR}/src/consentd/bootstrap.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/identity.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc"
     )

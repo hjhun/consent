@@ -1412,13 +1412,13 @@ RSS8020/7812KiB, idle proxy1/1은 Build34 대비 일률적 개선 근거가 아�
 
 | 작업 | 현재 근거 | 남은 작업 |
 | --- | --- | --- |
-| 내부 cleanup/ownership/DLOG/GIO/style | Build30/32/35/36 범위별 target 근거 | 최종 authoritative 회귀 |
-| Registry 전손 helper | Guide09 제안과 read-only source 조사 | 구체 trusted-source/marker/lifecycle 설계 검토, 구현과 시험 |
+| 내부 cleanup/ownership/DLOG/GIO/style | Build43 범위별 GBS/device 회귀 | 최종 CEP 근거 매핑 |
+| Registry 유실 경계 | Build43 receipt 차단과 DB-only 복구 | 신뢰할 최신 desired source, 전손 import, holder reconciliation |
 | 외부 제품 통합 | 실제 source 및 installed package 조사 | Installer lifecycle 및 인증 role/provider/history/model adapter |
-| 최종 검증 | 위 증분별 근거 | authoritative final-source storage 중단/삭제/reboot 및 CEP A-01–A-63 감사 |
+| 최종 검증 | Build43 scenario·fixture·정상 reboot | 갑작스러운 전원 종료와 CEP A-01–A-63 감사 |
 
-앞선 pending 문장은 당시 역사적 checkpoint 상태입니다. 아래 Build36 절이
-style 행을 갱신하지만 다른 남은 작업은 여전히 진행 중입니다.
+앞선 pending 문장은 당시 역사적 checkpoint 상태입니다. 아래 Build43 절이
+구현·storage 행을 갱신하며 표에 적은 남은 작업은 계속 열려 있습니다.
 
 별도 `performance-controlled-cache35`는 동일 Build35 daemon(`75ae7a17`)에
 before34/after35 client를 각각 두 번 교차 실행합니다. 모두9 metrics와 동일
@@ -1465,3 +1465,78 @@ Build35 성능 도구 byte는 그대로 보존합니다. Format으로 Build36 �
 바뀌었으므로 Build35 수치를 Build36 동일-source 성능쌍으로 주장하지
 않습니다. 이 checkpoint로 registry 전손 복구, 제품 Installer/role 연결,
 최종 authoritative storage/reboot/CEP 감사를 완료한 것은 아닙니다.
+
+## Build39–43 bootstrap·storage checkpoint (2026-09-30)
+
+`/var/tmp/consent-artifacts/gbs-build-{38,39,40,41,42,43}`의 번호별 로그에는
+실패와 성공 재시도가 함께 보존돼 있습니다. Build38은 미사용 함수 세 곳,
+Build41은 검사하지 않은 write 두 곳의 `-Werror`로 빌드 실패했습니다.
+Build39 scenario startup과 시작 반복의 10번째가 실패했고, Build40은
+14번째, Build42는 5번째에 실패했습니다. Build42의 after-exec 진단은
+5ms 시점 output 8바이트를 기록했습니다. 반복 ready/HUP pipe loop는
+코드에 근거한 추론이며 revents trace는 없습니다. 실제 2초 timeout이나
+MainPID=0 응답은 아닙니다.
+Build43의 deadline/EOF 수정은 정확한 unit·cgroup·자기 PID 검사를
+유지합니다. 실패 실행을 PASS에 포함하지 않습니다.
+
+Build43 Release11 frozen archive SHA256은 `17425aa2`로 시작하며 236개
+파일이 correlation 당시 GBS export와 worktree에 일치했습니다. 현재 guide
+수정은 그 freeze 밖입니다. GBS exit0, CTest26은
+22 PASS/root4 명시적 SKIP/0 FAIL입니다. Matching5 RPM upgrade와
+isolated stop/start 100/100이 통과했습니다. Root SKIP 네 fixture 종류는
+emulator에서 별도로 실행했습니다. Isolated bootstrap script는
+missing-source 무변경, DB-only recovery, receipt 유실, activation FD와
+environment를 복사한 외부 unit 거부를 포함해 7 PASS입니다. Isolated
+POC classification은 정확한 ExecStartPre 거부와 실제 POC 파일 불변을
+포함해 3 PASS이며 실제 absent-state POC Release7 upgrade 또는 깨끗한
+production 최초 설치 RPM transaction 근거는 아닙니다.
+
+Fresh isolated `basic` 및 시나리오 16 phase 모두 내부
+`SCENARIO_EXIT=0`, phase PASS, SDB exit0입니다. Packaged native fixture
+17개는 service exit0입니다. Frozen offline-image script는
+`OFFLINE_EXIT=0`, production platform-offline script는
+`OFFLINE_PLATFORM_EXIT=0`이며 실제 pkgmgr identity 확인 후 원본 production
+DB·registry·authority·receipt inode를 복원했습니다. 이 fixture는 제품
+Installer hook이나 registry 전손 복구용 최신 desired source가 아닙니다.
+
+설치된 RPM metadata의 regular file151개 중 target hash150개가
+일치합니다. 나머지 `/etc/consent-poc/roles.conf`는
+`%config(noreplace)` 보존값입니다. Installed library의 `CONSENT_0.1`
+public versioned symbol은 42개입니다. 현 packaged API의 default-deny
+check는 UNKNOWN을 반환합니다. 별도 설치된 과거 constructor probe는
+actor PID3622926/UID0에서 두 번 UNKNOWN/NULL을 얻었고, 현 daemon
+PID3621672 instance2/3이 같은 PID/UID를 live trusted identity 없음으로
+거부했습니다. 정책 판단이 아닌 connection/hello 실패입니다.
+
+실제 정상 emulator reboot에서 boot ID `1842a2f1…`이 `e55266b3…`으로
+바뀌었습니다. Release11 다섯 RPM이 유지됐고 consentd PID2565가 READY 후
+active가 됐습니다. Registry와 root receipt의 hash/inode는 유지됐습니다.
+DB inode는 같고 재부팅 뒤 hash가 달랐으며 `System::Privileged`의
+`PRAGMA integrity_check`는 `ok`였습니다. 재부팅 후 보호 파일 검사 전에
+SDB root mode를 다시 켰습니다. 이는 정상 reboot startup/integrity
+근거입니다. 별도 fresh isolated fixture에서 PERSISTENT grant를 ALLOWED로
+확인한 후 두 번째 실제 reboot(boot ID `e55266b3…`→`75d2b4dc…`)를
+실행했습니다. 이후 동일 frozen script가 다시 ALLOWED와 DB integrity
+`ok`를 확인했고 registry·receipt hash/inode가 유지됐습니다. 첫 시도는
+reboot로 `/tmp` script가 지워져 실패했고 동일 frozen hash를 재전송한 후
+성공했습니다. 이는 isolated 정상 reboot grant 시험으로, 갑작스러운
+전원 종료 durability나 제품 role 통합 근거는 아닙니다. Build43의
+running/stopped DB 삭제, stale replacement,
+corruption, shutdown, DB drain phase는 isolated state이고 repository
+crash fixture는 `/tmp`를 사용합니다.
+
+Registry 전손 복구, 물리적 `cleanup_unknown` 해소, 실제 Installer·role
+provider·history/model 연결 및 CEP A-01–A-63 최종 근거 감사는 남았습니다.
+검증된 최신 desired-definition producer 전까지 production `--begin`은
+저장소 변경 없이 missing-source 오류를 반환합니다.
+
+Build43 근거 파일은 `source-correlation.json`, `gbs-success-log.txt`,
+`rpm-upgrade-actual.log`, `isolated-start100-attempt1.log`,
+`bootstrap-device-attempt1.log`, `poc-classify-device-attempt1.log`,
+`packaged-fixtures-actual.log`, `scenario-*-attempt1.log`,
+`offline-image-attempt1.log`, `offline-platform-actual.log`,
+`installed-hash-audit.json`, `installed-abi-symbols.log`,
+`default-deny-probe.log`, `default-deny-daemon.log`, `reboot-before.log`,
+`reboot-after-root.log`, `reboot-integrity-daemon.log`,
+`reboot-persistent-{before,after}.log`입니다. 각 실행 로그의 내부
+service/script 결과를 확인하며 SDB exit만으로 PASS를 판단하지 않습니다.

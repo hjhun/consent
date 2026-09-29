@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "repository.hh"
+#include "bootstrap.hh"
 #include "common/offline_registration.hh"
 
 #ifndef CONSENT_STATE_DIR
@@ -43,6 +44,9 @@
 #endif
 #ifndef CONSENT_ROLE_CONFIG
 #define CONSENT_ROLE_CONFIG "/etc/consent/roles.conf"
+#endif
+#ifndef CONSENT_SERVICE_UNIT
+#define CONSENT_SERVICE_UNIT "consentd.service"
 #endif
 
 namespace consentd {
@@ -319,12 +323,17 @@ int Server::Run(int listener_fd) {
   bool valid_state = state >= 0 && fstat(state, &state_info) == 0 &&
                      state_info.st_uid == geteuid() &&
                      (state_info.st_mode & 0777) == 0700;
-  if (state >= 0)
-    close(state);
+  consent::Descriptor state_owner(state);
   if (!valid_state) {
     LOG(WARNING) << "event=state-directory-unprotected";
     return 1;
   }
+  if (!CheckBootstrap(CONSENT_AUTHORITY_DIR, state_owner.Get(),
+                      CONSENT_SERVICE_UNIT, &error)) {
+    LOG(WARNING) << "event=bootstrap-rejected reason=" << error.c_str();
+    return 1;
+  }
+  state_owner.Reset();
   GError* gio_error = nullptr;
   GSocket* socket = g_socket_new_from_fd(listener_fd, &gio_error);
   if (!socket) {

@@ -606,6 +606,55 @@ void OfflineSpoolRefusals(Account account) {
       << "PASS offline FIFO/unknown/symlink/hardlink/oversize/ownership/mode "
          "and entry/record/byte limits fail closed within bounded child wait\n";
 }
+
+void BootstrapEntryBoundaries(Account account) {
+  char pattern[] = "/tmp/consent-bootstrap-entry-XXXXXX";
+  char* created = mkdtemp(pattern);
+  Check(created, "create bootstrap entry fixture");
+  std::string root = created;
+  std::string state = root + "/state";
+  std::string authority = root + "/authority";
+  Check(chmod(root.c_str(), 0755) == 0,
+        "protect bootstrap entry fixture parent");
+  FirstInstall(state, authority, account.group);
+  Check(access(state.c_str(), F_OK) < 0 && errno == ENOENT,
+        "fresh receipt must precede state creation");
+  auto directory = Directory(authority, 0, false, account.group, 0750);
+  consent::recovery::Receipt receipt;
+  Check(consent::recovery::ReadReceipt(directory.Get(), account.group,
+                                       &receipt) &&
+            receipt.phase == consent::recovery::Phase::kFresh,
+        "fresh receipt persisted before daemon startup");
+  bool rejected = false;
+  try {
+    FirstInstall(state, authority, account.group);
+  } catch (const std::exception&) {
+    rejected = true;
+  }
+  Check(rejected, "second first-install cannot replace receipt");
+  rejected = false;
+  try {
+    MigrateRelease7(state, authority, account.user, account.group, true);
+  } catch (const std::exception&) {
+    rejected = true;
+  }
+  Check(rejected, "fresh receipt cannot be treated as legacy migration");
+  rejected = false;
+  try {
+    CompleteBootstrap(state, authority, account.user, account.group);
+  } catch (const std::exception&) {
+    rejected = true;
+  }
+  Check(rejected, "bootstrap acknowledgement needs the service unit");
+  Check(consent::recovery::ReadReceipt(directory.Get(), account.group,
+                                       &receipt) &&
+            receipt.phase == consent::recovery::Phase::kFresh,
+        "rejected entry paths leave receipt unchanged");
+  directory.Close();
+  Remove(root);
+  std::cout << "PASS fresh receipt entry and repeated or foreign entry "
+               "refusals\n";
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -630,6 +679,7 @@ int main(int argc, char** argv) {
     OfflineSpool(account);
     OfflineSpoolDurability(account);
     OfflineSpoolRefusals(account);
+    BootstrapEntryBoundaries(account);
     std::cout
         << "NOTE this private fixture omits production systemctl and SMACK "
            "setup; real service startup and labels are validated separately\n";

@@ -23,6 +23,7 @@ inventory=/opt/var/lib/consent-authority
 fixture=/opt/var/lib/consent-offline-platform-$$
 api=/usr/libexec/consent/tests/consent-api-test
 authority=/usr/sbin/consent-installation-authority
+bootstrap=/usr/sbin/consent-storage-prepare
 # Verify these exact apps on this selected image instead of guessing identity.
 calendar_info=$(pkginfo --app org.tizen.calendar)
 camera_info=$(pkginfo --app attach-panel-camera)
@@ -121,6 +122,7 @@ swap_started=1
 if [ "$original_state_present" = 1 ]; then mv "$state" \
   "$fixture/original-state"; fi
 mv "$inventory" "$fixture/original-authority"
+"$bootstrap" --first-install
 printf '%s\n' "$calendar_info" > "$fixture/pkginfo-calendar.txt"
 printf '%s\n' "$camera_info" > "$fixture/pkginfo-camera.txt"
 generation=$("$authority" 9<&- \

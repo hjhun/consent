@@ -22,6 +22,7 @@ Type=notify
 NotifyAccess=main
 ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/consentd
 ExecStartPre=+@CMAKE_INSTALL_FULL_SBINDIR@/consent-storage-prepare
+ExecStartPost=+@CMAKE_INSTALL_FULL_SBINDIR@/consent-storage-prepare --complete
 User=@CONSENT_SERVICE_USER@
 Group=@CONSENT_SERVICE_USER@
 AmbientCapabilities=CAP_SYS_PTRACE

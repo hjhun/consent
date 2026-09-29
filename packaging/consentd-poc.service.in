@@ -22,6 +22,7 @@ Type=notify
 NotifyAccess=main
 ExecStart=@CMAKE_INSTALL_FULL_LIBEXECDIR@/consent/poc/consentd-poc
 ExecStartPre=+@CMAKE_INSTALL_FULL_LIBEXECDIR@/consent/poc/consent-storage-prepare-poc
+ExecStartPost=+@CMAKE_INSTALL_FULL_LIBEXECDIR@/consent/poc/consent-storage-prepare-poc --complete
 User=@CONSENT_SERVICE_USER@
 Group=@CONSENT_SERVICE_USER@
 AmbientCapabilities=CAP_SYS_PTRACE

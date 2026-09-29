@@ -64,6 +64,9 @@ fi
 [ ! -L "$control" ]
 id "$service_user"
 systemctl stop consentd-isolated.socket consentd-isolated.service || true
+if [ ! -e "$state" ] && [ ! -e /opt/var/lib/consent-test-authority ]; then
+  "$tools/consent-storage-prepare-isolated" --first-install
+fi
 mkdir -p "$runtime" "$control"
 chown root:"$service_user" "$runtime"
 chmod 750 "$runtime"
@@ -151,6 +154,7 @@ AmbientCapabilities=CAP_SYS_PTRACE
 CapabilityBoundingSet=CAP_SYS_PTRACE
 NoNewPrivileges=yes
 ExecStartPre=+$tools/consent-storage-prepare-isolated
+ExecStartPost=+$tools/consent-storage-prepare-isolated --complete
 ExecStart=$daemon_binary
 SmackProcessLabel=System
 UMask=0077
@@ -164,6 +168,11 @@ fi
 chown root:"$service_user" "$runtime/roles.conf"
 chmod 640 "$runtime/roles.conf"
 systemctl daemon-reload
+if [ -f "$state/definitions.registry" ] && \
+   [ -f "$state/consent.db" ] && \
+   [ ! -e /opt/var/lib/consent-test-authority/bootstrap.receipt ]; then
+  "$tools/consent-storage-prepare-isolated" --migrate-fixture
+fi
 systemctl reset-failed consentd-isolated.service || true
 systemctl start consentd-isolated.socket
 systemctl start consentd-isolated.service

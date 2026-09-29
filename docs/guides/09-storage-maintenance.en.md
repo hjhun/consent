@@ -115,7 +115,31 @@ and build logs are preserved under `/var/tmp/consent-artifacts/gbs-build-24`.
 This target fixture uses isolated state and injected SQLite errors; it does not
 establish physical storage-full, device-write failure or power-loss behavior.
 
-## Registry-loss recovery design — not implemented
+## Registry-loss recovery and bootstrap boundary
+
+Build43 (Release11) implements a root-protected bootstrap receipt and an
+admission fence before `LoadRegistrations`. Fresh installation claims one
+systemd invocation; the daemon checks its unit, cgroup and exact MainPID.
+An initialized receipt permits automatic DB-only recovery from a trusted
+registry, creating a new DB incarnation and durable `cleanup_unknown=1`.
+Missing registry, missing receipt, a partial fresh claim, or a recovery-required
+receipt blocks admission. The planned recovery contract requires a complete
+validated current desired source. The current production `--begin` checks the
+recovery ID, then returns a missing-source error without reading a source or
+mutating the stores. The helper never writes SQLite. A missing DB and registry
+are not treated as a fresh install.
+
+Build43 isolated bootstrap and POC classification fixtures passed on the
+emulator. A Release7-to-8 transaction completed with production and POC
+receipts both INITIALIZED. The POC intact-pair path follows from code and the
+final receipt; no pre-upgrade POC file identity was captured. The isolated
+POC fixture proves an incomplete pair becomes
+`RECOVERY_REQUIRED`; it is not an actual absent-state POC RPM upgrade. The
+trusted desired-state producer, import-complete fence and physical holder
+reconciliation remain unimplemented. No former approval or cleanup completion
+is inferred from metadata loss.
+
+### Future total-registry recovery design — not implemented
 
 The current implementation deliberately blocks when the definitions registry is
 missing or corrupt while a DB remains. A healthy-looking DB cannot reconstruct
@@ -145,12 +169,13 @@ A future root-only helper should provide a resumable two-phase recovery operatio
    current desired-state inventory: without registry tombstones it can resurrect
    a definition previously removed under the same generation. Missing trusted
    input must leave definitions unavailable.
-5. Durably publish READY only after source/generation validation and completed
-   quarantine. Ordinary daemon startup creates a new DB incarnation and epoch,
-   revalidates pkgmgr and generation authority, and imports definitions before
-   readiness. It restores no grants, consumption receipts, sessions or artifacts.
-   A protected recovery marker must make `cleanup_unknown=1` durable before READY;
-   otherwise an empty registry and DB would incorrectly look like a first install.
+5. Durably publish helper `SOURCE_READY` only after source/generation validation
+   and completed quarantine. This is a handoff, not daemon admission or systemd
+   `READY=1`. Consentd alone creates the new SQLite DB incarnation, validates
+   pkgmgr and authority, durably records `cleanup_unknown=1`, imports all
+   definitions and commits `import_complete=1` before listener/admission and
+   systemd READY. It restores no grants, consumption receipts, sessions or
+   artifacts. A crash with partial import must remain fenced and resumable.
 
 The implementation must preserve `cleanup_reconciliation_required` until a
 separate evidence-based holder reconciliation protocol can clear it. Empty new
