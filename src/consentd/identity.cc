@@ -15,6 +15,9 @@
  */
 #include "identity.hh"
 
+#include "common/resource.hh"
+#include "key_file.hh"
+
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -60,9 +63,8 @@ std::string ReadProc(pid_t pid, const char* name) {
   int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
   if (fd < 0)
     return {};
-  auto result = ReadFd(fd, 65536);
-  close(fd);
-  return result;
+  consent::Descriptor descriptor(fd);
+  return ReadFd(fd, 65536);
 }
 
 unsigned long long StartTime(pid_t pid) {
@@ -97,31 +99,12 @@ bool CheckUid(pid_t pid, uid_t expected) {
   return false;
 }
 
-std::string Value(GKeyFile* file, const char* group, const char* key) {
-  gchar* text = g_key_file_get_string(file, group, key, nullptr);
-  std::string result = text ? text : "";
-  g_free(text);
-  return result;
-}
-
-std::set<std::string> Values(GKeyFile* file, const char* group, const char* key) {
-  gsize count = 0;
-  gchar** list = g_key_file_get_string_list(file, group, key, &count, nullptr);
-  std::set<std::string> result;
-  for (gsize i = 0; i < count; ++i) {
-    if (list[i][0])
-      result.insert(list[i]);
-  }
-  g_strfreev(list);
-  return result;
-}
-
 bool ReadKeyFile(const std::string& path, GKeyFile* file, size_t limit = 65536) {
   int fd = consentd::OpenProtected(path);
   if (fd < 0)
     return false;
+  consent::Descriptor descriptor(fd);
   auto content = ReadFd(fd, limit);
-  close(fd);
   return !content.empty() && g_key_file_load_from_data(file, content.data(),
       content.size(), G_KEY_FILE_NONE, nullptr);
 }
@@ -136,16 +119,14 @@ int ReadOfflineAuthority(GKeyFile* file) {
   int directory = consentd::OpenProtected(path.substr(0, separator), true);
   if (directory < 0)
     return -EACCES;
+  consent::Descriptor directory_owner(directory);
   int fd = openat(directory, path.substr(separator + 1).c_str(),
       O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
   int saved = errno;
-  close(directory);
+  directory_owner.Reset();
   if (fd < 0)
     return saved == ENOENT ? -ESTALE : -saved;
-  struct Descriptor {
-    int value;
-    ~Descriptor() { if (value >= 0) close(value); }
-  } descriptor{fd};
+  consent::Descriptor descriptor(fd);
   struct stat info = {};
   int result = 0;
   if (fstat(fd, &info) < 0)
@@ -173,40 +154,40 @@ int ReadOfflineAuthority(GKeyFile* file) {
     }
     content.append(buffer, static_cast<size_t>(count));
   }
-  if (close(fd) < 0 && result == 0)
-    result = -errno;
-  descriptor.value = -1;
+  if (close(descriptor.Release()) < 0 && result == 0) result = -errno;
   if (result != 0)
     return result;
   if (content.empty() || content.find('\0') != std::string::npos ||
       !g_key_file_load_from_data(file, content.data(), content.size(),
-          G_KEY_FILE_NONE, nullptr) || Value(file, "authority", "schema") != "1")
+                                 G_KEY_FILE_NONE, nullptr) ||
+      consentd::KeyValue(file, "authority", "schema") != "1")
     return -EINVAL;
   gsize count = 0;
-  gchar** groups = g_key_file_get_groups(file, &count);
+  std::unique_ptr<gchar*, decltype(&g_strfreev)> groups_owner(
+      g_key_file_get_groups(file, &count), g_strfreev);
+  auto** groups = groups_owner.get();
   bool valid = count <= 4096;
   for (gsize i = 0; valid && i < count; ++i) {
     const std::string group = groups[i];
     if (group == "authority")
       continue;
-    auto generation = Value(file, groups[i], "generation");
+    auto generation = consentd::KeyValue(file, groups[i], "generation");
     valid = !generation.empty() && generation.size() <= 128;
     if (group.compare(0, 10, "operation ") == 0) {
       valid = valid && group.size() > 10 &&
-          !Value(file, groups[i], "fingerprint").empty();
+              !consentd::KeyValue(file, groups[i], "fingerprint").empty();
       continue;
     }
-    auto state = Value(file, groups[i], "state");
+    auto state = consentd::KeyValue(file, groups[i], "state");
     valid = valid && (state == "active" || state == "pending" || state == "removed");
     if (group.compare(0, 8, "package ") == 0) {
       valid = valid && group.size() > 8 && group.size() <= 263;
     } else {
-      auto owner = Value(file, groups[i], "package");
+      auto owner = consentd::KeyValue(file, groups[i], "package");
       valid = valid && !group.empty() && group.size() <= 255 &&
           !owner.empty() && owner.size() <= 255;
     }
   }
-  g_strfreev(groups);
   if (!valid)
     return -EINVAL;
   return 0;
@@ -219,21 +200,20 @@ namespace consentd {
 int OpenProtected(const std::string& path, bool directory) {
   if (path.empty() || path[0] != '/' || path.back() == '/')
     return -1;
-  int current = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  consent::Descriptor current(open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
   size_t offset = 1;
-  while (current >= 0 && offset < path.size()) {
+  while (current.Get() >= 0 && offset < path.size()) {
     size_t end = path.find('/', offset);
     bool last = end == std::string::npos;
     auto part = path.substr(offset, last ? std::string::npos : end - offset);
     if (part.empty() || part == "." || part == "..") {
-      close(current);
       return -1;
     }
     int flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC;
     if (!last || directory)
       flags |= O_DIRECTORY;
-    int next = openat(current, part.c_str(), flags);
-    close(current);
+    int next = openat(current.Get(), part.c_str(), flags);
+    current.Reset();
     if (next < 0)
       return -1;
     struct stat st = {};
@@ -251,13 +231,10 @@ int OpenProtected(const std::string& path, bool directory) {
       close(next);
       return -1;
     }
-    current = next;
-    if (last)
-      return current;
+    current.Reset(next);
+    if (last) return current.Release();
     offset = end + 1;
   }
-  if (current >= 0)
-    close(current);
   return -1;
 }
 
@@ -268,14 +245,17 @@ ProcessIdentity::~ProcessIdentity() {
 
 bool IdentityPolicy::Load(const std::string& path, std::string* error) {
   rules_.clear();
-  GKeyFile* file = g_key_file_new();
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> file_owner(
+      g_key_file_new(), g_key_file_unref);
+  auto* file = file_owner.get();
   if (!ReadKeyFile(path, file)) {
     *error = "role configuration is missing, malformed, or not protected";
-    g_key_file_unref(file);
     return false;
   }
   gsize count = 0;
-  gchar** groups = g_key_file_get_groups(file, &count);
+  std::unique_ptr<gchar*, decltype(&g_strfreev)> groups_owner(
+      g_key_file_get_groups(file, &count), g_strfreev);
+  auto** groups = groups_owner.get();
   bool valid = true;
   std::set<std::string> names;
   for (gsize i = 0; i < count && valid; ++i) {
@@ -288,7 +268,7 @@ bool IdentityPolicy::Load(const std::string& path, std::string* error) {
     }
     Rule rule;
     rule.peer.identity = group.substr(9);
-    auto uid = Value(file, groups[i], "uid");
+    auto uid = consentd::KeyValue(file, groups[i], "uid");
     char* end = nullptr;
     errno = 0;
     auto number = strtoul(uid.c_str(), &end, 10);
@@ -298,14 +278,15 @@ bool IdentityPolicy::Load(const std::string& path, std::string* error) {
       break;
     }
     rule.peer.uid = static_cast<uid_t>(number);
-    rule.executable = Value(file, groups[i], "executable");
-    rule.label = Value(file, groups[i], "label");
-    rule.peer.roles = Values(file, groups[i], "roles");
-    rule.peer.subjects = Values(file, groups[i], "subjects");
-    rule.peer.profiles = Values(file, groups[i], "profiles");
-    rule.peer.enforcers = Values(file, groups[i], "enforcers");
-    rule.peer.packages = Values(file, groups[i], "packages");
+    rule.executable = consentd::KeyValue(file, groups[i], "executable");
+    rule.label = consentd::KeyValue(file, groups[i], "label");
+    rule.peer.roles = consentd::KeyValues(file, groups[i], "roles");
+    rule.peer.subjects = consentd::KeyValues(file, groups[i], "subjects");
+    rule.peer.profiles = consentd::KeyValues(file, groups[i], "profiles");
+    rule.peer.enforcers = consentd::KeyValues(file, groups[i], "enforcers");
+    rule.peer.packages = consentd::KeyValues(file, groups[i], "packages");
     int fd = OpenProtected(rule.executable);
+    consent::Descriptor descriptor(fd);
     struct stat st = {};
     if (fd < 0 || fstat(fd, &st) < 0 || !(st.st_mode & 0111) ||
         rule.label.empty() || rule.peer.roles.empty() ||
@@ -317,11 +298,7 @@ bool IdentityPolicy::Load(const std::string& path, std::string* error) {
       rule.inode = st.st_ino;
       rules_.push_back(std::move(rule));
     }
-    if (fd >= 0)
-      close(fd);
   }
-  g_strfreev(groups);
-  g_key_file_unref(file);
   if (!valid) {
     rules_.clear();
     *error = "invalid identity rule; denying all roles";
@@ -464,19 +441,21 @@ bool GetInstallationIdentity(const std::string& package, const std::string& app,
 #endif
   // A signed identity or timestamp is not an installation generation. Require
   // a protected Installer-published generation, independent of the registry.
-  GKeyFile* inventory = g_key_file_new();
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> inventory_owner(
+      g_key_file_new(), g_key_file_unref);
+  auto* inventory = inventory_owner.get();
   if (!ReadKeyFile(CONSENT_INSTALLATIONS, inventory, 1048576)) {
-    g_key_file_unref(inventory);
     return false;
   }
-  auto actual_package = Value(inventory, app.c_str(), "package");
-  auto generation = Value(inventory, app.c_str(), "generation");
-  auto state = Value(inventory, app.c_str(), "state");
+  auto actual_package = consentd::KeyValue(inventory, app.c_str(), "package");
+  auto generation = consentd::KeyValue(inventory, app.c_str(), "generation");
+  auto state = consentd::KeyValue(inventory, app.c_str(), "state");
   auto package_group = "package " + package;
-  bool active = Value(inventory, package_group.c_str(), "state") == "active" &&
-      Value(inventory, package_group.c_str(), "generation") == generation &&
-      Value(inventory, "authority", "schema") == "1";
-  g_key_file_unref(inventory);
+  bool active = consentd::KeyValue(inventory, package_group.c_str(), "state") ==
+                    "active" &&
+                consentd::KeyValue(inventory, package_group.c_str(),
+                                   "generation") == generation &&
+                consentd::KeyValue(inventory, "authority", "schema") == "1";
   if (!active || state != "active" || actual_package != package ||
       generation.empty() || generation.size() > 128)
     return false;
@@ -492,18 +471,19 @@ bool ValidateInstallation(const std::string& package, const std::string& app,
 
 bool ValidatePackageGeneration(const std::string& package,
                                const std::string& generation) {
-  GKeyFile* inventory = g_key_file_new();
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> inventory_owner(
+      g_key_file_new(), g_key_file_unref);
+  auto* inventory = inventory_owner.get();
   if (!ReadKeyFile(CONSENT_INSTALLATIONS, inventory, 1048576)) {
-    g_key_file_unref(inventory);
     return false;
   }
   std::string group = "package " + package;
-  auto state = Value(inventory, group.c_str(), "state");
+  auto state = consentd::KeyValue(inventory, group.c_str(), "state");
   bool valid = !generation.empty() &&
-      Value(inventory, "authority", "schema") == "1" &&
-      Value(inventory, group.c_str(), "generation") == generation &&
-      (state == "active" || state == "pending" || state == "removed");
-  g_key_file_unref(inventory);
+               consentd::KeyValue(inventory, "authority", "schema") == "1" &&
+               consentd::KeyValue(inventory, group.c_str(), "generation") ==
+                   generation &&
+               (state == "active" || state == "pending" || state == "removed");
   return valid;
 }
 
@@ -528,19 +508,20 @@ int ValidateOfflineInstallation(const std::string& package,
   for (const auto& name : {group, app}) {
     if (!g_key_file_has_group(file, name.c_str()))
       return -ESTALE;
-    auto state = Value(file, name.c_str(), "state");
-    auto current = Value(file, name.c_str(), "generation");
+    auto state = consentd::KeyValue(file, name.c_str(), "state");
+    auto current = consentd::KeyValue(file, name.c_str(), "generation");
     if ((state != "active" && state != "pending" && state != "removed") ||
         current.empty() || current.size() > 128)
       return -EINVAL;
   }
-  auto owner = Value(file, app.c_str(), "package");
+  auto owner = consentd::KeyValue(file, app.c_str(), "package");
   if (owner.empty() || owner.size() > 255)
     return -EINVAL;
-  if (Value(file, group.c_str(), "state") != "active" ||
-      Value(file, app.c_str(), "state") != "active" || owner != package ||
-      Value(file, group.c_str(), "generation") != generation ||
-      Value(file, app.c_str(), "generation") != generation)
+  if (consentd::KeyValue(file, group.c_str(), "state") != "active" ||
+      consentd::KeyValue(file, app.c_str(), "state") != "active" ||
+      owner != package ||
+      consentd::KeyValue(file, group.c_str(), "generation") != generation ||
+      consentd::KeyValue(file, app.c_str(), "generation") != generation)
     return -ESTALE;
 #ifndef CONSENT_TEST_BUILD
   pkgmgrinfo_appinfo_h handle = nullptr;

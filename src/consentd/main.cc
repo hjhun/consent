@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "server.hh"
+#include "common/logging.hh"
 
 #include <sys/socket.h>
 #include <systemd/sd-daemon.h>
@@ -32,22 +33,22 @@ int main() {
   if (count != 1) {
     for (int i = 0; i < count; ++i)
       close(SD_LISTEN_FDS_START + i);
-    g_warning("event=activation-invalid count=%d", count);
+    LOG(WARNING) << "event=activation-invalid count=" << count;
     return 1;
   }
   int fd = SD_LISTEN_FDS_START;
   if (sd_is_socket_unix(fd, SOCK_STREAM, 1, CONSENT_SOCKET_PATH, 0) <= 0) {
     close(fd);
-    g_warning("event=activation-invalid endpoint=%s", CONSENT_SOCKET_PATH);
+    LOG(WARNING) << "event=activation-invalid endpoint=" << CONSENT_SOCKET_PATH;
     return 1;
   }
   try {
     consentd::Server server;
     return server.Run(fd);
   } catch (const std::exception& error) {
-    g_warning("event=startup-failed reason=%s", error.what());
+    LOG(WARNING) << "event=startup-failed reason=" << error.what();
   } catch (...) {
-    g_warning("event=startup-failed reason=unknown");
+    LOG(WARNING) << "event=startup-failed reason=unknown";
   }
   return 1;
 }

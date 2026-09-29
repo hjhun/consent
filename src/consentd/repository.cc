@@ -17,6 +17,8 @@
 #include "consent.h"
 
 #include "common/cleanup_cursor.hh"
+#include "common/resource.hh"
+#include "common/logging.hh"
 #include "common/localization.hh"
 #include "common/approval.hh"
 #include "common/registration.hh"
@@ -121,12 +123,13 @@ std::string Id() {
 }
 
 std::string Hash(const std::string& value) {
-  gchar* raw = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-      reinterpret_cast<const guchar*>(value.data()), value.size());
+  std::unique_ptr<gchar, decltype(&g_free)> raw(
+      g_compute_checksum_for_data(G_CHECKSUM_SHA256,
+                                  reinterpret_cast<const guchar*>(value.data()),
+                                  value.size()),
+      g_free);
   Require(raw != nullptr, -ENOMEM, "checksum allocation failed");
-  std::string result(raw);
-  g_free(raw);
-  return result;
+  return raw.get();
 }
 
 void Append(std::string* output, const std::string& value) {
@@ -441,10 +444,10 @@ void Repository::Impl::ReadRegistry(bool initial) {
       kStorage, "definition registry size rejected");
   int fd = open(registry_path_.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
   Require(fd >= 0, kStorage, "cannot open definition registry");
+  consent::Descriptor descriptor(fd);
   struct stat opened = {};
   if (fstat(fd, &opened) < 0 || opened.st_dev != st.st_dev ||
       opened.st_ino != st.st_ino) {
-    close(fd);
     throw Failure(kStorage, "registry changed while opening");
   }
   std::string content(st.st_size, '\0');
@@ -454,12 +457,10 @@ void Repository::Impl::ReadRegistry(bool initial) {
     if (count < 0 && errno == EINTR)
       continue;
     if (count <= 0) {
-      close(fd);
       throw Failure(kStorage, "cannot read definition registry");
     }
     offset += count;
   }
-  close(fd);
   Message root = Unpack(content);
   Require(Get(root, "schema") == "1", kStorage, "unsupported registry schema");
   auto revision = Integer(Get(root, "revision"), 0, INT64_MAX);
@@ -2360,10 +2361,10 @@ void Repository::Impl::Tick() {
         (failure.SqliteCode() & 0xff) == SQLITE_NOTADB)
       corrupt_ = true;
     fenced_ = true;
-    g_warning("consentd storage timer fenced: %s", failure.what());
+    LOG(WARNING) << "consentd storage timer fenced: " << failure.what();
   } catch (const std::exception& failure) {
     fenced_ = true;
-    g_warning("consentd storage timer fenced: %s", failure.what());
+    LOG(WARNING) << "consentd storage timer fenced: " << failure.what();
   }
 }
 

@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 #include "server.hh"
+#include "common/logging.hh"
+#include "common/dispatch.hh"
+#include "common/resource.hh"
 #include "consent.h"
 
 #include <glib-unix.h>
@@ -55,6 +58,24 @@ void Destroy(GSource*& source) {
   g_source_destroy(source);
   g_source_unref(source);
   source = nullptr;
+}
+
+GSource* WakeSource(GMainContext* context, GSourceFunc callback,
+                    gpointer data) {
+  static GSourceFuncs functions = {
+      nullptr,
+      nullptr,
+      [](GSource*, GSourceFunc function, gpointer argument) -> gboolean {
+        return function(argument);
+      },
+      nullptr,
+      nullptr,
+      nullptr};
+  auto* source = g_source_new(&functions, sizeof(GSource));
+  g_source_set_ready_time(source, -1);
+  g_source_set_callback(source, callback, data, nullptr);
+  g_source_attach(source, context);
+  return source;
 }
 
 consent::Message Error(const consent::Message& request, int status) {
@@ -99,6 +120,9 @@ struct Server::ParseJob {
 };
 
 Server::Server() {
+  // C++ allocations precede GLib resource acquisition. Stop never allocates.
+  shutdown_job_ =
+      std::make_unique<std::function<void()>>([this] { ShutdownDatabase(); });
   main_context_ = g_main_context_default();
   main_loop_ = g_main_loop_new(main_context_, FALSE);
   io_context_ = g_main_context_new();
@@ -107,6 +131,7 @@ Server::Server() {
 }
 
 Server::~Server() {
+  stopping_ = true;
   Destroy(tick_);
   Destroy(sigterm_);
   Destroy(sigint_);
@@ -115,16 +140,23 @@ Server::~Server() {
   if (parser_pool_)
     g_thread_pool_free(parser_pool_, FALSE, TRUE);
   if (io_thread_) {
-    Post(io_context_, [this] { g_main_loop_quit(io_loop_); });
+    // Queued quit remains effective even before the thread enters Run.
+    g_source_set_ready_time(io_quit_source_, 0);
+    g_main_context_wakeup(io_context_);
     g_thread_join(io_thread_);
   }
   if (db_thread_) {
     // An empty callable is the queue sentinel. No producers remain here.
-    g_async_queue_push(db_queue_, new std::function<void()>());
+    g_async_queue_push(db_queue_, &db_stop_);
     g_thread_join(db_thread_);
   }
-  while (g_main_context_pending(io_context_))
-    g_main_context_iteration(io_context_, FALSE);
+  // No producers remain. Cancel instead of executing late startup/completion
+  // callbacks against a partially dismantled Server on another owner thread.
+  dispatcher_.Cancel();
+  Destroy(io_quit_source_);
+  Destroy(emergency_source_);
+  Destroy(stop_io_source_);
+  Destroy(finished_source_);
   clients_.clear();
   g_async_queue_unref(db_queue_);
   g_main_loop_unref(io_loop_);
@@ -135,44 +167,131 @@ Server::~Server() {
     close(lifecycle_lock_);
 }
 
-void Server::Post(GMainContext* context, std::function<void()> work) {
-  GSource* source = g_idle_source_new();
-  g_source_set_callback(source, [](gpointer data) -> gboolean {
-    try {
-      (*static_cast<std::function<void()>*>(data))();
-    } catch (const std::exception& error) {
-      g_warning("event=dispatch-failed reason=%s", error.what());
-    } catch (...) {
-      g_warning("event=dispatch-failed reason=unknown");
-    }
-    return G_SOURCE_REMOVE;
-  }, new std::function<void()>(std::move(work)), [](gpointer data) {
-    delete static_cast<std::function<void()>*>(data);
-  });
-  g_source_attach(source, context);
-  g_source_unref(source);
+void Server::DispatchFailed() noexcept {
+  if (emergency_source_) {
+    g_source_set_ready_time(emergency_source_, 0);
+    g_main_context_wakeup(main_context_);
+  }
+}
+
+bool Server::Post(GMainContext* context, std::function<void()> work) noexcept {
+  try {
+    if (dispatcher_.Post(context, [this, work = std::move(work)] {
+          try {
+            work();
+          } catch (...) {
+            LOG(ERROR) << "event=dispatch-failed reason=exception";
+            DispatchFailed();
+          }
+        }))
+      return true;
+  } catch (...) {
+  }
+  DispatchFailed();
+  return false;
 }
 
 bool Server::Submit(std::function<void()> work) {
-  if (db_jobs_.fetch_add(1) >= kMaxJobs) {
-    --db_jobs_;
-    return false;
-  }
-  g_async_queue_push(db_queue_, new std::function<void()>(std::move(work)));
+  auto job = std::make_unique<std::function<void()>>(std::move(work));
+  consent::Admission admission(db_jobs_, kMaxJobs);
+  if (!admission.Accepted()) return false;
+  g_async_queue_push(db_queue_, job.release());
+  admission.Commit();
   return true;
 }
 
+void Server::StartThreads() {
+  io_thread_ = g_thread_new(
+      "consent-io",
+      [](gpointer data) -> gpointer {
+        auto* self = static_cast<Server*>(data);
+        g_main_context_push_thread_default(self->io_context_);
+        g_main_loop_run(self->io_loop_);
+        g_main_context_pop_thread_default(self->io_context_);
+        return nullptr;
+      },
+      this);
+  db_thread_ = g_thread_new(
+      "consent-db",
+      [](gpointer data) -> gpointer {
+        auto* self = static_cast<Server*>(data);
+        for (;;) {
+          auto* raw = static_cast<std::function<void()>*>(
+              g_async_queue_pop(self->db_queue_));
+          if (raw == &self->db_stop_) break;
+          std::unique_ptr<std::function<void()>> job(raw);
+          try {
+            (*job)();
+          } catch (const std::exception& error) {
+            LOG(WARNING) << "event=db-job-failed reason=" << error.what();
+            self->DispatchFailed();
+          } catch (...) {
+            LOG(WARNING) << "event=db-job-failed reason=unknown";
+            self->DispatchFailed();
+          }
+          --self->db_jobs_;
+        }
+        self->repository_.reset();
+        return nullptr;
+      },
+      this);
+}
+
+void Server::InitializeWakeSources() {
+  io_quit_source_ = WakeSource(
+      io_context_,
+      [](gpointer data) noexcept -> gboolean {
+        auto* self = static_cast<Server*>(data);
+        while (!self->clients_.empty()) {
+          auto connection = self->clients_.begin()->second;
+          self->Close(connection, "owner-teardown");
+        }
+        g_main_loop_quit(self->io_loop_);
+        return G_SOURCE_REMOVE;
+      },
+      this);
+  emergency_source_ = WakeSource(
+      main_context_,
+      [](gpointer data) noexcept -> gboolean {
+        auto* self = static_cast<Server*>(data);
+        g_source_set_ready_time(self->emergency_source_, -1);
+        self->exit_status_ = 1;
+        self->Stop();
+        return G_SOURCE_CONTINUE;
+      },
+      this);
+  stop_io_source_ = WakeSource(
+      io_context_,
+      [](gpointer data) noexcept -> gboolean {
+        auto* self = static_cast<Server*>(data);
+        g_source_set_ready_time(self->stop_io_source_, -1);
+        self->StopIo();
+        return G_SOURCE_CONTINUE;
+      },
+      this);
+  finished_source_ = WakeSource(
+      main_context_,
+      [](gpointer data) noexcept -> gboolean {
+        auto* self = static_cast<Server*>(data);
+        g_source_set_ready_time(self->finished_source_, -1);
+        LOG(INFO) << "event=shutdown stage=database-drained";
+        g_main_loop_quit(self->main_loop_);
+        return G_SOURCE_CONTINUE;
+      },
+      this);
+}
+
 int Server::Run(int listener_fd) {
+  consent::Descriptor listener_owner(listener_fd);
+  InitializeWakeSources();
   std::string error;
   if (!identity_.Load(CONSENT_ROLE_CONFIG, &error)) {
-    close(listener_fd);
-    g_warning("event=identity-config-failed reason=%s", error.c_str());
+    LOG(WARNING) << "event=identity-config-failed reason=" << error.c_str();
     return 1;
   }
   lifecycle_lock_ = OpenProtected(std::string(CONSENT_AUTHORITY_DIR) + "/lifecycle.lock");
   if (lifecycle_lock_ < 0 || flock(lifecycle_lock_, LOCK_SH | LOCK_NB) < 0) {
-    close(listener_fd);
-    g_warning("event=storage-migration-unavailable");
+    LOG(WARNING) << "event=storage-migration-unavailable";
     return 1;
   }
   // Role/executable/authority paths remain root protected. Only this state
@@ -192,17 +311,16 @@ int Server::Run(int listener_fd) {
   if (state >= 0)
     close(state);
   if (!valid_state) {
-    close(listener_fd);
-    g_warning("event=state-directory-unprotected");
+    LOG(WARNING) << "event=state-directory-unprotected";
     return 1;
   }
   GError* gio_error = nullptr;
   GSocket* socket = g_socket_new_from_fd(listener_fd, &gio_error);
   if (!socket) {
-    close(listener_fd);
     g_clear_error(&gio_error);
     return 1;
   }
+  listener_owner.Release();
   g_socket_set_blocking(socket, FALSE);
   listener_ = g_socket_service_new();
   g_socket_service_stop(listener_);
@@ -217,13 +335,26 @@ int Server::Run(int listener_fd) {
       GSocketService*, GSocketConnection* stream, GObject*, gpointer data)
       -> gboolean {
     auto* self = static_cast<Server*>(data);
-    if (self->stopping_ || self->connections_.fetch_add(1) >= kMaxConnections) {
-      if (!self->stopping_)
-        --self->connections_;
+    if (self->stopping_) return FALSE;
+    consent::Admission admission(self->connections_, kMaxConnections);
+    if (!admission.Accepted()) return FALSE;
+    try {
+      std::shared_ptr<GSocketConnection> owner(
+          G_SOCKET_CONNECTION(g_object_ref(stream)),
+          [](GSocketConnection* value) { g_object_unref(value); });
+      if (!self->Post(self->io_context_, [self, owner] {
+            try {
+              self->AddConnection(owner.get());
+            } catch (...) {
+              --self->connections_;
+              self->DispatchFailed();
+            }
+          }))
+        return FALSE;
+    } catch (...) {
       return FALSE;
     }
-    g_object_ref(stream);
-    Post(self->io_context_, [self, stream] { self->AddConnection(stream); });
+    admission.Commit();
     return TRUE;
   }), this);
 
@@ -239,48 +370,28 @@ int Server::Run(int listener_fd) {
     auto* self = job->server;
     auto connection = job->connection;
     --self->parse_jobs_;
-    Post(self->io_context_, [self, connection, valid, request = std::move(request)]() mutable {
-      connection->parsing = false;
-      if (connection->closed)
-        return;
-      if (!valid) {
-        self->Close(connection, "invalid-frame");
-        return;
-      }
-      self->Execute(connection, std::move(request));
-      self->Receive(connection);
-    });
+    try {
+      self->Post(self->io_context_, [self, connection, valid,
+                                     request = std::move(request)]() mutable {
+        connection->parsing = false;
+        if (connection->closed) return;
+        if (!valid) {
+          self->Close(connection, "invalid-frame");
+          return;
+        }
+        self->Execute(connection, std::move(request));
+        self->Receive(connection);
+      });
+    } catch (...) {
+      self->DispatchFailed();
+    }
+
   }, nullptr, 2, FALSE, &gio_error);
   if (!parser_pool_) {
     g_clear_error(&gio_error);
     return 1;
   }
-  io_thread_ = g_thread_new("consent-io", [](gpointer data) -> gpointer {
-    auto* self = static_cast<Server*>(data);
-    g_main_context_push_thread_default(self->io_context_);
-    g_main_loop_run(self->io_loop_);
-    g_main_context_pop_thread_default(self->io_context_);
-    return nullptr;
-  }, this);
-  db_thread_ = g_thread_new("consent-db", [](gpointer data) -> gpointer {
-    auto* self = static_cast<Server*>(data);
-    for (;;) {
-      std::unique_ptr<std::function<void()>> job(
-          static_cast<std::function<void()>*>(g_async_queue_pop(self->db_queue_)));
-      if (!*job)
-        break;
-      try {
-        (*job)();
-      } catch (const std::exception& error) {
-        g_warning("event=db-job-failed reason=%s", error.what());
-      } catch (...) {
-        g_warning("event=db-job-failed reason=unknown");
-      }
-      --self->db_jobs_;
-    }
-    self->repository_.reset();
-    return nullptr;
-  }, this);
+  StartThreads();
 
   auto attach_signal = [this](int number) {
     GSource* source = g_unix_signal_source_new(number);
@@ -327,7 +438,8 @@ int Server::Run(int listener_fd) {
           if (status == CONSENT_ERROR_STALE) {
             // Missing/rotated installation authority cannot activate a record.
             // Keep it immutable and continue with independent packages.
-            g_message("event=offline-registration state=deferred index=%zu status=%d", index, status);
+            LOG(INFO) << "event=offline-registration state=deferred index="
+                      << index << " status=" << status;
             continue;
           }
           if (status != 0) {
@@ -335,7 +447,8 @@ int Server::Run(int listener_fd) {
             ready = false;
             break;
           }
-          g_message("event=offline-registration state=reconciled index=%zu", index);
+          LOG(INFO) << "event=offline-registration state=reconciled index="
+                    << index;
         }
       }
       if (ready)
@@ -349,7 +462,7 @@ int Server::Run(int listener_fd) {
     }
     Post(main_context_, [this, ready, error, snapshot] {
       if (!ready) {
-        g_warning("event=database-open-failed reason=%s", error.c_str());
+        LOG(WARNING) << "event=database-open-failed reason=" << error.c_str();
         exit_status_ = 1;
         Stop();
         return;
@@ -362,20 +475,26 @@ int Server::Run(int listener_fd) {
         auto* self = static_cast<Server*>(data);
         if (self->stopping_)
           return G_SOURCE_REMOVE;
-        self->Submit([self] {
-          try {
-            self->repository_->Tick();
-            auto snapshot = self->repository_->Snapshot();
-            Post(self->io_context_, [self, snapshot] { self->Publish(snapshot); });
-          } catch (...) {
-            Post(self->io_context_, [self] {
-              auto clients = self->clients_;
-              for (const auto& entry : clients)
-                self->Close(entry.second, "storage-unavailable");
-              self->published_.clear();
-            });
-          }
-        });
+        try {
+          self->Submit([self] {
+            try {
+              self->repository_->Tick();
+              auto snapshot = self->repository_->Snapshot();
+              self->Post(self->io_context_,
+                         [self, snapshot] { self->Publish(snapshot); });
+            } catch (...) {
+              self->Post(self->io_context_, [self] {
+                auto clients = self->clients_;
+                for (const auto& entry : clients)
+                  self->Close(entry.second, "storage-unavailable");
+                self->published_.clear();
+              });
+            }
+          });
+        } catch (...) {
+          self->DispatchFailed();
+          return G_SOURCE_REMOVE;
+        }
         return G_SOURCE_CONTINUE;
       }, this, nullptr);
       g_source_attach(tick_, main_context_);
@@ -384,8 +503,10 @@ int Server::Run(int listener_fd) {
         exit_status_ = 1;
         Stop();
       } else {
-        g_message("event=ready epoch=%s connections=%u db_jobs=%u parser_threads=2",
-            consent::Get(snapshot, "epoch").c_str(), kMaxConnections, kMaxJobs);
+        LOG(INFO) << "event=ready epoch="
+                  << consent::Get(snapshot, "epoch").c_str()
+                  << " connections=" << kMaxConnections
+                  << " db_jobs=" << kMaxJobs << " parser_threads=2";
       }
     });
   });
@@ -397,55 +518,67 @@ void Server::AddConnection(GSocketConnection* stream) {
   auto connection = std::make_shared<Connection>();
   connection->server = this;
   connection->id = ++next_client_;
-  connection->stream = stream;
+  connection->stream = G_SOCKET_CONNECTION(g_object_ref(stream));
   connection->socket = g_socket_connection_get_socket(stream);
   g_socket_set_blocking(connection->socket, FALSE);
-  clients_[connection->id] = connection;
-  std::string error;
-  bool trusted = !stopping_ && identity_.Authenticate(
-      g_socket_get_fd(connection->socket), &connection->peer,
-      &connection->process, &error);
-  g_message("event=client-connected instance=%llu pid=%ld uid=%lu gid=%lu role=%s",
-      static_cast<unsigned long long>(connection->id),
-      static_cast<long>(connection->peer.pid),
-      static_cast<unsigned long>(connection->peer.uid),
-      static_cast<unsigned long>(connection->peer.gid),
-      trusted ? connection->peer.identity.c_str() : "rejected");
-  if (!trusted) {
-    Close(connection, error.c_str());
-    return;
-  }
-  unsigned same_uid = 0;
-  for (const auto& entry : clients_) {
-    if (entry.second->peer.uid == connection->peer.uid)
-      ++same_uid;
-  }
-  const bool control = connection->peer.roles.count("installer") ||
-      connection->peer.roles.count("ui") || connection->peer.roles.count("admin");
-  if (same_uid > (control ? 32u : 24u)) {
-    Close(connection, "uid-connection-limit");
-    return;
-  }
-  connection->last_input = g_get_monotonic_time();
-  ArmRead(connection);
-  connection->deadline = g_timeout_source_new_seconds(1);
-  g_source_set_callback(connection->deadline, [](gpointer data) -> gboolean {
-    auto connection = *static_cast<std::shared_ptr<Connection>*>(data);
-    const auto now = g_get_monotonic_time();
-    if ((!connection->hello || !connection->input.empty()) &&
-        now - connection->last_input > 5000000) {
-      connection->server->Close(connection, "frame-timeout");
-      return G_SOURCE_REMOVE;
+  clients_.emplace(connection->id, connection);
+  try {
+    std::string error;
+    bool trusted =
+        !stopping_ &&
+        identity_.Authenticate(g_socket_get_fd(connection->socket),
+                               &connection->peer, &connection->process, &error);
+    LOG(INFO) << "event=client-connected instance="
+              << static_cast<unsigned long long>(connection->id)
+              << " pid=" << static_cast<long>(connection->peer.pid)
+              << " uid=" << static_cast<unsigned long>(connection->peer.uid)
+              << " gid=" << static_cast<unsigned long>(connection->peer.gid)
+              << " role="
+              << (trusted ? connection->peer.identity.c_str() : "rejected");
+    if (!trusted) {
+      Close(connection, error.c_str());
+      return;
     }
-    if (!connection->output.empty() && now - connection->write_started > 5000000) {
-      connection->server->Close(connection, "write-timeout");
-      return G_SOURCE_REMOVE;
+    unsigned same_uid = 0;
+    for (const auto& entry : clients_) {
+      if (entry.second->peer.uid == connection->peer.uid) ++same_uid;
     }
-    return G_SOURCE_CONTINUE;
-  }, new std::shared_ptr<Connection>(connection), [](gpointer data) {
-    delete static_cast<std::shared_ptr<Connection>*>(data);
-  });
-  g_source_attach(connection->deadline, io_context_);
+    const bool control = connection->peer.roles.count("installer") ||
+                         connection->peer.roles.count("ui") ||
+                         connection->peer.roles.count("admin");
+    if (same_uid > (control ? 32u : 24u)) {
+      Close(connection, "uid-connection-limit");
+      return;
+    }
+    connection->last_input = g_get_monotonic_time();
+    ArmRead(connection);
+    connection->deadline = g_timeout_source_new_seconds(1);
+    g_source_set_callback(
+        connection->deadline,
+        [](gpointer data) -> gboolean {
+          auto connection = *static_cast<std::shared_ptr<Connection>*>(data);
+          const auto now = g_get_monotonic_time();
+          if ((!connection->hello || !connection->input.empty()) &&
+              now - connection->last_input > 5000000) {
+            connection->server->Close(connection, "frame-timeout");
+            return G_SOURCE_REMOVE;
+          }
+          if (!connection->output.empty() &&
+              now - connection->write_started > 5000000) {
+            connection->server->Close(connection, "write-timeout");
+            return G_SOURCE_REMOVE;
+          }
+          return G_SOURCE_CONTINUE;
+        },
+        new std::shared_ptr<Connection>(connection),
+        [](gpointer data) {
+          delete static_cast<std::shared_ptr<Connection>*>(data);
+        });
+    g_source_attach(connection->deadline, io_context_);
+  } catch (...) {
+    Close(connection, "admission-exception");
+    DispatchFailed();
+  }
 }
 
 void Server::ArmRead(const std::shared_ptr<Connection>& connection) {
@@ -513,21 +646,23 @@ void Server::Receive(const std::shared_ptr<Connection>& connection) {
 
 void Server::Parse(const std::shared_ptr<Connection>& connection,
                    std::vector<uint8_t> payload) {
-  if (parse_jobs_.fetch_add(1) >= kMaxJobs) {
-    --parse_jobs_;
+  auto job = std::make_unique<ParseJob>(
+      ParseJob{this, connection, std::move(payload)});
+  consent::Admission admission(parse_jobs_, kMaxJobs);
+  if (!admission.Accepted()) {
     Close(connection, "parser-overload");
     return;
   }
   connection->parsing = true;
   Destroy(connection->read_source);
-  auto* job = new ParseJob{this, connection, std::move(payload)};
   GError* error = nullptr;
-  if (!g_thread_pool_push(parser_pool_, job, &error)) {
-    --parse_jobs_;
-    delete job;
+  if (!g_thread_pool_push(parser_pool_, job.get(), &error)) {
     g_clear_error(&error);
     Close(connection, "parser-unavailable");
+    return;
   }
+  job.release();
+  admission.Commit();
 }
 
 void Server::Execute(const std::shared_ptr<Connection>& connection,
@@ -692,7 +827,8 @@ void Server::Write(const std::shared_ptr<Connection>& connection) {
   Destroy(connection->write_source);
 }
 
-void Server::Close(const std::shared_ptr<Connection>& connection, const char* reason) {
+void Server::Close(const std::shared_ptr<Connection>& connection,
+                   const char* reason) noexcept {
   if (connection->closed)
     return;
   const auto pending_input_bytes = connection->input.size();
@@ -705,11 +841,13 @@ void Server::Close(const std::shared_ptr<Connection>& connection, const char* re
   connection->input.clear();
   clients_.erase(connection->id);
   --connections_;
-  g_message("event=client-disconnected instance=%llu pid=%ld uid=%lu gid=%lu reason=%s pending_input_bytes=%zu",
-      static_cast<unsigned long long>(connection->id),
-      static_cast<long>(connection->peer.pid),
-      static_cast<unsigned long>(connection->peer.uid),
-      static_cast<unsigned long>(connection->peer.gid), reason, pending_input_bytes);
+  LOG(INFO) << "event=client-disconnected instance="
+            << static_cast<unsigned long long>(connection->id)
+            << " pid=" << static_cast<long>(connection->peer.pid)
+            << " uid=" << static_cast<unsigned long>(connection->peer.uid)
+            << " gid=" << static_cast<unsigned long>(connection->peer.gid)
+            << " reason=" << reason
+            << " pending_input_bytes=" << pending_input_bytes;
 }
 
 void Server::Publish(const consent::Message& snapshot) {
@@ -730,33 +868,36 @@ void Server::Publish(const consent::Message& snapshot) {
   }
 }
 
-void Server::Stop() {
+void Server::Stop() noexcept {
   if (stopping_.exchange(true))
     return;
   sd_notify(0, "STOPPING=1");
-  g_socket_service_stop(listener_);
+  if (listener_) g_socket_service_stop(listener_);
   Destroy(tick_);
-  g_message("event=shutdown stage=stop-admission");
-  Post(io_context_, [this] {
-    auto clients = clients_;
-    for (const auto& entry : clients)
-      Close(entry.second, "daemon-shutdown");
-    // Run after all accepted jobs. The main and I/O loops remain alive until
-    // the DB queue and parser completions have drained.
-    ++db_jobs_;
-    g_async_queue_push(db_queue_, new std::function<void()>([this] {
-      try {
-        if (repository_)
-          repository_->Shutdown();
-      } catch (...) {
-        g_warning("event=shutdown reason=storage-failed cleanup=unconfirmed");
-      }
-      Post(main_context_, [this] {
-        g_message("event=shutdown stage=database-drained");
-        g_main_loop_quit(main_loop_);
-      });
-    }));
-  });
+  LOG(INFO) << "event=shutdown stage=stop-admission";
+  g_source_set_ready_time(stop_io_source_, 0);
+  g_main_context_wakeup(io_context_);
+}
+
+void Server::StopIo() noexcept {
+  while (!clients_.empty()) {
+    auto connection = clients_.begin()->second;
+    Close(connection, "daemon-shutdown");
+  }
+  // One preallocated final job may exceed normal admission by one. All normal
+  // producers are stopped; FIFO preserves accepted DB work before shutdown.
+  ++db_jobs_;
+  g_async_queue_push(db_queue_, shutdown_job_.release());
+}
+
+void Server::ShutdownDatabase() noexcept {
+  try {
+    if (repository_) repository_->Shutdown();
+  } catch (...) {
+    LOG(ERROR) << "event=shutdown reason=storage-failed cleanup=unconfirmed";
+  }
+  g_source_set_ready_time(finished_source_, 0);
+  g_main_context_wakeup(main_context_);
 }
 
 }  // namespace consentd

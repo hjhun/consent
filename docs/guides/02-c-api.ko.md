@@ -646,7 +646,9 @@ consent_params_set(params, "cursor", "");
 위치는 지속 DB incarnation과 인증된 holder/process/subject/profile/reconcile
 scope에 묶습니다. 같은 holder 프로세스의 정상 daemon 재시작에서는 유지되며,
 새 프로세스는 reconcile=1이어도 새 sweep을 시작합니다. cache epoch와 ACK policy
-revision은 별개입니다. DB reset STALE 또는 caller scope 변경 후에는 기존 순회를
+revision은 별개입니다. DB reset은 STALE, caller scope 변경은
+PERMISSION_DENIED를 반환합니다. 잘못된 token은 INVALID_PARAMETER입니다.
+이 오류 후에는 기존 순회를
 폐기하고 새 sweep을 시작하며 내부 CleanupProgress owner도 continuation을
 명시적으로 초기화합니다. 이 초기화는 물리삭제 완료 근거가 아닙니다.
 페이지/API 오류를 삭제 성공으로 처리하지 않습니다.

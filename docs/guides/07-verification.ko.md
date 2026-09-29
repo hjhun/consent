@@ -1219,3 +1219,67 @@ cache/async 성능 근거가 아닙니다.
 이번 snapshot의 검증 범위는 cleanup 순회입니다. 최종 ownership/GIO/DLOG/storage/
 정상 reboot 회귀는 후속 작업이며 이전 빌드 storage/shutdown을 이번 실행으로
 소급하지 않습니다.
+
+
+## Build31 실패 보존과 Build32 ownership/DLOG 검증
+
+2026-09-29의 증분2 frozen source는 Build32 tree
+`8b78319ed8c73c4d3f7b8c1d609b989d56f0134d`입니다. Build31 tree
+`b9c5413af357ac727e5c03cde0b56a41d8673483`는 offline identity 시험의
+`key_file.cc` 누락으로 %build 링크 실패했습니다. 실패 archive/diff/log를
+`/var/tmp/consent-artifacts/gbs-build-31/`에 보존하고, 해당 target 연결을
+수정한 뒤 새 번호로 고정했습니다. Build32 빌드 중 소스는 변경하지 않았습니다.
+
+정확 command, archive, diff, GBS log, LastTest.log, RPM 및 SHA256SUMS는
+`/var/tmp/consent-artifacts/gbs-build-32/`에 있습니다. 명령은 다음과 같습니다.
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+%check: 22개 중 18 PASS, 실제 root 전용 4 SKIP, 0 FAIL입니다.
+cleanup GTest/GMock 10개, ownership/logger 13개가 통과했습니다.
+부가 native 13 PASS는 SDK headers와 host GLib/SQLite 조합이며 GBS 또는
+emulator 근거로 확대하지 않습니다. 정확 성공 argv/env와 초기 실패 로그는
+`/var/tmp/consent-artifacts/native-increment31/`에 구분 보존했습니다.
+
+Release3 matching consent/consentd/tests/devel/poc 5종은
+emulator-26101 x86_64에 설치했습니다. 첫 System context 설치는 SMACK label과
+service 파일 쓰기 거부로 부분 실패했습니다. 원본 install.log를 유지하고,
+System::Privileged에서 정상 rpm -Uvh --replacepkgs transaction으로 전체를
+재설치해 service exit0 및 동일 0.1.0-3 NEVRA를 확인했습니다. --nodeps 또는
+production role 완화는 사용하지 않았습니다. requires의 GTest/GMock는 tests에만
+있고 runtime/daemon/devel/poc에는 없습니다.
+
+새 실제 근거는 `/var/tmp/consent-artifacts/emulator-build-32/`에 있습니다.
+
+- ownership 13 PASS/12ms, cleanup 10 PASS/41ms, public C API ABI/ownership PASS.
+- fresh isolated basic, C API cleanup97, malformed/fragmented/pressure wire,
+  partial-I/O shutdown, accepted DB revoke drain 후 durable revocation PASS.
+- root SKIP 4종을 packaged offline registration/identity, storage prepare,
+  image-root authority fixture로 다시 실행해 모두 service exit0.
+- installed-hash-audit-batched.json: regular 142 중 141 일치. 기존 PoC 시험의
+  `/etc/consent-poc/roles.conf`는 %config(noreplace) 보존으로 별도 기록합니다.
+  installed-payload-audit.json의 보존 config 제외 141/141은 일치합니다.
+  production daemon/library/devel rpm -V도 exit0입니다.
+- production default-deny actor PID3549928 UID0 status=-107과 동일 PID/UID,
+  instance1의 daemon 인증 거부를 결합했습니다. disconnect 단독을 role 거부
+  근거로 사용하지 않습니다. daemon security_fw UID/GID402, state700/DB600.
+- 실제 dlog_print: PID3547174의 I/CONSENT, ownership_test.cc:155 source와
+  percent=100% 원문을 확인했습니다. GMock sink 시험과 별개의 실제 backend
+  근거입니다. daemon PID3548033의 I/CONSENTD server.cc source, partial input2,
+  stop-admission/database-drained는 stderr/journal fixture와 대조했습니다.
+  전역 log clear는 하지 않았습니다.
+
+이번 구현은 transactional admission, FD/GLib allocation RAII, bounded
+Dispatcher 취소, noexcept callback/Close/Stop 경계와 할당 없는 shutdown job을
+추가합니다. preallocated I/O quit source는 thread가 Run에 진입하기 전에 발생한
+종료를 보존합니다. wake source는 producer join 및 queued callback 취소 이후
+파괴합니다. Stop/drain 시험은 실제 DB sentinel→join 뒤 카운터를 확인합니다.
+
+Build29/30 근거는 이전 source 범위로 유지합니다. GIO client 전환, 동일 persistent
+handle 성능 전후 비교, registry-loss helper 설계/구현, final storage/reboot/CEP
+감사는 아직 완료가 아닙니다. 성능 fixture의 실패 setup 로그를 성공 baseline으로
+취급하지 않습니다. 외부 제품 identity/provider 연결은 실제 공급원이 필요한
+범위를 별도로 유지합니다.

@@ -675,7 +675,8 @@ The position is bound to durable DB incarnation and authenticated
 holder/process/subject/profile/reconcile scope. It survives a normal daemon
 restart for the same holder process. A new process starts a fresh sweep, even
 with reconcile=1. Cache epoch and ACK policy revision are separate values.
-STALE after DB reset or a changed caller scope requires the caller to abandon
-its old traversal and start a new sweep; an internal CleanupProgress owner
+DB reset returns STALE; a changed caller scope returns PERMISSION_DENIED.
+Malformed tokens return INVALID_PARAMETER. After these errors, the caller
+abandons its old traversal and starts a new sweep; an internal CleanupProgress owner
 explicitly resets its continuation first. This reset does not attest to physical
 data deletion. A page/API failure is not a successful deletion result.

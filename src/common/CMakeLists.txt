@@ -4,12 +4,12 @@ IF(COMMON_SOURCES)
   TARGET_INCLUDE_DIRECTORIES(consent-common PUBLIC
     "${PROJECT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_BINARY_DIR}/generated")
-  TARGET_LINK_LIBRARIES(consent-common PUBLIC PkgConfig::GLIB PkgConfig::PARCEL Threads::Threads)
+  TARGET_LINK_LIBRARIES(consent-common PUBLIC PkgConfig::GLIB PkgConfig::PARCEL PkgConfig::DLOG Threads::Threads)
 ELSE()
   ADD_LIBRARY(consent-common INTERFACE)
   TARGET_INCLUDE_DIRECTORIES(consent-common INTERFACE
     "${PROJECT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_BINARY_DIR}/generated")
-  TARGET_LINK_LIBRARIES(consent-common INTERFACE PkgConfig::GLIB PkgConfig::PARCEL Threads::Threads)
+  TARGET_LINK_LIBRARIES(consent-common INTERFACE PkgConfig::GLIB PkgConfig::PARCEL PkgConfig::DLOG Threads::Threads)
 ENDIF()
 ADD_DEPENDENCIES(consent-common consent-wire)

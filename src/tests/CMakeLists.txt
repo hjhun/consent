@@ -36,9 +36,22 @@ FOREACH(SOURCE ${TEST_SOURCES})
   IF(TARGET consent-storage)
     TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-storage)
   ENDIF()
-  IF(TEST_NAME STREQUAL "cleanup-pagination-test")
+  IF(TEST_NAME STREQUAL "cleanup-pagination-test" OR
+      TEST_NAME STREQUAL "ownership-test")
     TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE
       PkgConfig::GTEST PkgConfig::GMOCK)
+  ENDIF()
+  IF(TEST_NAME STREQUAL "offline-identity-test")
+    TARGET_SOURCES(${TEST_NAME} PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc")
+  ENDIF()
+  IF(TEST_NAME STREQUAL "ownership-test")
+    TARGET_SOURCES(${TEST_NAME} PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/consentd/server.cc"
+      "${PROJECT_SOURCE_DIR}/src/consentd/identity.cc"
+      "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc")
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE
+      PkgConfig::SYSTEMD PkgConfig::PKGMGR)
   ENDIF()
   ADD_TEST(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
   # RPM builds disable RPATH. Resolve the just-built C API for tests that use

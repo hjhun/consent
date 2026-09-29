@@ -1307,3 +1307,72 @@ startup and output; it is not per-call latency/cache/async performance evidence.
 This snapshot verifies cleanup traversal. Final ownership/GIO/DLOG/storage and
 normal reboot regressions remain subsequent work; no previous-build storage or
 shutdown result is counted as this snapshot's new execution.
+
+
+## Preserved Build31 failure and Build32 ownership/DLOG verification
+
+Increment 2 froze Build32 tree
+`8b78319ed8c73c4d3f7b8c1d609b989d56f0134d` on 2026-09-29. Build31 tree
+`b9c5413af357ac727e5c03cde0b56a41d8673483` failed at %build linking because
+its offline identity test lacked key_file.cc. Its archive, diff and log remain
+under `/var/tmp/consent-artifacts/gbs-build-31/`. The target source connection
+was corrected and frozen under a new number. Source stayed unchanged during
+Build32's build.
+
+Exact command, archive, diff, GBS log, LastTest.log, RPMs and SHA256SUMS are in
+`/var/tmp/consent-artifacts/gbs-build-32/`:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+%check: 18 PASS, 4 explicit real-root SKIP, 0 FAIL out of 22 tests. Cleanup's
+10 GTest/GMock tests and 13 ownership/logger tests passed. Supplementary native
+13 PASS used SDK headers and host GLib/SQLite; they do not establish GBS or
+emulator success. Exact successful argv/env and initial failures remain separate
+under `/var/tmp/consent-artifacts/native-increment31/`.
+
+Matching Release3 consent/consentd/tests/devel/poc packages were installed on
+emulator-26101 x86_64. The first System-context install partially failed when
+SMACK denied label and service-file writes. Original install.log is retained.
+A normal rpm -Uvh --replacepkgs transaction under System::Privileged reinstalled
+all five with service exit0 and matching 0.1.0-3 NEVRA. No --nodeps or production
+role relaxation was used. GTest/GMock requires belong only to tests, absent from
+runtime/daemon/devel/poc.
+
+New target evidence is in `/var/tmp/consent-artifacts/emulator-build-32/`:
+
+- Packaged ownership 13 PASS/12ms, cleanup 10 PASS/41ms and public C API ABI/
+  ownership PASS.
+- Fresh isolated basic, actual C API cleanup97, malformed/fragmented/pressure
+  wire, partial-I/O shutdown and accepted DB revoke drain with durable revocation
+  after restart passed.
+- All four root skips were rerun using packaged offline registration/identity,
+  storage prepare and image-root authority fixtures, each with service exit0.
+- installed-hash-audit-batched.json matches 141 of 142 regular files. The prior
+  PoC fixture's /etc/consent-poc/roles.conf is preserved by %config(noreplace) and
+  recorded separately. installed-payload-audit.json matches all 141 remaining
+  files. Production library/daemon/devel rpm -V also exited0.
+- Production default-deny actor PID3549928 UID0 status=-107 is paired with the
+  daemon's same PID/UID instance1 authentication rejection. Disconnect alone is
+  not role evidence. Service identity remains security_fw UID/GID402, state700
+  and DB600.
+- Actual dlog_print output preserves I/CONSENT, PID3547174, ownership_test.cc:155
+  source and literal percent=100%. This is separate from the GMock sink test.
+  Daemon PID3548033's I/CONSENTD/server.cc output, partial input2 and
+  stop-admission/database-drained are paired with stderr/journal fixtures.
+  Global logs were not cleared.
+
+The implementation adds transactional admission, FD/GLib allocation RAII,
+bounded Dispatcher cancellation, noexcept callback/Close/Stop boundaries and an
+allocation-free shutdown job. A preallocated I/O quit source preserves shutdown
+before the thread enters Run. Wake sources survive producer joins and queued
+callback cancellation. The Stop/drain test checks counters after the actual DB
+sentinel and worker join.
+
+Build29/30 evidence retains its earlier source scope. Client GIO migration,
+matched persistent-handle performance comparison, registry-loss helper design/
+implementation and final storage/reboot/CEP audit remain incomplete. Failed
+performance fixture setup logs are not successful baselines. External product
+identity/provider connections retain explicit requirements for actual sources.

@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    2
+Release:    3
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
@@ -13,6 +13,7 @@ BuildRequires: python3-base
 BuildRequires: pkgconfig(glib-2.0)
 BuildRequires: pkgconfig(gio-2.0)
 BuildRequires: pkgconfig(gio-unix-2.0)
+BuildRequires: pkgconfig(dlog)
 BuildRequires: pkgconfig(sqlite3)
 BuildRequires: pkgconfig(libsystemd)
 BuildRequires: pkgconfig(pkgmgr-info)
