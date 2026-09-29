@@ -1689,3 +1689,80 @@ Build45 `source-correlation.json`, `LastTest.log`,
 `production-{before,after}-fixtures.log`, `installed-hash-audit.json`,
 `rpm-requires-audit.json` and `installed-abi-symbols.log`. These tests
 change no production policy, wire decoder, ABI or security flag.
+
+## Build45 installed regression and orderly reboot rerun
+
+The final Release13 RPM was exercised again because its production binary
+hash differs from Build43's. Under
+`/var/tmp/consent-artifacts/gbs-build-45/current-rerun`, packaged client,
+I/O4 and owner6 fixtures passed. The isolated `persistent`, `running-delete`,
+`shutdown`, `db-shutdown`, `cache` and `wire` phases each returned internal
+zero. The first `stopped-delete` and `db-shutdown` attempts failed the
+fixture's immediate `systemctl is-active` check after successful recovery or
+DB drain: systemd still reported `activating`. `db-shutdown` attempt2 passed;
+both `stopped-delete` attempts remain failures. Separate service-start,
+integrity and `cleanup_unknown=1` observations are supporting evidence, not
+a retroactive phase pass.
+
+After earlier deletion tests, the inherited isolated DB produced an expected
+decision mismatch in the first `persistent` attempt (exit1). That log does
+not identify the cause of the mismatch. The three isolated stores were
+hashed and moved to named
+`*-build45-archive` paths. A fresh isolated `basic` then created a durable
+PERSISTENT approval and both pre- and post-reboot `persistent` phases passed.
+The orderly reboot changed boot ID from
+`75d2b4dc-6fb5-43eb-8530-0ac117840417` to
+`41d99246-ba13-4ed6-97f3-85fe7c756f93`. Five Release13 packages
+persisted; production `consentd` was active with PID2556. The isolated
+registry and receipt SHA256 and all three store inode identities matched
+before and after, and post-reboot DB integrity was `ok`. This is isolated
+approval persistence across an orderly reboot, not abrupt power-loss or
+product argo/session evidence. Production restart/integrity and default-deny
+were also rerun; actor PID13300/UID0 matched daemon PID9642's two
+`role=rejected` logs, with negative create status and NULL handles.
+
+## Build46 identity and session regression (2026-09-30)
+
+Release14 archive SHA256 starts `150a785d`. All 239 frozen source files
+matched the GBS export and working tree at correlation time; these guide
+edits are later. GBS exit0 completed 27 CTest entries: 23 PASS and four
+explicit root SKIP. The five matching RPMs upgraded on the emulator with
+internal exit0. Installed repository-test passed server-generated session ID,
+valid first-session use and cross-session `data_check`/derived-parent
+`-EACCES`; its stopped fixture DB had no second-session artifact.
+
+The installed checker-only wire fixture sent `session_open` with valid
+subject/profile but forged PID/UID/GID. Actor PID5693/UID0/GID0 and forged
+105693/100000/100000 are in the test log. The correlated reply was exact
+`CONSENT_ERROR_PERMISSION_DENIED` with no session, followed by a healthy
+Hello. DLOG from isolated daemon PID5683 reported the real peer PID/UID/GID
+and `role=wire-scenario` twice. With the daemon stopped for both reads,
+session count stayed 1 before and after. Outer identity policy and inner
+repository role guard share the denial code; this proves the combined
+fail-closed result, not which layer returned it. A-47 remains Partial.
+
+The scenario's bounded `/proc/uptime` readiness check now requires
+`ActiveState=active`, `Result=success` and an unchanged nonzero MainPID.
+Installed `stopped-delete`, `db-shutdown` and `running-delete` each passed
+with that check, recovery and stopped-DB integrity.
+After archiving the prior isolated state/authority/control with hashes,
+Release14 also passed a fresh `basic`, followed by `cache` and full `wire`
+phases, each with internal exit0. The production
+default-deny probe returned negative statuses and NULL handles; actor
+PID6436/UID0 was rejected by daemon PID5455 in two matching DLOG entries.
+With the production service stopped, a privileged readback returned
+`integrity_check=ok` and schema version2; the socket/service then restarted
+with PID8067, `active` and `Result=success`.
+Installed regular-file hashes matched 154/155 RPM entries; the sole mismatch
+is the preserved POC roles file marked `%config(noreplace)`, so full `rpm -V`
+exited 1 for that config only. ABI remains 42 versioned symbols, and
+GTest/GMock runtime requirements occur only in `consent-tests`.
+The packaged offline registration, offline identity, storage prepare,
+recovery-state (three GTests), and image-root authority fixtures also ran
+as actual root/System::Privileged on the emulator with internal exit0.
+
+Build46 source, GBS, package and device logs are under
+`/var/tmp/consent-artifacts/gbs-build-46`. Build45 failures remain in their
+original numbered files. Production desired-definition source, total
+registry recovery, physical holder cleanup and external product adapters
+remain open.

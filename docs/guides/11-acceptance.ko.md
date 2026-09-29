@@ -1,12 +1,15 @@
 # 11. CEP 19.2 수용 기준 감사
 
 이 표는 [Design 01의 63개 수용 기준](../design/01-consent-framework.md)을
-Build43 Release11 근거에 대응합니다. `Target`은 지정한 framework 동작을
+Build43 Release11과 번호가 다른 Build45–46 추가 근거에 대응합니다.
+`Target`은 지정한 framework 동작을
 emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통합을 뜻하지
 않습니다. `Partial`은 범위가 좁거나 실패 조건 시험이 남았고, `Product`는
 실제 제품 participant 또는 신뢰할 producer가 없다는 뜻입니다. 번호별
-로그는 `/var/tmp/consent-artifacts/gbs-build-43`에 있습니다. Guide07의
-이전 Build 근거를 Build43 재실행으로 소급하지 않습니다.
+로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46}`에 있습니다.
+추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build46
+재실행으로 소급하지 않습니다. 현재 집계는 Target21, Partial35,
+Product7입니다.
 
 | ID | 범위 | 근거 또는 남은 경계 |
 | --- | --- | --- |
@@ -42,7 +45,7 @@ emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통
 | A-30 | Partial | Provenance revoke fixture; 실제 파생 data 없음. |
 | A-31 | Product | 실제 inference 경계·model 문맥 cleanup 없음. |
 | A-32 | Partial | Holder ACK 재시도 metadata; 물리적 삭제 미증명. |
-| A-33 | Partial | Holder instance 불일치 거부; session ID 위조·교차 session artifact 미시험. |
+| A-33 | Target | Build46 packaged fixture: 서버 ID가 입력 ID를 대체; 같은 holder/context도 타 세션 artifact check·derived 거부. 첫 세션 허용 유지, 둘째 artifact 없음. 제품 holder는 별개. |
 | A-34 | Partial | MEMORY_ONLY 규칙; 메모리 압박/spill 미증명. |
 | A-35 | Product | History/embedding writer 및 제한 상속 없음. |
 | A-36 | Product | 외부 model recipient 통합 없음. |
@@ -56,7 +59,7 @@ emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통
 | A-44 | Partial | Bounded thread 설계; 장기 구독 부하 미증명. |
 | A-45 | Partial | Async queue 설계; 장기 승인 대기 부하 미증명. |
 | A-46 | Target | 설치된 wire 분할/EOF/크기 fixture. |
-| A-47 | Partial | Kernel peer credential 사용; payload PID/UID 위조 시험 없음. |
+| A-47 | Partial | Build46 checker의 PID/UID/GID 위조 session 요청 거부; DLOG는 실제 kernel peer 사용. 안팎 role guard 구분 및 다른 역할은 미증명. |
 | A-48 | Partial | 역할 거부 확인; SO_PEERCRED 실패 주입 부족. |
 | A-49 | Partial | Bounds/fault fixture; 지속 과부하 수치 부족. |
 | A-50 | Target | Matching service의 socket activation·READY. |

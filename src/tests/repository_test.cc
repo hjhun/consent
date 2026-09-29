@@ -367,6 +367,74 @@ void SessionsAndData() {
                "cleanup ACK\n";
 }
 
+void CrossSessionArtifacts() {
+  Fixture fixture;
+  fixture.Call(fixture.installer, fixture.Definition());
+  Message open = {{"method", "session_open"},
+                  {"subject", "agent"},
+                  {"profile", "profile"},
+                  {"session", "attacker-chosen-session"}};
+  auto first = fixture.Call(fixture.argo, open);
+  auto first_id = consent::Get(first, "session");
+  Check(first_id != open["session"], "session ID is server generated");
+  auto second = fixture.Call(fixture.argo, open);
+  auto second_id = consent::Get(second, "session");
+  Check(second_id != first_id && second_id != open["session"],
+        "second session ID is independently generated");
+
+  auto request = fixture.Context();
+  request["session"] = first_id;
+  request["generation"] = "1";
+  fixture.Approve(request, "PERSISTENT");
+  request["mode"] = "AUTHORIZE";
+  auto receipt = fixture.Call(fixture.checker, request);
+  Message data = {{"method", "data_register"},
+                  {"subject", "agent"},
+                  {"profile", "profile"},
+                  {"session", first_id},
+                  {"generation", "1"},
+                  {"receipt", consent::Get(receipt, "receipt")},
+                  {"scope", "today"},
+                  {"purpose", "answer"}};
+  auto artifact = fixture.Call(fixture.holder, data);
+  data["method"] = "data_check";
+  data["artifact"] = consent::Get(artifact, "artifact");
+  Check(
+      consent::Get(fixture.Call(fixture.holder, data), "decision") == "ALLOWED",
+      "first session artifact remains valid");
+
+  data["session"] = second_id;
+  fixture.Call(fixture.holder, data, -EACCES);
+  data["method"] = "data_register_derived";
+  data["count"] = "1";
+  data["parent0"] = consent::Get(artifact, "artifact");
+  fixture.Call(fixture.holder, data, -EACCES);
+  data["session"] = first_id;
+  data["method"] = "data_check";
+  Check(
+      consent::Get(fixture.Call(fixture.holder, data), "decision") == "ALLOWED",
+      "cross-session denial leaves original usable");
+
+  fixture.repository.reset();
+  sqlite3* database = nullptr;
+  Check(sqlite3_open_v2(fixture.database.c_str(), &database,
+                        SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK,
+        "open stopped fixture database");
+  sqlite3_stmt* query = nullptr;
+  Check(sqlite3_prepare_v2(database,
+                           "SELECT count(*) FROM artifacts WHERE session=?", -1,
+                           &query, nullptr) == SQLITE_OK,
+        "prepare second-session artifact count");
+  Check(sqlite3_bind_text(query, 1, second_id.c_str(), -1, SQLITE_TRANSIENT) ==
+            SQLITE_OK,
+        "bind second session");
+  Check(sqlite3_step(query) == SQLITE_ROW && sqlite3_column_int(query, 0) == 0,
+        "cross-session derived request created no artifact");
+  sqlite3_finalize(query);
+  sqlite3_close(database);
+  std::cout << "PASS server session IDs and cross-session artifact denial\n";
+}
+
 void Recovery() {
   Fixture fixture;
   fixture.Call(fixture.installer, fixture.Definition());
@@ -796,6 +864,7 @@ int main() {
     PolicyAndRegistry();
     AllOrNothingAndPrompt();
     SessionsAndData();
+    CrossSessionArtifacts();
     Recovery();
     ExpiryAndFailureFences();
     CacheAndSessionDeadlines();

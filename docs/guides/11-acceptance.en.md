@@ -1,13 +1,16 @@
 # 11. CEP 19.2 acceptance audit
 
 This audit maps every proposed [Design 01 acceptance item](../design/01-consent-framework.md)
-to the Build43 Release11 evidence. `Target` means the named framework behavior
+to Build43 Release11 evidence and the numbered Build45–46 supplements.
+`Target` means the named framework behavior
 ran on the emulator in isolated/package fixtures; it does not imply that an
 external product is integrated. `Partial` means a narrower behavior ran or
 a failure mode remains untested. `Product` means the required real participant
 or trusted producer is absent. The exact numbered logs are under
-`/var/tmp/consent-artifacts/gbs-build-43`; prior build evidence in Guide 07
-is historical, not a Build43 rerun. A proposed criterion is not itself a test.
+`/var/tmp/consent-artifacts/gbs-build-{43,45,46}`. Each row names the later
+build when it changes the evidence; prior results are not a Build46 rerun.
+A proposed criterion is not itself a test. Current counts are Target21,
+Partial35 and Product7.
 
 | ID | Scope | Evidence or remaining boundary |
 | --- | --- | --- |
@@ -43,7 +46,7 @@ is historical, not a Build43 rerun. A proposed criterion is not itself a test.
 | A-30 | Partial | Provenance revoke fixture; real derived data absent. |
 | A-31 | Product | Real inference boundary and model context cleanup absent. |
 | A-32 | Partial | Holder ACK retry metadata; physical erasure unproved. |
-| A-33 | Partial | Holder instance mismatch rejected; forged session ID and cross-session artifact cases untested. |
+| A-33 | Target | Build46 packaged fixture: server ID overrides supplied ID; same holder/context cannot check or derive from another session's artifact. First session remains allowed; second has no artifact. Product holder remains separate. |
 | A-34 | Partial | MEMORY_ONLY rule; actual memory pressure/spill unproved. |
 | A-35 | Product | History/embedding writer and inherited restrictions absent. |
 | A-36 | Product | External-model recipient integration absent. |
@@ -57,7 +60,7 @@ is historical, not a Build43 rerun. A proposed criterion is not itself a test.
 | A-44 | Partial | Bounded thread design; sustained subscription load unproved. |
 | A-45 | Partial | Async queue design; long approval wait load unproved. |
 | A-46 | Target | Installed wire fragmentation/EOF/size fixtures. |
-| A-47 | Partial | Kernel peer credentials used; payload PID/UID spoof test absent. |
+| A-47 | Partial | Build46 checker payload PID/UID/GID spoof denied session role; DLOG uses actual kernel peer. Outer versus inner role guard and other roles remain unproved. |
 | A-48 | Partial | Rejected roles seen; explicit SO_PEERCRED failure injection pending. |
 | A-49 | Partial | Bounds/fault fixtures; sustained overload measurements pending. |
 | A-50 | Target | Socket activation and READY in matching service. |

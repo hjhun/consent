@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "common/message.hh"
+#include "consent.h"
 
 #include <fcntl.h>
 #include <poll.h>
@@ -89,6 +90,21 @@ class Connection final {
     return Send(frame.data(), frame.size(), timeout, transmitted);
   }
   bool Reply(uint64_t id, unsigned timeout = 3000) {
+    consent::Message response;
+    if (!ReadReply(id, &response, timeout))
+      return false;
+    Require(consent::Number(response, "status", -1) == 0, "hello rejected");
+    Require(!consent::Get(response, "epoch").empty(), "hello epoch missing");
+    Require(consent::Get(response, "approval_version") == "1",
+            "hello approval capability missing");
+    if (baseline_epoch.empty())
+      baseline_epoch = consent::Get(response, "epoch");
+    Require(consent::Get(response, "epoch") == baseline_epoch,
+            "daemon generation changed during wire fixture");
+    return true;
+  }
+  bool ReadReply(uint64_t id, consent::Message* response,
+                 unsigned timeout = 3000) {
     gint64 deadline = g_get_monotonic_time() + timeout * 1000LL;
     for (;;) {
       uint8_t header[4];
@@ -99,22 +115,13 @@ class Connection final {
       std::vector<uint8_t> body(size);
       if (!Read(body.data(), body.size(), deadline))
         return false;
-      consent::Message response;
-      Require(consent::Decode(body.data(), body.size(), &response),
+      Require(consent::Decode(body.data(), body.size(), response),
               "invalid native Parcel reply");
-      if (consent::Get(response, "method") == "event")
+      if (consent::Get(*response, "method") == "event")
         continue;
-      Require(consent::Get(response, "method") == "reply", "not a reply");
-      Require(consent::Number(response, "id") == static_cast<int64_t>(id),
+      Require(consent::Get(*response, "method") == "reply", "not a reply");
+      Require(consent::Number(*response, "id") == static_cast<int64_t>(id),
               "reply correlation");
-      Require(consent::Number(response, "status", -1) == 0, "hello rejected");
-      Require(!consent::Get(response, "epoch").empty(), "hello epoch missing");
-      Require(consent::Get(response, "approval_version") == "1",
-              "hello approval capability missing");
-      if (baseline_epoch.empty())
-        baseline_epoch = consent::Get(response, "epoch");
-      Require(consent::Get(response, "epoch") == baseline_epoch,
-              "daemon generation changed during wire fixture");
       return true;
     }
   }
@@ -189,6 +196,43 @@ void Healthy() {
   g_usleep(20000);
   Connection connection;
   Require(connection.Hello(), "daemon unavailable after malformed input");
+}
+
+void IdentitySpoof() {
+  Connection connection;
+  Require(connection.Hello(), "identity-spoof hello");
+  auto actual_pid = static_cast<long>(getpid());
+  auto actual_uid = static_cast<unsigned long>(getuid());
+  auto actual_gid = static_cast<unsigned long>(getgid());
+  auto forged_pid = actual_pid + 100000;
+  auto forged_uid = actual_uid + 100000;
+  auto forged_gid = actual_gid + 100000;
+  printf(
+      "actor_pid=%ld actor_uid=%lu actor_gid=%lu "
+      "forged_pid=%ld forged_uid=%lu forged_gid=%lu\n",
+      actual_pid, actual_uid, actual_gid, forged_pid, forged_uid, forged_gid);
+  auto frame = consent::Encode({{"v", "1"},
+                                {"id", "2"},
+                                {"method", "session_open"},
+                                {"subject", "demo.subject"},
+                                {"profile", "demo.profile"},
+                                {"pid", std::to_string(forged_pid)},
+                                {"uid", std::to_string(forged_uid)},
+                                {"gid", std::to_string(forged_gid)}});
+  Require(!frame.empty(), "encode forged identity request");
+  Require(connection.Send(frame), "send forged identity request");
+  consent::Message response;
+  Require(connection.ReadReply(2, &response), "read forged identity reply");
+  Require(
+      consent::Number(response, "status") == CONSENT_ERROR_PERMISSION_DENIED,
+      "forged identity gained session-controller privilege");
+  Require(consent::Get(response, "session").empty(),
+          "forged identity returned a session");
+  Healthy();
+  printf(
+      "PASS wire forged payload rejected actual=%ld/%lu/%lu "
+      "forged=%ld/%lu/%lu\n",
+      actual_pid, actual_uid, actual_gid, forged_pid, forged_uid, forged_gid);
 }
 
 void Rejected(const char* name, const std::vector<uint8_t>& frame,
@@ -369,13 +413,17 @@ void ShutdownWait() {
 
 int main(int argc, char** argv) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
-  if (argc != 1 && (argc != 2 || strcmp(argv[1], "--shutdown-wait"))) {
-    fprintf(stderr, "Usage: %s [--shutdown-wait]\n", argv[0]);
+  if (argc != 1 && (argc != 2 || (strcmp(argv[1], "--shutdown-wait") &&
+                                  strcmp(argv[1], "--identity-spoof")))) {
+    fprintf(stderr, "Usage: %s [--shutdown-wait|--identity-spoof]\n", argv[0]);
     return 2;
   }
   try {
     if (argc == 2) {
-      ShutdownWait();
+      if (!strcmp(argv[1], "--shutdown-wait"))
+        ShutdownWait();
+      else
+        IdentitySpoof();
       return 0;
     }
     Framing();

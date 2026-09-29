@@ -31,6 +31,41 @@ authority() {
   systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
     "$authority_tool" "$@"
 }
+wait_active() {
+  deadline=$(awk '{printf "%d", $1 * 1000 + 3000}' /proc/uptime)
+  initial_pid=0
+  while :; do
+    active=$(systemctl show consentd-isolated.service \
+      -p ActiveState --value)
+    result=$(systemctl show consentd-isolated.service -p Result --value)
+    current_pid=$(systemctl show consentd-isolated.service \
+      -p MainPID --value)
+    if [ "$initial_pid" = 0 ] && [ "$current_pid" -gt 0 ]; then
+      initial_pid=$current_pid
+    fi
+    if [ "$initial_pid" -gt 0 ] && [ "$current_pid" != "$initial_pid" ]; then
+      break
+    fi
+    if [ "$active" = active ] && [ "$result" = success ] && \
+       [ "$initial_pid" -gt 0 ]; then
+      printf 'PASS ready MainPID=%s ActiveState=active Result=success\n' \
+        "$initial_pid"
+      return 0
+    fi
+    if [ "$active" = failed ] || [ "$result" != success ]; then
+      break
+    fi
+    now=$(awk '{printf "%d", $1 * 1000}' /proc/uptime)
+    if [ "$now" -ge "$deadline" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+  systemctl show consentd-isolated.service \
+    -p MainPID -p ActiveState -p Result
+  journalctl -u consentd-isolated.service --no-pager -n 30
+  return 1
+}
 daemon_binary=$tools/consentd-test
 observer=
 drain_open=0
@@ -230,6 +265,34 @@ case "$phase" in
     [ "$pressure_after" -gt "$pressure_before" ]
     echo \
   "PASS wire same daemon PID=$daemon_pid quota_rejections=4 output-pressure-reason-confirmed"
+    ;;
+  identity-spoof)
+    systemctl stop consentd-isolated.socket consentd-isolated.service
+    before=$(sqlite3 "$state/consent.db" 'SELECT count(*) FROM sessions;')
+    systemctl start consentd-isolated.socket consentd-isolated.service
+    daemon_pid=$(systemctl show consentd-isolated.service \
+      -p MainPID --value)
+    [ "$daemon_pid" -gt 0 ]
+    "$tools/wire-scenario" --identity-spoof > \
+      "$runtime/identity-spoof.log"
+    cat "$runtime/identity-spoof.log"
+    actor_pid=$(sed -n 's/^actor_pid=\([0-9]*\) .*/\1/p' \
+      "$runtime/identity-spoof.log")
+    actor_uid=$(sed -n 's/.*actor_uid=\([0-9]*\) .*/\1/p' \
+      "$runtime/identity-spoof.log")
+    actor_gid=$(sed -n 's/.*actor_gid=\([0-9]*\) .*/\1/p' \
+      "$runtime/identity-spoof.log")
+    [ -n "$actor_pid" ] && [ -n "$actor_uid" ] && [ -n "$actor_gid" ]
+    [ "$(systemctl show consentd-isolated.service \
+      -p MainPID --value)" = "$daemon_pid" ]
+    dlogutil -d CONSENTD:V '*:S' | grep "CONSENTD( *$daemon_pid)" | \
+      grep "pid=$actor_pid uid=$actor_uid gid=$actor_gid role="
+    systemctl stop consentd-isolated.socket consentd-isolated.service
+    after=$(sqlite3 "$state/consent.db" 'SELECT count(*) FROM sessions;')
+    [ "$before" = "$after" ]
+    printf 'PASS identity spoof: sessions before=%s after=%s\n' \
+      "$before" "$after"
+    systemctl start consentd-isolated.socket consentd-isolated.service
     ;;
   shutdown)
     systemctl start consentd-isolated.service
@@ -449,7 +512,7 @@ OBSERVER
   *) echo "Unknown phase: $phase" >&2; exit 2 ;;
 esac
 if [ "$phase" != basic ] && [ "$phase" != shutdown ]; then
-  systemctl is-active consentd-isolated.service
+  wait_active
 fi
 # Daemon owns the live DB. Perform SQLite readback only with the service
 # stopped.

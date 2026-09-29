@@ -1582,3 +1582,75 @@ Build45 `source-correlation.json`, `LastTest.log`, `rpm-upgrade-actual.log`,
 `installed-hash-audit.json`, `rpm-requires-audit.json`,
 `installed-abi-symbols.log`입니다. Production policy·wire decoder·ABI·
 security flag는 변경하지 않았습니다.
+
+## Build45 설치 회귀와 정상 재부팅 재시험
+
+Release13 생산 바이너리 hash가 Build43과 달라 실제 설치 RPM을 다시
+시험했습니다. `/var/tmp/consent-artifacts/gbs-build-45/current-rerun`의
+packaged client, IO4, owner6 시험과 격리 `persistent`, `running-delete`,
+`shutdown`, `db-shutdown`, `cache`, `wire`는 내부 종료값 0입니다. 첫
+`stopped-delete`와 `db-shutdown` 시도는 복구 또는 DB drain 뒤 단발
+`systemctl is-active`가 아직 `activating`을 읽어 실패했습니다.
+`db-shutdown` 2차 시도는 통과했지만 `stopped-delete` 두 시도는 실패로
+보존합니다. 별도 서비스 시작, DB 무결성, `cleanup_unknown=1`은 보조
+근거이며 실패한 phase를 PASS로 바꾸지 않습니다.
+
+앞선 삭제 시험 뒤 기존 격리 DB의 첫 `persistent`는 예상 decision 불일치로
+종료값 1을 기록했습니다. 그 로그만으로 불일치의 원인은 확정할 수
+없습니다. 기존 격리 store 세 곳을 hash로 기록하고 각각 이름에
+`-build45-archive`를 붙여 보존했습니다. 새 격리 `basic`으로 PERSISTENT
+승인을 만들고 재부팅 전후 `persistent`를 모두 통과했습니다. 정상
+재부팅으로 boot ID는 `75d2b4dc-6fb5-43eb-8530-0ac117840417`에서
+`41d99246-ba13-4ed6-97f3-85fe7c756f93`으로 바뀌었습니다. Release13
+패키지 5개가 유지되고 생산 `consentd`는 PID2556으로 active였습니다.
+격리 registry·receipt의 SHA256과 세 store의 inode가 전후 같고,
+재부팅 뒤 DB 무결성은 `ok`입니다. 이는 정상 재부팅에서 격리 승인
+지속성의 근거이며 돌연 전원 상실이나 제품 argo/session 근거는 아닙니다.
+생산 서비스 재시작·무결성과 default-deny도 다시 확인했습니다. actor
+PID13300/UID0은 daemon PID9642의 두 `role=rejected` 로그와 일치했고,
+create는 음수 상태와 NULL handle을 반환했습니다.
+
+## Build46 신원·세션 회귀 (2026-09-30)
+
+Release14 archive SHA256은 `150a785d`로 시작합니다. 고정 소스 239개는
+그 시점의 GBS export·작업 트리와 모두 같고, 이 가이드 수정은 그 뒤
+변경입니다. GBS 종료값 0, CTest27 중 23 PASS와 root 전용 4 SKIP입니다.
+동일 릴리스 RPM 5개의 emulator 업그레이드 내부 종료값은 0입니다.
+설치된 repository-test는 서버 발급 session ID, 첫 세션의 정상 사용,
+다른 세션의 `data_check`·derived parent `-EACCES`를 확인했습니다.
+중지된 fixture DB에는 두 번째 세션 artifact가 없었습니다.
+
+설치된 checker 전용 wire fixture는 유효한 subject/profile과 위조
+PID/UID/GID를 담아 `session_open`을 보냈습니다. 실제 actor는
+PID5693/UID0/GID0, 위조값은 105693/100000/100000입니다. 연관된 응답은
+정확히 `CONSENT_ERROR_PERMISSION_DENIED`, 반환 session 없음이었고 다음
+Hello는 정상입니다. 격리 daemon PID5683의 DLOG 두 건은 실제 커널
+PID/UID/GID와 `role=wire-scenario`를 기록했습니다. daemon을 중지하고
+읽은 DB session 수는 전후 1입니다. 바깥 identity policy와 안쪽
+repository role guard가 같은 거부 코드를 쓰므로 어느 층이 반환했는지는
+이 시험 하나로 구분할 수 없습니다. 결합된 fail-closed 동작을 검증했으며
+A-47은 Partial입니다.
+
+시나리오의 `/proc/uptime` 기반 제한 대기는 `ActiveState=active`,
+`Result=success`, 변하지 않은 0이 아닌 MainPID를 요구합니다. 설치된
+`stopped-delete`, `db-shutdown`, `running-delete`는 이 조건과 복구·중지된
+DB 무결성 검사를 모두 통과했습니다. 기존 격리 state/authority/control을
+hash와 함께 archive한 뒤 Release14의 새 `basic`, 이어진 `cache`와 전체
+`wire`도 각각 내부 종료값 0입니다. 생산 default-deny probe는 음수
+상태와 NULL handle을 반환했고 actor PID6436/UID0은 daemon PID5455의
+DLOG 두 건에서 거부됐습니다.
+생산 서비스를 중지한 상태의 privileged DB 조회는
+`integrity_check=ok`와 schema version2였고, socket/service 재시작은
+PID8067, `active`, `Result=success`였습니다. 설치 regular file은
+RPM 155개 중 154개 hash가 일치합니다. 유일한 차이는
+`%config(noreplace)`인 POC roles 파일로,
+전체 `rpm -V` 종료값 1도 이 설정 파일 때문입니다. ABI는 versioned
+symbol42개이고 GTest/GMock runtime 의존성은 `consent-tests`에만 있습니다.
+설치된 offline registration, offline identity, storage prepare,
+recovery-state(GTest 3개), image-root authority fixture도 실제
+root/System::Privileged에서 내부 종료값 0으로 실행했습니다.
+
+Build46 소스·GBS·패키지·기기 로그는
+`/var/tmp/consent-artifacts/gbs-build-46`에 있습니다. Build45 실패는
+원래 번호의 파일에 남깁니다. 생산 desired-definition 공급원, registry
+전손 복구, 실제 holder 삭제, 외부 제품 adapter는 여전히 열린 과제입니다.

@@ -19,6 +19,9 @@ FOREACH(SOURCE ${TEST_SOURCES})
   IF(TEST_NAME STREQUAL "wire-scenario")
     # The native wire fixture requires an isolated daemon and explicit roles.
     TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-common PkgConfig::GLIB)
+    TARGET_INCLUDE_DIRECTORIES(
+      ${TEST_NAME} PRIVATE "${PROJECT_SOURCE_DIR}/src/consent/inc"
+    )
     TARGET_COMPILE_DEFINITIONS(
       ${TEST_NAME}
       PRIVATE CONSENT_SOCKET_PATH="${CONSENT_TEST_ROOT}/consent.sock"
