@@ -14,7 +14,8 @@ preserved in Korean.
    protocol generation, and the external Installer integration contract.
 4. Check **Guide 07** before making verification claims. Use **Guide 08** for the
    interactive Consent UI proof of concept, **Guide 09** for storage maintenance,
-   and **Guide 10** for feature selection and task approval.
+   and **Guide 10** for feature selection and task approval. **Guide 11** maps
+   the CEP acceptance items to executed evidence and remaining product work.
 5. For framework changes, read **Design 01** and **Design 05**, then the relevant
    protocol or storage design. The proposal, adopted decisions, and executable
    evidence have distinct scopes.
@@ -33,6 +34,7 @@ preserved in Korean.
 | 08 | Interactive Consent UI, isolated participants and TPK workflow | [Consent UI PoC](guides/08-consent-ui-poc.en.md) | [Consent UI PoC](guides/08-consent-ui-poc.ko.md) |
 | 09 | Receipt-preserving compaction and registry-loss recovery boundaries | [Storage maintenance](guides/09-storage-maintenance.en.md) | [저장소 관리](guides/09-storage-maintenance.ko.md) |
 | 10 | Feature selection, missing-only approval and conversation reuse | [Feature approval](guides/10-feature-approval.en.md) | [기능 승인](guides/10-feature-approval.ko.md) |
+| 11 | CEP 19.2 evidence and open integration gates | [Acceptance audit](guides/11-acceptance.en.md) | [수용 기준 감사](guides/11-acceptance.ko.md) |
 
 ## Design documents
 
