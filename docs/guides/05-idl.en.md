@@ -8,7 +8,7 @@ as the public C ABI. Python is a build/test dependency only.
 
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
-python3 src/tests/idl_codegen_test.py
+python3 tests/idl_codegen_test.py
 ```
 
 The top-level JSON object contains exactly `license`, `namespace`, `records`.

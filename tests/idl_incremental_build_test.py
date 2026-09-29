@@ -26,7 +26,7 @@ import tempfile
 import time
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 IDL = Path("src/protocol/consent.idl.json")
 GENERATOR = Path("src/tools/parcel_codegen.py")
 HEADER = Path("generated/consent_wire.hh")

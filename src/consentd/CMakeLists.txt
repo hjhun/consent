@@ -112,7 +112,7 @@ IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/main.cc")
         TARGET_SOURCES(
           ${TEST_DAEMON}
           PRIVATE
-            "${PROJECT_SOURCE_DIR}/src/tests/repository_shutdown_interposer.cc"
+            "${PROJECT_SOURCE_DIR}/tests/repository_shutdown_interposer.cc"
         )
         TARGET_LINK_LIBRARIES(${TEST_DAEMON} PRIVATE ${CMAKE_DL_LIBS})
       ENDIF()

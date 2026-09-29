@@ -246,7 +246,7 @@ UI도 결과를 일반 텍스트로 표시해야 합니다. 등록 template는 �
 
 ## 실행 증거와 남은 범위
 
-`src/tests/repository_test.cc`는 실제 SQLite 파일과 전용 repository 인스턴스로
+`tests/repository_test.cc`는 실제 SQLite 파일과 전용 repository 인스턴스로
 정의 소유권·중복 방지, 복수 앱 패키지 삭제/재설치, ONCE 및 재시도, AND 원자성,
 철회, 오래된 prompt, 세션 generation/resume, artifact 보관, holder ACK
 실패/성공, 지속 승인 재시작, 정상 과거 DB 교체, 실행/중지 중 강제 DB 삭제,

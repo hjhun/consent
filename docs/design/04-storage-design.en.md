@@ -264,7 +264,7 @@ because its longest possible values could overflow a selected template.
 
 ## Executable evidence and limits
 
-`src/tests/repository_test.cc` exercises private repository instances with real
+`tests/repository_test.cc` exercises private repository instances with real
 SQLite files. It covers definition ownership/deduplication, multi-app package
 removal and reinstall, ONCE consumption and stable retries, all-or-nothing AND,
 revocation, stale prompts, session generation/resume, artifact retention, holder

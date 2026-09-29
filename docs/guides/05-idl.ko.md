@@ -8,7 +8,7 @@ Python은 빌드/테스트 의존성입니다.
 
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
-python3 src/tests/idl_codegen_test.py
+python3 tests/idl_codegen_test.py
 ```
 
 최상위 JSON에는 license/namespace/records만 있습니다. license는 지원하는 전체

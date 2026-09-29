@@ -81,7 +81,7 @@ record 구조·wire 크기·할당량을 제한하며, 배열 읽기는 남은 w
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json --check
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
-python3 src/tests/idl_codegen_test.py
+python3 tests/idl_codegen_test.py
 ```
 
 ## 신원 정책과 배포

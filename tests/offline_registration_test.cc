@@ -55,7 +55,7 @@ static int OfflineSync(int fd) {
 // and public C calls below retain their ordinary filesystem implementation.
 #define fsync OfflineSync
 #define fchmod OfflineChmod
-#include "../common/offline_registration.cc"
+#include "../src/common/offline_registration.cc"
 #undef fsync
 #undef fchmod
 

@@ -608,7 +608,7 @@ render 예산에서 더 일찍 E2BIG가 날 수 있습니다. 묵시 분할이�
 
 이 가이드의 최소 조회 프로그램은 실제 Tizen GBS SDK 헤더를 사용한 호스트
 C11 `-Wall -Wextra -Werror -fsyntax-only` 검사를 통과했습니다. 기존
-[public_headers_test.py](../../src/tests/public_headers_test.py)도 C11/C++17에서
+[public_headers_test.py](../../tests/public_headers_test.py)도 C11/C++17에서
 10개 공개 헤더의 단독 포함과 42개 선언을 확인했습니다. 이는 문법·선언 검사이며
 링크나 에뮬레이터 실행 검증은 아닙니다. 이번 문서 보강에서 GBS 재빌드·RPM 설치·
 실기 동작 시험은 수행하지 않았습니다. 기존 실행 근거와 제품 연동 한계는

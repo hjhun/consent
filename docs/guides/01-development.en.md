@@ -80,7 +80,7 @@ incompatible field layouts.
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json --check
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
-python3 src/tests/idl_codegen_test.py
+python3 tests/idl_codegen_test.py
 ```
 
 ## Identity and deployment

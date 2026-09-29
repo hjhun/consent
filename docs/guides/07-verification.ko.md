@@ -1755,3 +1755,43 @@ emulator 정상 재부팅 근거이며 돌연 전원 상실 근거는 아닙니�
 
 소스·GBS·RPM·기기 로그는
 `/var/tmp/consent-artifacts/gbs-build-49`에 있습니다.
+
+## Build50 시험 배치와 헤더 공백 (2026-09-30)
+
+Release18은 시험 전용 소스를 최상위 `tests/`로 옮기고 손으로 작성한
+헤더 39개의 Apache 라이선스와 guard 사이에 빈 줄 하나를 넣었습니다.
+생성 프로토콜 헤더도 라이선스·생성 안내·guard를 빈 줄로 구분합니다.
+일반 헤더의 그 밖의 바이트는 동일하고 생성 헤더의 공백이 아닌 모든
+줄과 wire 정의도 같습니다. CMake 옵션 조합 8개가 모두 configure됐고
+이전 배치와 target 이름 115개가 일치했습니다. 소스 242개를 동결했고
+archive SHA256은 `1b56ee73`입니다. 상관 검사 시점에 archive·GBS
+export·작업 트리가 같았습니다. GBS 종료값 0, CTest28 중 24 PASS와
+명시적인 root 전용 4 SKIP입니다.
+
+같은 Release18 RPM 5개는 x86_64 emulator에서 내부 transaction 종료값
+0으로 업그레이드됐습니다. runtime·daemon·development·PoC·test RPM의
+파일 목록은 Release17과 같았습니다. GTest/GMock 요구는 test RPM에만
+있습니다. 설치 regular file의 RPM hash는 155개 중 154개가 일치하며
+차이는 보존된 PoC `%config(noreplace)` roles 파일 하나입니다. 설치된
+시험 실행 파일 8개는 service 종료값 0으로 통과했습니다.
+`consent-mock-runtime-test`는 GBS CTest에서는 통과하지만 이전부터 test
+RPM 설치 대상이 아닙니다. 기기 실행 시도는 실패로 따로 보존했고 이번
+이동에서 새 설치 대상으로 추가하지 않았습니다.
+
+첫 root fixture 기기 명령은 shell quoting 오류로 내부 결과 표시가
+누락됐습니다. 해당 로그는 실패한 증거 수집 시도로 보존합니다.
+수정된 `*-root-attempt2-command.txt`와 대응 로그에는 offline identity,
+offline registration, recovery state(GTest 3개), storage prepare, image
+authority의 UID0·`System::Privileged`·fixture 종료값 0·SDB 종료값 0이
+기록됐습니다. 동결된 scenario script는 host와 device SHA256 일치를
+확인하며 복사했습니다. 설치된 `sync-timeout`·`wire`·`cleanup-pages`는
+각각 phase PASS와 내부 종료값 0을 기록했습니다.
+
+기존 격리 state·authority·control 디렉터리의 hash를 기록한 뒤 Build50
+고유 archive 경로로 옮기고 새 `basic`을 실행했습니다. 이 시험과
+`persistent`·`stopped-delete`·`running-delete`·`db-shutdown`은 모두
+phase PASS와 내부 종료값 0입니다. 설치 라이브러리의 versioned symbol은
+42개이고 생산 consentd는 active/success였으며 격리 DB의 무결성 검사는
+`ok`였습니다. 이는 Release18 설치 동작 근거이며 이전 재부팅 근거는
+각각의 release에 속합니다. 로그는
+`/var/tmp/consent-artifacts/gbs-build-50`에 있습니다.

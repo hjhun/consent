@@ -39,7 +39,7 @@ static int FixtureSync(int fd) {
 
 #define CONSENT_STORAGE_PREPARE_TEST
 #define fsync FixtureSync
-#include "../tools/storage_prepare.cc"
+#include "../src/tools/storage_prepare.cc"
 #undef fsync
 
 #include <grp.h>

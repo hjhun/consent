@@ -245,7 +245,7 @@ child에서는 부모 callback도 억제합니다. child는 새 admission count�
 
 ## 검증 범위
 
-`src/tests/client-test.cc`는 분할 wire, Parcel golden bytes, UTF-8, 중복 key,
+`tests/client-test.cc`는 분할 wire, Parcel golden bytes, UTF-8, 중복 key,
 truncation/trailing bytes, bounded 문자열/배열, 숫자 overflow, 즉시 ALLOWED/DENIED,
 PENDING 조회, 캐시/무효화, 로컬 timeout/detach, queue 상한, callback 내 destroy,
 할당 실패 주입, 부모 16 handle 상태의 fork 격리를 검증합니다.

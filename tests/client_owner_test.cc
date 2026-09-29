@@ -16,7 +16,7 @@
 // Include the private implementation to exercise member-owner destruction.
 // This executable has no production role/security test switch.
 #define CONSENT_CLIENT_OWNER_TEST
-#include "../consent/client.cc"
+#include "../src/consent/client.cc"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

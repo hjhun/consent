@@ -285,7 +285,7 @@ a handle.
 
 ## Verification scope
 
-`src/tests/client-test.cc` exercises fragmented wire data, Parcel golden bytes, UTF-8, duplicate
+`tests/client-test.cc` exercises fragmented wire data, Parcel golden bytes, UTF-8, duplicate
 keys, truncated/trailing data, bounded string/array lengths, numeric overflow, queued ALLOWED/DENIED and PENDING polling, local cache
 hits, invalidation, local timeout, detach, queue bounds, callback destruction,
 allocation fault injection, and fork isolation with 16 parent handles.

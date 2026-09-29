@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #ifndef CONSENT_MOCK_FEATURE_API_HH_
 #define CONSENT_MOCK_FEATURE_API_HH_
 #include "feature_common.hh"

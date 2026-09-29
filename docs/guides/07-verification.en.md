@@ -1871,3 +1871,43 @@ exit0. This is an orderly emulator reboot, not abrupt power-loss evidence.
 
 Source, GBS, RPM and target logs are under
 `/var/tmp/consent-artifacts/gbs-build-49`.
+
+## Build50 test layout and header spacing (2026-09-30)
+
+Release18 moves test-only source to root `tests/` and adds one empty line
+between the Apache license and header guard in 39 handwritten headers.
+The generated protocol header also separates its license, generated notice
+and guard with empty lines. The header changes preserve all other bytes;
+the generated header preserves every nonblank line and wire definition.
+All eight CMake option combinations configured, and 115 target names matched
+the prior layout. The source archive froze 242 files (SHA256 `1b56ee73`);
+the archive, GBS export and working tree matched at correlation time.
+GBS exited0 with CTest28: 24 PASS and four explicit root-only SKIP.
+
+Five matching Release18 RPMs upgraded on the x86_64 emulator with internal
+transaction exit0. Runtime, daemon, development, PoC and test RPM file lists
+matched Release17. Only the test RPM requires GTest/GMock. Installed regular
+files matched 154/155 RPM hashes; the sole difference is the preserved PoC
+`%config(noreplace)` roles file. Eight installed packaged test executables
+passed with service exit0. `consent-mock-runtime-test` passed in GBS CTest
+but has never been installed by the test RPM. Its attempted device command
+failed and is retained separately; this layout change does not install it.
+
+The first root-fixture device commands had a shell quoting error that hid
+their internal result markers. Their logs are retained as failed evidence
+capture. Corrected `*-root-attempt2-command.txt` and matching logs record
+UID0, `System::Privileged`, fixture exit0 and SDB exit0 for offline identity,
+offline registration, recovery state (three GTests), storage prepare and
+image authority. The frozen scenario script was copied with matching host
+and device SHA256. Installed `sync-timeout`, `wire` and `cleanup-pages` each
+reported phase PASS and internal exit0.
+
+The existing isolated state, authority and control directories were hashed
+and moved to distinct Build50 archive paths before a fresh `basic` run.
+That run and `persistent`, `stopped-delete`, `running-delete` and
+`db-shutdown` each reported phase PASS and internal exit0. The installed
+library retained 42 versioned symbols, production consentd was active and
+successful, and the isolated DB integrity check returned `ok`. These are
+Release18 installed behavior checks; earlier reboot evidence remains tied
+to its own release. Logs are under
+`/var/tmp/consent-artifacts/gbs-build-50`.

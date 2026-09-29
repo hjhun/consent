@@ -92,8 +92,10 @@ src/
     inc/                # Public C API headers only
   consentd/             # Daemon and private headers
   common/               # Shared protocol and narrowly reusable utilities
-  tools/                # API exerciser and diagnostic programs
-  tests/                # Unit and integration test source code
+  tools/                # IDL compiler and provisioning programs
+tests/                   # Unit, integration and API scenario source code
+  tools/                 # C API exercisers and performance fixture
+  mocks/                 # Test-only PoC mock sources
 packaging/              # RPM spec, SMACK manifest, systemd units
 scripts/                # Build/deployment/test orchestration, when needed
 docs/
@@ -102,7 +104,8 @@ docs/
   guides/               # Numbered bilingual development and integration guides
 ```
 
-Keep implementation, private headers, and test program source under `src/`.
+Keep production implementation and private headers under `src/`. Keep test
+program sources under project-root `tests/`.
 Use per-target CMake files and pkg-config dependencies. Package the versioned
 shared library, daemon, development headers, linker symlink, and `consent.pc`
 with the appropriate runtime/devel split. Keep test-only dependencies out of
@@ -218,7 +221,7 @@ user edits and untracked design files. Commit or push only when requested.
 2. Build through `gbs build` using the verified profile and architecture. Use
    `--include-all` when needed to include uncommitted work. Record the exact
    command, result, and produced RPM paths. A host-only build is supplementary.
-3. Provide a C API test program under `src/tools/` or `src/tests/` that links
+3. Provide a C API test program under `tests/tools/` or `tests/` that links
    against the installed library and supports repeatable, noninteractive
    scenarios with useful output and failing exit status. Include C-header/ABI
    validation and targeted unit tests for policy, protocol, and DB behavior.

@@ -72,12 +72,14 @@ src/
   consentd/             Daemon, identity, policy and storage
   common/               Shared bounded codecs and utilities
   protocol/             Shared Parcel IDL
-  tools/                IDL compiler, provisioning tools and API scenarios
-  tests/                Unit and integration test sources
+  tools/                IDL compiler and provisioning tools
   examples/             Executable C API integration examples
   consent-ui/           .NET Settings, approval popup and negative identity probe
   mocks/                Separate argo, CM, CE, holder and Installer participants
   poc-tools/            PoC app launcher and socket identity diagnostic
+tests/                   Unit, integration and API scenario sources
+  tools/                 C API exercisers and performance fixture
+  mocks/                 Test-only PoC mock and feature-gate sources
 packaging/              RPM spec, SMACK manifest and systemd units
 scripts/                Emulator and verification orchestration
 docs/

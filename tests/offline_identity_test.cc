@@ -32,7 +32,7 @@ static ssize_t FixtureRead(int fd, void* buffer, size_t size) {
 #define CONSENT_TEST_BUILD
 #define CONSENT_INSTALLATIONS authority_path.c_str()
 #define read FixtureRead
-#include "../consentd/identity.cc"
+#include "../src/consentd/identity.cc"
 #undef read
 
 #include <cassert>

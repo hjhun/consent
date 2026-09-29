@@ -1,29 +1,3 @@
-FILE(GLOB TOOL_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
-FOREACH(SOURCE ${TOOL_SOURCES})
-  GET_FILENAME_COMPONENT(TOOL_NAME "${SOURCE}" NAME_WE)
-  STRING(REPLACE "_" "-" TOOL_NAME "${TOOL_NAME}")
-  ADD_EXECUTABLE(${TOOL_NAME} "${SOURCE}")
-  TARGET_LINK_LIBRARIES(${TOOL_NAME} PRIVATE consent PkgConfig::GLIB)
-  INSTALL(TARGETS ${TOOL_NAME}
-          RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
-  )
-  IF(TARGET consent-test-library)
-    ADD_EXECUTABLE(${TOOL_NAME}-isolated "${SOURCE}")
-    TARGET_LINK_LIBRARIES(
-      ${TOOL_NAME}-isolated PRIVATE consent-test-library PkgConfig::GLIB
-    )
-    IF(TOOL_NAME STREQUAL "consent-cache-scenario")
-      TARGET_COMPILE_DEFINITIONS(
-        ${TOOL_NAME}-isolated
-        PRIVATE CONSENT_TEST_DB_PATH="${CONSENT_TEST_STATE_DIR}/consent.db"
-      )
-    ENDIF()
-    INSTALL(TARGETS ${TOOL_NAME}-isolated
-            RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
-    )
-  ENDIF()
-ENDFOREACH()
-
 IF(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/installation_authority.cc")
   ADD_EXECUTABLE(consent-installation-authority installation_authority.cc)
   TARGET_LINK_LIBRARIES(

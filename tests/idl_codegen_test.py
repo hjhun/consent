@@ -23,7 +23,7 @@ import sys
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 COMPILER = ROOT / "src/tools/parcel_codegen.py"
 IDL = ROOT / "src/protocol/consent.idl.json"
 spec = importlib.util.spec_from_file_location("parcel_codegen", COMPILER)

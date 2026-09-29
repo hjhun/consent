@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #ifndef CONSENT_FEATURE_BRIDGE_H_
 #define CONSENT_FEATURE_BRIDGE_H_
 

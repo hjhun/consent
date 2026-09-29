@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #ifndef CONSENTD_BOOTSTRAP_HH_
 #define CONSENTD_BOOTSTRAP_HH_
 

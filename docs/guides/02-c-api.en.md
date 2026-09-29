@@ -634,7 +634,7 @@ for call/output copying, [params.cc](../../src/consent/params.cc) for input sett
 
 The minimal query program passed host C11 `-Wall -Wextra -Werror -fsyntax-only`
 checks using real Tizen GBS SDK headers. The existing
-[public_headers_test.py](../../src/tests/public_headers_test.py) also checked
+[public_headers_test.py](../../tests/public_headers_test.py) also checked
 standalone inclusion of 10 public headers and 42 declarations in C11/C++17.
 These are syntax/declaration checks, not linking or emulator execution evidence.
 No GBS rebuild, RPM installation or device behavior tests were performed for
