@@ -666,3 +666,40 @@ GBS로 빌드한 TPK·실제 공개 C API·격리 mock service로 전체 흐름�
 - GBS RPM 생성, emulator 설치·API 실행, 장애 주입, 재부팅은 각각 다른 검증이다.
   process kill이나 정상 재부팅으로 강제 전원 차단 내구성을 증명하지 않는다.
   CEP 수용 기준을 코드 검토만으로 통과 처리하지 않는다.
+
+## D-20: Cleanup 목록 순회
+
+기존 count/aN 필드는 유지하고 more/next_cursor를 추가합니다. cursor를
+생략하거나 비우면 새 sweep을 시작합니다. 개별 삭제·ACK 실패와 관계없이
+next_cursor를 다음 호출에 전달합니다. more가 0이면 next_cursor는 비어 있으며,
+다음 실패 재시도 sweep을 시작할 때 cursor를 비웁니다.
+
+버전이 있는 213-byte token은 지속 DB incarnation, SHA-256 scope fingerprint,
+마지막 artifact ID와 inclusive 상한 ID를 담습니다. 기존 ID는 소문자 hex
+48자리로 유지합니다. fingerprint는 비밀키 없는 context 비교이며 변조 방지
+인증이 아닙니다. 매 페이지 SQL에서 인증 scope를 필터링합니다. 유효한 읽기
+위치를 바꿔도 접근 권한이 늘어나지 않습니다. holder identity, process instance,
+subject/profile, reconcile mode에 묶습니다. reconcile은 이전 holder instance의
+cleanup 항목도 포함하지만 새 프로세스는 새 sweep을 시작해야 합니다.
+정상 daemon 재시작은 DB incarnation을 유지합니다. DB 재생성은 STALE로 cursor를
+무효화합니다. daemon/cache epoch는 기존대로 재시작 때 바뀌고 policy revision은
+ACK 때 바뀝니다. 두 값은 cursor generation이 아닙니다.
+
+artifact ID keyset 순서와 최초 inclusive 상한을 사용하고 pending/failed용
+artifacts(holder,id) partial index를 추가합니다. 최대 49행을 조회하여 48행까지
+반환합니다. ACK로 다음 페이지 항목이 사라지거나 마지막 읽기 위치보다 작은
+새 항목이 이번 sweep에서 빠질 수 있으므로 membership snapshot이 아닙니다.
+새 sweep은 남아 있는 실패·대기 항목과 추가 항목을 재시도합니다. Parcel 응답의
+64KiB 제한을 유지합니다.
+
+feature holder의 bounded cleanup helper는 128페이지 호출 사이 continuation과
+최초 개별 오류를 유지합니다. coordinator는 끝 페이지까지 bounded 호출을
+이어갑니다. 개별 삭제·ACK 실패가 뒤 페이지를 막지 않습니다. resident data를
+찾지 못한 경우 삭제 증거를 만들지 않고 cleanup 실패로 남깁니다. 페이지/API
+오류는 해당 호출을 중단하며 물리삭제 근거를 만들어내지 않습니다.
+
+Build30에서 새 GTest/GMock 회귀와 artifact97개 공개 C API 시나리오를
+GBS/emulator로 검증했습니다. 정확한 소스와 로그는 Guide07에 기록합니다.
+기존 assert 시험을 대체하지 않으며 제품 holder/Installer 통합 완료를 의미하지
+않습니다. DB stale 또는 scope 변경 시 caller는 progress를 명시적으로 초기화하고
+새 sweep을 시작해야 하며 초기화는 물리삭제 완료 근거가 아닙니다.

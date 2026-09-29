@@ -613,3 +613,40 @@ C11 `-Wall -Wextra -Werror -fsyntax-only` 검사를 통과했습니다. 기존
 링크나 에뮬레이터 실행 검증은 아닙니다. 이번 문서 보강에서 GBS 재빌드·RPM 설치·
 실기 동작 시험은 수행하지 않았습니다. 기존 실행 근거와 제품 연동 한계는
 [가이드 07](07-verification.ko.md)을 참고하세요.
+
+### Cleanup 페이지와 재시도 sweep
+
+기존 count/aN을 처리하고 개별 삭제·ACK 실패와 관계없이 more/next_cursor로
+뒤 페이지를 읽습니다. result 해제 전에 다음 위치를 params로 복사합니다.
+more="0" 뒤 새 sweep은 cursor를 비워 실패 항목과 추가 항목을 재시도합니다.
+격리 executable consent-scenario cleanup-pages는 실제 등록97개/첫48 실패 ACK를
+실행하며 feature holder도 같은 continuation 계약을 사용합니다. 다음 예제는
+목록 순회이며 실제 삭제·ACK는 물리삭제 근거가 있는 holder가 수행해야 합니다.
+
+```c
+int more = 0;
+int status = consent_params_set(params, "cursor", "");
+do {
+  consent_result_t *page = NULL;
+  if (status)
+    break;
+  status = consent_cleanup_get_pending(client, params, &page);
+  if (status)
+    break;
+  /* 각 aN을 처리하되 삭제 실패가 뒤 페이지 순회를 막지 않게 합니다. */
+  more = strcmp(consent_result_get(page, "more"), "1") == 0;
+  status = consent_params_set(params, "cursor",
+      consent_result_get(page, "next_cursor"));
+  consent_result_free(page);
+} while (more);
+/* 다음 재시도 sweep 전에 cursor를 명시적으로 비웁니다. */
+consent_params_set(params, "cursor", "");
+```
+
+위치는 지속 DB incarnation과 인증된 holder/process/subject/profile/reconcile
+scope에 묶습니다. 같은 holder 프로세스의 정상 daemon 재시작에서는 유지되며,
+새 프로세스는 reconcile=1이어도 새 sweep을 시작합니다. cache epoch와 ACK policy
+revision은 별개입니다. DB reset STALE 또는 caller scope 변경 후에는 기존 순회를
+폐기하고 새 sweep을 시작하며 내부 CleanupProgress owner도 continuation을
+명시적으로 초기화합니다. 이 초기화는 물리삭제 완료 근거가 아닙니다.
+페이지/API 오류를 삭제 성공으로 처리하지 않습니다.

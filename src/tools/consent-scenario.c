@@ -506,9 +506,115 @@ static void holder_reconcile(void) {
   puts("PASS new holder process: pending discovery, blocked reuse, failed cleanup/retry/ACK");
 }
 
+static void cleanup_pages(const char* install_generation) {
+  define("demo.app", "demo.read", phase, install_generation);
+  consent_params_t* p = params();
+  consent_result_t* result = NULL;
+  CALL(consent_session_open(client, p, &result));
+  char* session = field(result, "session");
+  char* generation = field(result, "generation");
+  consent_result_free(result);
+  consent_params_free(p);
+  approve("cleanup-pages", "SESSION", session, generation);
+  for (unsigned index = 0; index < 97; ++index) {
+    p = query("cleanup-pages", session, generation);
+    set(p, "mode", "AUTHORIZE");
+    char operation[96];
+    snprintf(operation, sizeof(operation), "%s-acquire-%u", phase, index);
+    set(p, "operation_id", operation);
+    set(p, "step_id", "read");
+    CALL(consent_check(client, p, 5000, &result));
+    char* receipt = field(result, "receipt");
+    consent_result_free(result);
+    consent_params_free(p);
+    p = params();
+    set(p, "session", session);
+    set(p, "generation", generation);
+    set(p, "receipt", receipt);
+    set(p, "scope", "cleanup-pages");
+    set(p, "purpose", "answer");
+    CALL(consent_data_register(client, p, &result));
+    consent_result_free(result);
+    consent_params_free(p);
+    g_free(receipt);
+  }
+  p = params();
+  set(p, "session", session);
+  set(p, "generation", generation);
+  CALL(consent_session_close(client, p, &result));
+  consent_result_free(result);
+  consent_params_free(p);
+  p = params();
+  set(p, "reconcile", "1");
+  unsigned seen = 0;
+  unsigned pages = 0;
+  char* cursor = g_strdup("");
+  do {
+    set(p, "cursor", cursor);
+    CALL(consent_cleanup_get_pending(client, p, &result));
+    const char* count_text = consent_result_get(result, "count");
+    CHECK(count_text != NULL);
+    unsigned count = (unsigned)atoi(count_text);
+    CHECK(count == (pages == 2 ? 1u : 48u));
+    g_free(cursor);
+    cursor = field(result, "next_cursor");
+    CHECK(!strcmp(consent_result_get(result, "more"),
+        pages == 2 ? "0" : "1"));
+    for (unsigned index = 0; index < count; ++index) {
+      char key[48];
+      snprintf(key, sizeof(key), "a%u.artifact", index);
+      const char* artifact = consent_result_get(result, key);
+      CHECK(artifact != NULL);
+      consent_params_t* ack = params();
+      set(ack, "reconcile", "1");
+      set(ack, "artifact", artifact);
+      set(ack, "success", pages == 0 ? "0" : "1");
+      consent_result_t* acknowledged = NULL;
+      CALL(consent_data_release(client, ack, &acknowledged));
+      consent_result_free(acknowledged);
+      consent_params_free(ack);
+      ++seen;
+    }
+    consent_result_free(result);
+    ++pages;
+  } while (*cursor && pages < 4);
+  CHECK(seen == 97 && pages == 3 && !*cursor);
+  // Empty cursor starts a new sweep; failed entries are still retryable.
+  set(p, "cursor", cursor);
+  CALL(consent_cleanup_get_pending(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "count"), "48"));
+  CHECK(!strcmp(consent_result_get(result, "more"), "0"));
+  CHECK(!strcmp(consent_result_get(result, "next_cursor"), ""));
+  for (unsigned index = 0; index < 48; ++index) {
+    char key[48];
+    snprintf(key, sizeof(key), "a%u.artifact", index);
+    consent_params_t* ack = params();
+    set(ack, "reconcile", "1");
+    set(ack, "artifact", consent_result_get(result, key));
+    set(ack, "success", "1");
+    consent_result_t* acknowledged = NULL;
+    CALL(consent_data_release(client, ack, &acknowledged));
+    consent_result_free(acknowledged);
+    consent_params_free(ack);
+  }
+  consent_result_free(result);
+  CALL(consent_cleanup_get_pending(client, p, &result));
+  CHECK(!strcmp(consent_result_get(result, "count"), "0"));
+  consent_result_free(result);
+  consent_params_free(p);
+  g_free(cursor);
+  g_free(session);
+  g_free(generation);
+  puts("PASS cleanup C API: 97 entries, failed first48, page49+, new sweep");
+}
+
 int main(int argc, char** argv) {
   if (argc != 3 && argc != 4) {
-    fprintf(stderr, "Usage: %s basic|persistent|recovered|races|holder-seed|holder-reconcile|reinstalled|ui-reevaluate|shutdown-seed|shutdown-revoke|shutdown-result GENERATION [SCOPE]\n", argv[0]);
+    fprintf(stderr,
+        "Usage: %s basic|cleanup-pages|persistent|recovered|races|"
+        "holder-seed|holder-reconcile|reinstalled|ui-reevaluate|"
+        "shutdown-seed|shutdown-revoke|shutdown-result GENERATION [SCOPE]\n",
+        argv[0]);
     return 2;
   }
   snprintf(phase, sizeof(phase), "%s-%" G_GINT64_FORMAT, argv[1], g_get_monotonic_time());
@@ -539,6 +645,12 @@ int main(int argc, char** argv) {
     return 0;
   }
   CHECK(argc == 3);
+  if (!strcmp(argv[1], "cleanup-pages")) {
+    cleanup_pages(argv[2]);
+    CALL(consent_client_destroy(ui));
+    CALL(consent_client_destroy(client));
+    return 0;
+  }
   if (!strcmp(argv[1], "reinstalled")) {
     char operation[96];
     snprintf(operation, sizeof(operation), "%s-app1", phase);

@@ -16,6 +16,7 @@
 #include "repository.hh"
 #include "consent.h"
 
+#include "common/cleanup_cursor.hh"
 #include "common/localization.hh"
 #include "common/approval.hh"
 #include "common/registration.hh"
@@ -323,6 +324,8 @@ CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,receipt TEXT NOT NULL,
  scope TEXT NOT NULL,expires INTEGER NOT NULL,state TEXT NOT NULL,
  level INTEGER NOT NULL,cleanup_error TEXT NOT NULL DEFAULT '',
  UNIQUE(receipt,holder,instance));
+CREATE INDEX IF NOT EXISTS artifact_cleanup_key ON artifacts(holder,id)
+ WHERE state IN ('CLEANUP_PENDING','CLEANUP_FAILED');
 CREATE TABLE IF NOT EXISTS artifact_grants(artifact TEXT NOT NULL REFERENCES artifacts(id),
  grant_id TEXT NOT NULL REFERENCES grants(id),PRIMARY KEY(artifact,grant_id));
 CREATE INDEX IF NOT EXISTS artifact_grant_source ON artifact_grants(grant_id);
@@ -1776,23 +1779,63 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
   Transaction transaction(db_);
   if (method == "cleanup_list") {
     Context(peer, request);
-    bool reconcile = Get(request, "reconcile") == "1";
+    const auto mode = Get(request, "reconcile", "0");
+    Require(mode == "0" || mode == "1", -EINVAL, "invalid reconcile mode");
+    const bool reconcile = mode == "1";
+    const auto scope = consent::CleanupScope(peer.identity, peer.instance,
+        Get(request, "subject"), Get(request, "profile"), reconcile);
+    consent::CleanupCursor cursor{expected_incarnation_, scope, "", ""};
+    const auto token = Get(request, "cursor");
+    if (!token.empty()) {
+      Require(consent::CleanupCursor::Parse(token, &cursor), -EINVAL,
+          "malformed cleanup cursor");
+      Require(cursor.incarnation == expected_incarnation_, -ESTALE,
+          "cleanup database incarnation changed");
+      Require(cursor.scope == scope, -EACCES, "cleanup cursor scope mismatch");
+    } else {
+      Statement upper(db_,
+          "SELECT max(artifacts.id) FROM artifacts JOIN sessions "
+          "ON sessions.id=artifacts.session WHERE holder=? "
+          "AND (artifacts.instance=? OR ?=1) "
+          "AND sessions.subject=? AND sessions.profile=? "
+          "AND artifacts.state IN ('CLEANUP_PENDING','CLEANUP_FAILED')");
+      upper.Bind(1, peer.identity).Bind(2, peer.instance)
+          .Bind(3, reconcile ? 1 : 0).Bind(4, Get(request, "subject"))
+          .Bind(5, Get(request, "profile"));
+      Require(upper.Row(), kStorage, "cleanup range query failed");
+      cursor.upper = upper.Text(0);
+    }
     Message result;
-    Statement rows(db_, "SELECT artifacts.id,session,artifacts.state,cleanup_error FROM artifacts "
-        "JOIN sessions ON sessions.id=artifacts.session WHERE holder=? AND (artifacts.instance=? OR ?=1) "
+    Statement rows(db_,
+        "SELECT artifacts.id,session,artifacts.state,cleanup_error "
+        "FROM artifacts JOIN sessions ON sessions.id=artifacts.session "
+        "WHERE holder=? AND (artifacts.instance=? OR ?=1) "
         "AND sessions.subject=? AND sessions.profile=? "
-        "AND artifacts.state IN ('CLEANUP_PENDING','CLEANUP_FAILED') LIMIT 48");
-    rows.Bind(1, peer.identity).Bind(2, peer.instance).Bind(3, reconcile ? 1 : 0)
-        .Bind(4, Get(request, "subject")).Bind(5, Get(request, "profile"));
+        "AND artifacts.state IN ('CLEANUP_PENDING','CLEANUP_FAILED') "
+        "AND artifacts.id>? AND artifacts.id<=? "
+        "ORDER BY artifacts.id LIMIT 49");
+    rows.Bind(1, peer.identity).Bind(2, peer.instance)
+        .Bind(3, reconcile ? 1 : 0).Bind(4, Get(request, "subject"))
+        .Bind(5, Get(request, "profile"))
+        .Bind(6, cursor.last).Bind(7, cursor.upper);
     int count = 0;
+    bool more = false;
     while (rows.Row()) {
+      if (count == 48) {
+        more = true;
+        break;
+      }
+      const auto artifact = rows.Text(0);
       std::string prefix = "a" + std::to_string(count++) + ".";
-      result[prefix + "artifact"] = rows.Text(0);
+      result[prefix + "artifact"] = artifact;
       result[prefix + "session"] = rows.Text(1);
       result[prefix + "state"] = rows.Text(2);
       result[prefix + "error"] = rows.Text(3);
+      cursor.last = artifact;
     }
     result["count"] = std::to_string(count);
+    result["more"] = more ? "1" : "0";
+    result["next_cursor"] = more ? cursor.Encode() : "";
     transaction.Commit();
     return result;
   }

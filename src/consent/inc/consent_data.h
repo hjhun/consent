@@ -187,11 +187,20 @@ CONSENT_API int consent_cleanup_get_state(consent_client_h client,
  * @since 0.1.0
  *
  * @details Set subject/profile; reconcile="1" also includes earlier process
- *     instances of this holder. Returns count and
- *     aN.artifact/session/state/error for at most 48 entries. After actual
- *     deletion acknowledge each artifact with consent_data_release(); query
- *     again to drain further entries. Reconciliation grants cleanup access
- *     only.
+ *     instances of this holder for cleanup only. The optional cursor is a
+ *     reading position. Returns count and aN.artifact/session/state/error for
+ *     at most 48 entries, more ("0"/"1") and next_cursor. Pass next_cursor into
+ *     the next call even after failed deletion or ACK. On more="0", next_cursor
+ *     is empty; clear cursor before starting a new sweep to retry failures and
+ *     include additions. Pages are ordered by artifact ID within a fixed upper
+ *     bound, but do not form a membership snapshot across ACKs or additions.
+ *     A cursor is bound to the authenticated holder, process instance,
+ *     subject/profile, reconcile mode and durable DB incarnation. A new holder
+ *     process must start a fresh sweep, including in reconcile mode. Normal
+ *     daemon restart preserves cursor generation; DB recreation returns STALE.
+ *     Cache epoch and policy revision are separate and do not identify cursors.
+ *     After actual deletion acknowledge with consent_data_release(). A token
+ *     never grants authentication or proves deletion.
  *
  * @remarks This is a synchronous operation with a 5,000 ms local wait. It does
  *     not wait for UI interaction or physical data deletion. The common
@@ -207,9 +216,10 @@ CONSENT_API int consent_cleanup_get_state(consent_client_h client,
  *     #consent_error_e.
  * @retval #CONSENT_ERROR_NONE Operation succeeded.
  * @retval #CONSENT_ERROR_INVALID_PARAMETER A required argument or field is
- *     invalid.
+ *     invalid, or the cursor is malformed.
  * @retval #CONSENT_ERROR_PERMISSION_DENIED The authenticated caller lacks the
- *     required role or delegation.
+ *     required role/delegation, or the cursor scope differs.
+ * @retval #CONSENT_ERROR_STALE The cursor belongs to a previous DB incarnation.
  * @retval #CONSENT_ERROR_INVALID_OPERATION The handle is an offline
  *     registration handle.
  * @pre The caller must have the holder role and delegated subject/profile.

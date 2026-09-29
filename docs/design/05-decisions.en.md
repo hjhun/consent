@@ -761,3 +761,41 @@ production integration and emulator PoC evidence distinct.
 - GBS RPM generation, emulator installation/API runs, fault injection, and reboot
   are separate validation results. Process kill or orderly reboot does not prove
   abrupt power-loss resilience. Do not mark CEP acceptance cases passed by review.
+
+## D-20: Cleanup traversal
+
+Cleanup listing keeps the existing count and aN fields and adds more and
+next_cursor. An omitted/empty cursor starts a sweep. Pass next_cursor into the
+next call regardless of individual deletion or ACK failure. When more is 0,
+next_cursor is empty; clear cursor before starting the next retry sweep.
+
+The versioned 213-byte token contains the durable DB incarnation, a SHA-256
+scope fingerprint, the last artifact ID and an inclusive upper artifact ID.
+IDs remain the existing 48 lowercase hexadecimal characters. The fingerprint
+is an unkeyed context comparison, not tamper-proof authentication. The SQL scope
+filters run on every page. Changing a valid reading position cannot grant access.
+The token is bound to holder identity, process instance, subject, profile and
+reconcile mode. Reconcile includes prior holder instances' cleanup rows, but a
+new process must start a new sweep; it cannot resume an old process's token.
+Normal daemon restart preserves the DB incarnation. DB recreation invalidates
+cursors with STALE. The daemon/cache epoch still changes on restart, and policy
+revision still changes on ACK; neither is the cursor generation.
+
+The query uses artifact ID keyset ordering, an inclusive initial upper bound and
+an artifacts(holder,id) partial index for pending/failed states. It probes at
+most 49 rows and emits at most 48. ACK can remove rows from later pages and new
+rows below the last position may be missed in that sweep. This is not a membership
+snapshot. A fresh sweep retries all still-pending rows and includes additions.
+Replies retain the 64KiB Parcel frame limit.
+
+The feature holder's bounded cleanup helper preserves continuation and the first
+individual error across 128-page invocations. The coordinator requests further
+bounded invocations until the end. Individual deletion/ACK failures do not block
+later pages. Missing resident data remains failed cleanup, never deletion proof.
+A page/API failure stops that invocation without inventing cleanup evidence.
+
+Build30 passed the new GTest/GMock regressions in GBS and on the emulator,
+including the 97-artifact public C API scenario. See Guide07 for exact source and
+logs. They do not replace existing assert tests or establish product
+holder/Installer integration. A stale DB or changed scope requires an explicit
+caller progress reset and a new sweep; reset is not physical deletion proof.

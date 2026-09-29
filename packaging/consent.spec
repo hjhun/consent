@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    1
+Release:    2
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
@@ -18,6 +18,8 @@ BuildRequires: pkgconfig(libsystemd)
 BuildRequires: pkgconfig(pkgmgr-info)
 BuildRequires: pkgconfig(parcel)
 BuildRequires: pkgconfig(capi-base-common)
+BuildRequires: pkgconfig(gtest_main)
+BuildRequires: pkgconfig(gmock)
 %if %{with poc}
 BuildRequires: dotnet-build-tools = 8.0.421
 BuildRequires: csapi-tizenfx-nuget = 14.0.0.19364

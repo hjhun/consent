@@ -640,3 +640,42 @@ These are syntax/declaration checks, not linking or emulator execution evidence.
 No GBS rebuild, RPM installation or device behavior tests were performed for
 this documentation expansion. See [Guide 07](07-verification.en.md) for existing
 execution evidence and product integration limits.
+
+### Cleanup pages and retry sweeps
+
+Keep count/aN consumption and follow more/next_cursor after each page, even if
+an individual deletion/ACK failed. Copy the next position before freeing the
+result. After more="0", cursor must be empty for a new sweep; it retries failures
+and includes additions. The executable isolated `consent-scenario cleanup-pages`
+exercises 97 real registrations and failed first48 ACKs; feature holder cleanup
+uses the same continuation contract. Example traversal (deletion/ACK belongs to
+the actual holder and must be evidence-based):
+
+```c
+int more = 0;
+int status = consent_params_set(params, "cursor", "");
+do {
+  consent_result_t *page = NULL;
+  if (status)
+    break;
+  status = consent_cleanup_get_pending(client, params, &page);
+  if (status)
+    break;
+  /* Process each aN entry; failed deletion must not stop page traversal. */
+  more = strcmp(consent_result_get(page, "more"), "1") == 0;
+  status = consent_params_set(params, "cursor",
+      consent_result_get(page, "next_cursor"));
+  consent_result_free(page);
+} while (more);
+/* Before the next retry sweep, explicitly clear cursor. */
+consent_params_set(params, "cursor", "");
+```
+
+The position is bound to durable DB incarnation and authenticated
+holder/process/subject/profile/reconcile scope. It survives a normal daemon
+restart for the same holder process. A new process starts a fresh sweep, even
+with reconcile=1. Cache epoch and ACK policy revision are separate values.
+STALE after DB reset or a changed caller scope requires the caller to abandon
+its old traversal and start a new sweep; an internal CleanupProgress owner
+explicitly resets its continuation first. This reset does not attest to physical
+data deletion. A page/API failure is not a successful deletion result.

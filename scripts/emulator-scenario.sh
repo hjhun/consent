@@ -178,6 +178,9 @@ case "$phase" in
     systemctl stop consentd-isolated.socket consentd-isolated.service
     cp "$state/consent.db" "$control/approved-snapshot.db"
     ;;
+  cleanup-pages)
+    "$scenario" cleanup-pages "$(cat "$control/generation")"
+    ;;
   persistent)
     "$scenario" persistent "$(cat "$control/generation")"
     ;;

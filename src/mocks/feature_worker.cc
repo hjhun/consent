@@ -15,6 +15,7 @@
  */
 #include "feature_common.hh"
 #include "feature_api.hh"
+#include "common/cleanup_sweep.hh"
 
 #include <sys/prctl.h>
 #include <unistd.h>
@@ -85,22 +86,36 @@ class Worker final {
   int Execute(const std::string& method, Message input, Message* output) {
     if (role_ == "holder") {
       if (method == "cleanup") {
-        Message pending;
-        int status = Invoke(client_, consent_cleanup_get_pending, input, &pending);
-        if (status) return status;
-        for (int i = 0; i < consent::Number(pending, "count"); ++i) {
-          auto artifact = consent::Get(pending, "a" + std::to_string(i) + ".artifact");
-          auto buffer = buffers_.find(artifact);
-          if (buffer == buffers_.end()) return -ENOENT;  // No invented deletion evidence.
-          std::fill(buffer->second.begin(), buffer->second.end(), 0);
-          Message ack{{"artifact", artifact}, {"success", "1"}};
-          Message ignored;
-          status = Invoke(client_, consent_data_release, ack, &ignored);
-          if (status) return status;
-          proofs_.erase(artifact);
-          buffers_.erase(buffer);
-        }
-        status = Invoke(client_, consent_cleanup_get_pending, input, output);
+        int status = consent::CleanupSweep(input, &cleanup_progress_,
+            [this](const Message& request, Message* pending) {
+              return Invoke(client_, consent_cleanup_get_pending,
+                  request, pending);
+            }, [this, &input](const std::string& artifact) {
+              auto buffer = buffers_.find(artifact);
+              Message ack = input;
+              ack["artifact"] = artifact;
+              // Missing resident data is no proof of deletion. Record failure
+              // and continue so a failed entry cannot starve later cleanup.
+              ack["success"] = buffer == buffers_.end() ? "0" : "1";
+              if (buffer != buffers_.end())
+                std::fill(buffer->second.begin(), buffer->second.end(), 0);
+              Message ignored;
+              int result = Invoke(client_, consent_data_release, ack, &ignored);
+              if (result)
+                return result;
+              if (buffer == buffers_.end())
+                return -ENOENT;
+              proofs_.erase(artifact);
+              buffers_.erase(buffer);
+              return 0;
+            });
+        (*output)["cleanup_more"] = cleanup_progress_.finished ? "0" : "1";
+        if (status == -EINPROGRESS)
+          return 0;
+        input["cursor"] = "";
+        int listed = Invoke(client_, consent_cleanup_get_pending, input, output);
+        if (listed)
+          return listed;
         (*output)["resident_artifacts"] = std::to_string(buffers_.size());
         return status;
       }
@@ -198,6 +213,7 @@ class Worker final {
     std::fflush(stdout);
     return 0;
   }
+  consent::CleanupProgress cleanup_progress_;
   std::string role_;
   consent_client_h client_ = nullptr;
   Message authorized_, reuse_authorized_;

@@ -1244,3 +1244,66 @@ bounded maintenance is not arbitrary ledger deletion. Abrupt power loss,
 actual filesystem-full/device-write failures and TV hardware remain outside
 this evidence; earlier storage/shutdown evidence retains its original build
 scope. No extra production authorization or UI capability was introduced.
+
+## Build 30: bounded cleanup traversal
+
+Frozen source tree `46349c78b1f607d3100d1d0fc8928f3ae9eaee83`, based on
+`d76b21b`, is preserved under `/var/tmp/consent-artifacts/gbs-build-30/`.
+Release `0.1.0-2` packages use a normal upgrade NEVRA. GBS command:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+The first dependency expansion failed because the repository no longer supplied
+fixed `csapi-tizenfx-nuget 14.0.0.19364`. The exact existing cached RPM was added
+to the local GBS repository; its source/hash and the failure are preserved in
+`cache-dependency.json` and `dependency-failure.log`. The successful retry passed
+17 CTests with four explicit root skips and zero failures. New cleanup
+GTest/GMock ran ten tests (391ms). Runtime/daemon/devel/PoC RPM autoRequires do
+not include GTest/GMock; only consent-tests requires those test libraries.
+
+On the rediscovered x86_64 emulator-26101, all five packages upgraded normally.
+The initial four-package dry-run rejected the installed old devel package's
+exact version coupling; adding the matching devel package passed without nodeps
+or force. Target capi-base-common remains 0.4.82 and its already-installed
+0.4.82 development provider satisfies pkg-config dependencies. Package install
+reported existing ldconfig permission diagnostics; the normal transaction and
+subsequent loading/tests succeeded. Evidence is under
+`/var/tmp/consent-artifacts/emulator-build-30/`.
+
+- `installed-hash-audit-batched.json`: 76 installed regular files match RPM
+  payload hashes, including library, daemon, tests, public headers and examples.
+  The first hash command exceeded SDB service-name length; the failure remains
+  in installed-hashes.log. Symlink zero digests are excluded from content hashes.
+- `cleanup-gtest.log`: ten packaged tests PASS, 47ms, service exit status0.
+- `cleanup-api.log`: 97 artifacts registered through the C API with real isolated
+  approval/authorization receipts. The first48 cleanup ACKs fail; continuation
+  reaches all later49, then a fresh sweep retries the failed48 and empties the
+  list. integrity_check=ok/schema2; service exit status0, 3.060s.
+- `root-fixtures.log` and `image-authority.log`: all four fixtures skipped in
+  abuild ran as actual root and passed against private fixture/image state.
+- `public-abi-default-deny.log`: public ABI test passed. The first production
+  probe expected PERMISSION_DENIED but observed DISCONNECTED; corrected
+  default-deny-disconnect.log passes the observed transport contract. The daemon
+  logged a rejected kernel-identified peer with no matching trusted identity.
+  default-deny-actor-file.log records actor PID3539575/UID0; the paired
+  default-deny-daemon-file.log records instance4 with the same PID/UID and
+  rejection reason. No production role was added. An earlier shell-inline
+  probe had systemd dollar expansion and an OUTCOME_UNKNOWN disconnect race;
+  those logs are retained and are not the correlated successful probe.
+- `installed-state.log`: production DB/registry retain device/inodes
+  `65026:128673`/`65026:128674`, owner402:402 and mode0600. Production service and
+  socket remain active under security_fw/default-deny.
+
+The auxiliary host+SDK test passed ten tests in484ms. Successful compiler argv
+and run environment are in native-increment30/successful-command.json; earlier
+failed link commands/logs remain separate. This does not replace GBS/device data.
+Build29's failed persistent baseline remains failed. Its successful 1000-query
+smoke returns CONSENT_REQUIRED and service runtime1.845s includes process/client
+startup and output; it is not per-call latency/cache/async performance evidence.
+
+This snapshot verifies cleanup traversal. Final ownership/GIO/DLOG/storage and
+normal reboot regressions remain subsequent work; no previous-build storage or
+shutdown result is counted as this snapshot's new execution.

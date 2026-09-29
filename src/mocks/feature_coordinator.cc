@@ -570,6 +570,12 @@ class Coordinator final {
       }
     }
     if (phase == "cleanup") {
+      if (!status && consent::Get(result, "cleanup_more") == "1") {
+        if (SendWorker("holder", "cleanup",
+            {{"subject", "owner"}, {"profile", "default"}}))
+          FailJob("cleanup continuation dispatch failed");
+        return;
+      }
       if (status || consent::Get(result, "count") != "0") { FailJob("holder cleanup remains pending"); return; }
       Message state;
       status = Invoke(client_, consent_session_get_state, Context(), &state);

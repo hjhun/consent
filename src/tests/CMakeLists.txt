@@ -36,6 +36,10 @@ FOREACH(SOURCE ${TEST_SOURCES})
   IF(TARGET consent-storage)
     TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE consent-storage)
   ENDIF()
+  IF(TEST_NAME STREQUAL "cleanup-pagination-test")
+    TARGET_LINK_LIBRARIES(${TEST_NAME} PRIVATE
+      PkgConfig::GTEST PkgConfig::GMOCK)
+  ENDIF()
   ADD_TEST(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
   # RPM builds disable RPATH. Resolve the just-built C API for tests that use
   # its shared ABI before the runtime package is installed in the build root.

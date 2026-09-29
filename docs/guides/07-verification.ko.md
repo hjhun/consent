@@ -1159,3 +1159,63 @@ device/inode `65026:128673`/`65026:128674`, 소유자402:402를 유지했습니�
 device-write 실패 및 TV 하드웨어는 이 근거에 포함하지 않습니다. 이전 storage/shutdown
 검증은 원래 build 범위를 유지합니다. production 권한이나 UI capability는 늘리지
 않았습니다.
+
+## Build 30: 유계 cleanup 순회
+
+`d76b21b` 기반 frozen source tree
+`46349c78b1f607d3100d1d0fc8928f3ae9eaee83` 및 산출물은
+`/var/tmp/consent-artifacts/gbs-build-30/`에 보존합니다.
+Release `0.1.0-2`는 정상 업그레이드 NEVRA입니다. 실행 명령:
+
+```sh
+gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
+  -B /var/tmp/consent-gbs-root --threads 4 --overwrite
+```
+
+첫 의존성 해석은 repository의 고정 csapi-tizenfx-nuget14.0.0.19364 부재로
+실패했습니다. 기존 cache의 동일 RPM을 local GBS repository에 추가했고
+cache-dependency.json에 원본/hash, dependency-failure.log에 실패를 보존했습니다.
+재시도 GBS CTest는 17 PASS/실제 root 전용4 SKIP/0 FAIL입니다. 신규 cleanup
+GTest/GMock10개는391ms에 통과했습니다. runtime/daemon/devel/PoC autoRequires에
+GTest/GMock는 없으며 consent-tests에만 시험 library 의존성이 있습니다.
+
+sdb devices로 다시 확인한 x86_64 emulator-26101에 RPM5개를 정상 업그레이드했습니다.
+처음4개 RPM dry-run은 기존 devel의 exact version coupling 때문에 실패했고
+matching devel을 함께 넣어 nodeps/force 없이 통과했습니다. target의
+capi-base-common0.4.82와 이미 설치된0.4.82 development provider를 유지했습니다.
+설치 중 기존 ldconfig permission 진단은 로그에 남았지만 정상 transaction 및
+후속 loading/시험은 성공했습니다. 장치 근거는
+`/var/tmp/consent-artifacts/emulator-build-30/`에 있습니다.
+
+- installed-hash-audit-batched.json: library/daemon/tests/공개 헤더/examples 등
+  설치 regular file76개가 RPM payload hash와 일치했습니다. 첫 명령은 SDB
+  service-name 길이 제한으로 실패하여 installed-hashes.log에 보존했습니다.
+  symlink의 zero digest는 내용 hash 비교에서 제외합니다.
+- cleanup-gtest.log: packaged10개 PASS47ms, service exit0.
+- cleanup-api.log: 실제 격리 승인/authorization receipt와 C API로 artifact97개
+  등록. 첫48 ACK 실패 후 continuation으로 뒤49개에 도달하고 새 sweep에서
+  실패48개를 재시도하여 목록이 비었습니다. integrity_checkok/schema2,
+  service exit0/3.060s.
+- root-fixtures.log/image-authority.log: abuild에서 생략된4개 fixture를 실제
+  root로 private fixture/image state에서 실행하여 통과했습니다.
+- public-abi-default-deny.log: 공개 ABI 시험 통과. 첫 production probe는
+  PERMISSION_DENIED를 기대했지만 DISCONNECTED를 관측했고 corrected
+  default-deny-disconnect.log에서 실제 transport 계약으로 통과했습니다.
+  default-deny-actor-file.log에 actor PID3539575/UID0, 대응하는
+  default-deny-daemon-file.log에 같은 PID/UID의 instance4 인증 거부 및 no
+  matching trusted identity 이유가 있습니다. production role은 추가하지
+  않았습니다. 앞선 shell-inline probe의 systemd dollar expansion 및
+  OUTCOME_UNKNOWN disconnect race 로그는 보존하며 성공한 대응 근거와 구별합니다.
+- installed-state.log: production DB/registry device/inode65026:128673/128674,
+  owner402:402/mode0600 유지. security_fw/default-deny service/socket active.
+
+보조 host+SDK10개 시험은484ms에 통과했습니다. 최종 성공 compile argv/run env는
+native-increment30/successful-command.json, 앞선 link 실패는 별도 로그입니다.
+보조 시험은 GBS/device 근거를 대체하지 않습니다. Build29 persistent baseline
+실패는 실패로 남깁니다. 성공한 미승인 QUERY1000 smoke는 CONSENT_REQUIRED이며
+service runtime1.845s는 process/client 생성·출력을 포함하므로 per-call latency,
+cache/async 성능 근거가 아닙니다.
+
+이번 snapshot의 검증 범위는 cleanup 순회입니다. 최종 ownership/GIO/DLOG/storage/
+정상 reboot 회귀는 후속 작업이며 이전 빌드 storage/shutdown을 이번 실행으로
+소급하지 않습니다.
