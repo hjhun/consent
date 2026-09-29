@@ -1,16 +1,16 @@
 # 11. CEP 19.2 acceptance audit
 
 This audit maps every proposed [Design 01 acceptance item](../design/01-consent-framework.md)
-to Build43 Release11 evidence and the numbered Build45–46 supplements.
-`Target` means the named framework behavior
-ran on the emulator in isolated/package fixtures; it does not imply that an
-external product is integrated. `Partial` means a narrower behavior ran or
-a failure mode remains untested. `Product` means the required real participant
-or trusted producer is absent. The exact numbered logs are under
-`/var/tmp/consent-artifacts/gbs-build-{43,45,46}`. Each row names the later
-build when it changes the evidence; prior results are not a Build46 rerun.
-A proposed criterion is not itself a test. Current counts are Target21,
-Partial35 and Product7.
+to Build43 Release11 evidence and the numbered Build45–48 supplements.
+`Target` means the named framework behavior ran in emulator isolated/package
+fixtures, or a build-only criterion ran in GBS as identified in its row.
+It does not imply external product integration. `Partial` means a narrower
+behavior ran or a failure mode remains untested. `Product` means the required
+real participant or trusted producer is absent. The numbered logs are under
+`/var/tmp/consent-artifacts/gbs-build-{43,45,46,48}`. Each row names the
+later build when it changes the evidence; prior results are not a Build48
+rerun. A proposed criterion is not itself a test. Current counts are
+Target22, Partial34 and Product7.
 
 | ID | Scope | Evidence or remaining boundary |
 | --- | --- | --- |
@@ -76,7 +76,7 @@ Partial35 and Product7.
 | A-60 | Partial | Retry metadata; deadline-expired holder ACK/product holder absent. |
 | A-61 | Target | Generated parcel exchanges in installed API/wire fixtures. |
 | A-62 | Partial | Build45 target version/size/count/trailing/EOF; early allocation and target NUL proof absent. |
-| A-63 | Partial | GBS generator determinism/schema/license; edited-IDL rebuild absent. |
+| A-63 | Target | Build48 GBS isolated edit: deterministic/invalid schema tests plus regenerated header, client/daemon compile and link, license and exact restore. Installed runtime uses the original IDL. |
 
 The unnumbered release gate is still open: no root-authenticated complete
 current desired-definition producer exists. Production `--begin` therefore

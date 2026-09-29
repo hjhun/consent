@@ -1766,3 +1766,61 @@ Build46 source, GBS, package and device logs are under
 original numbered files. Production desired-definition source, total
 registry recovery, physical holder cleanup and external product adapters
 remain open.
+
+## Build47 failure and Build48 edited-IDL integration (2026-09-30)
+
+Build47 Release15 was a failed `%check` attempt. Its new nested IDL test
+compiled and linked both endpoints after a temporary edit, then rejected the
+generated header for lacking a literal `Apache-2.0` string. The header has
+the full Apache License Version 2.0 notice, and the generator validates the
+IDL's SPDX metadata separately. Build47 `LastTest-failed.log` retains that
+test-only assertion failure; no Build47 RPM was installed or called a pass.
+
+Build48 Release16 archive SHA256 starts `8039344d`. All 240 frozen files
+matched the GBS export and working tree at correlation time; later guide
+edits are outside that freeze. GBS exit0 ran CTest28 with 24 PASS and four
+explicit root SKIP. The corrected incremental test took 54.82s. It copied
+source inputs into a temporary build with tests/tools/PoC off, compiled and
+linked both actual endpoints, changed only that copy's valid IDL key limit
+from 128 to 127, and observed a changed generated header plus actual verbose
+`client.cc`/`server.cc` compile and client/daemon link commands. The build
+after restoring the IDL produced the baseline IDL and header bytes exactly;
+the real IDL and generator hashes stayed unchanged. The existing generator
+test also passed deterministic repetition, invalid schema rejection and
+license metadata. This is a GBS build-integration result. Installed packages
+use the original IDL and wire version.
+
+Five matching Release16 RPMs upgraded on the emulator with internal exit0.
+Installed repository and full wire fixtures passed. Root-only packaged
+offline registration, identity, storage prepare, recovery-state (three
+GTests), and image authority tests passed with recorded UID0 and
+`System::Privileged` labels. Their exact unit commands and actor evidence
+are in `*-root-command.txt` and `*-root-device.log`; Build46's analogous
+`*-root-proof-command.txt`/`*-root-proof-attempt2.log` also substantiate the
+earlier guide's root claim. Installed hashes matched 154/155 regular RPM
+entries, with only the `%config(noreplace)` POC roles file different. ABI
+remains 42 versioned symbols and only `consent-tests` requires GTest/GMock.
+Default-deny actor PID12244/UID0 had negative create statuses and NULL
+handles; production daemon PID11808 logged the same kernel peer as rejected.
+
+The first Release16 reboot attempt ran cache after fresh `basic` and before
+reboot. Cache's own scenario unregisters and re-registers the same package;
+post-reboot `persistent` then returned a decision mismatch (exit1). That log
+does not isolate the cause, so it remains a failed mixed-input attempt. The
+three isolated stores were hashed and archived. A clean second attempt ran
+fresh `basic` and `persistent` with no intervening cache mutation. Boot ID
+changed from `cf0b2708-ad08-47af-9b8e-c854bfa786d9` to
+`126c815c-8314-4d86-9f09-f3f44eb0d1f8`; all five Release16 packages
+persisted. The isolated registry and receipt SHA256/inodes and DB inode
+matched before and after. Post-reboot `persistent` and stopped-DB integrity
+both passed. The same final RPM then passed `stopped-delete`,
+`running-delete` and `db-shutdown` phases with bounded READY checks. A
+separate stopped production DB readback returned integrity `ok`, schema2;
+socket/service restart reached PID4057, active and success. These are
+orderly reboot and isolated recovery results, not abrupt power-loss or
+total-registry restoration evidence.
+
+Build48 source, GBS and device logs are under
+`/var/tmp/consent-artifacts/gbs-build-48`. Production desired-definition
+source, complete registry recovery, physical holder deletion and external
+product adapters remain open.

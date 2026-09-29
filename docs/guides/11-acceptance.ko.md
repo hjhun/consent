@@ -1,14 +1,15 @@
 # 11. CEP 19.2 수용 기준 감사
 
 이 표는 [Design 01의 63개 수용 기준](../design/01-consent-framework.md)을
-Build43 Release11과 번호가 다른 Build45–46 추가 근거에 대응합니다.
-`Target`은 지정한 framework 동작을
-emulator의 격리·패키지 fixture에서 실행했다는 뜻이며 제품 통합을 뜻하지
-않습니다. `Partial`은 범위가 좁거나 실패 조건 시험이 남았고, `Product`는
-실제 제품 participant 또는 신뢰할 producer가 없다는 뜻입니다. 번호별
-로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46}`에 있습니다.
-추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build46
-재실행으로 소급하지 않습니다. 현재 집계는 Target21, Partial35,
+Build43 Release11과 번호가 다른 Build45–48 추가 근거에 대응합니다.
+`Target`은 지정한 framework 동작을 emulator의 격리·패키지 fixture에서
+실행했거나, build 전용 기준을 해당 행의 GBS에서 실행했다는 뜻입니다.
+제품 통합을 뜻하지 않습니다. `Partial`은 범위가 좁거나 실패 조건 시험이
+남았고, `Product`는 실제 제품 participant 또는 신뢰할 producer가 없다는
+뜻입니다. 번호별
+로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46,48}`에 있습니다.
+추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build48
+재실행으로 소급하지 않습니다. 현재 집계는 Target22, Partial34,
 Product7입니다.
 
 | ID | 범위 | 근거 또는 남은 경계 |
@@ -75,7 +76,7 @@ Product7입니다.
 | A-60 | Partial | Retry metadata; ACK 기한초과·제품 holder 없음. |
 | A-61 | Target | 설치 API/wire에서 생성 parcel 교환. |
 | A-62 | Partial | Build45 target version/크기/개수/trailing/EOF; early allocation·target NUL 미증명. |
-| A-63 | Partial | GBS generator 결정성/schema/license; IDL 수정 재빌드 없음. |
+| A-63 | Target | Build48 GBS 격리 IDL 수정: 결정성·invalid schema 시험과 header 재생성, client/daemon compile·link, license·정확 복원. 설치 runtime은 원래 IDL 사용. |
 
 번호 밖 release gate도 열려 있습니다. Root 인증된 완전한 최신
 desired-definition producer가 없어 production `--begin`은 저장소 변경 없이

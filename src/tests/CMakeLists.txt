@@ -115,6 +115,20 @@ ADD_TEST(NAME idl-codegen-test
 )
 SET_TESTS_PROPERTIES(idl-codegen-test PROPERTIES TIMEOUT 30)
 
+ADD_TEST(
+  NAME idl-incremental-build-test
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/idl_incremental_build_test.py"
+    --cmake "${CMAKE_COMMAND}" --cc "${CMAKE_C_COMPILER}" --cxx
+    "${CMAKE_CXX_COMPILER}" --pkg-config "${PKG_CONFIG_EXECUTABLE}"
+    "--c-flags=${CMAKE_C_FLAGS}" "--cxx-flags=${CMAKE_CXX_FLAGS}"
+    "--exe-linker-flags=${CMAKE_EXE_LINKER_FLAGS}"
+    "--shared-linker-flags=${CMAKE_SHARED_LINKER_FLAGS}"
+    "--build-type=${CMAKE_BUILD_TYPE}"
+)
+SET_TESTS_PROPERTIES(idl-incremental-build-test PROPERTIES TIMEOUT 300)
+
 IF(TARGET consentd-activation-test)
   ADD_TEST(
     NAME activation-negative-test

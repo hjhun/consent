@@ -1654,3 +1654,59 @@ Build46 소스·GBS·패키지·기기 로그는
 `/var/tmp/consent-artifacts/gbs-build-46`에 있습니다. Build45 실패는
 원래 번호의 파일에 남깁니다. 생산 desired-definition 공급원, registry
 전손 복구, 실제 holder 삭제, 외부 제품 adapter는 여전히 열린 과제입니다.
+
+## Build47 실패와 Build48 수정 IDL 통합 시험 (2026-09-30)
+
+Build47 Release15는 `%check` 실패 시도입니다. 새 중첩 IDL 시험은 임시
+수정 뒤 양 endpoint의 compile·link까지 수행했지만, 생성 헤더에
+`Apache-2.0`이라는 literal이 없다고 실패했습니다. 생성 헤더에는 전체
+Apache License Version 2.0 고지가 있고, generator가 IDL SPDX metadata를
+별도로 검증합니다. `LastTest-failed.log`에 이 시험 assertion 오류를
+남겼습니다. Build47 RPM은 설치하지 않았고 PASS로 기록하지 않습니다.
+
+Build48 Release16 archive SHA256은 `8039344d`로 시작합니다. 고정 소스
+240개는 상관 검사 시점에 GBS export·작업 트리와 모두 같고 이후 가이드
+수정은 freeze 밖입니다. GBS 종료값 0, CTest28 중 24 PASS와 root 전용
+4 SKIP입니다. 수정된 증분 빌드 시험은 54.82초였습니다. 임시 소스
+트리에서 tests/tools/PoC를 끄고 실제 client·daemon을 빌드한 뒤, 그
+복사본에서만 유효한 IDL key 상한을 128에서 127로 바꿨습니다. 생성
+헤더 변화와 verbose 로그의 실제 `client.cc`·`server.cc` compile 및
+양쪽 link 명령을 확인했습니다. IDL을 복원한 빌드에서는 IDL과 생성
+헤더가 기준 바이트로 정확히 돌아왔고 실제 저장소 IDL·generator hash는
+불변입니다. 기존 generator 시험의 반복 결정성·invalid schema 거부·
+license metadata도 통과했습니다. 이는 GBS 빌드 통합 근거입니다.
+설치 RPM은 원래 IDL과 wire version을 사용합니다.
+
+동일 Release16 RPM 5개는 emulator에서 내부 종료값 0으로 업그레이드됐고,
+설치 repository 및 전체 wire fixture가 통과했습니다. root 전용
+offline registration·identity·storage prepare·recovery-state(GTest 3개)·
+image authority 시험도 기록된 UID0·`System::Privileged` label로
+통과했습니다. 정확 unit 명령과 actor 근거는 `*-root-command.txt`와
+`*-root-device.log`에 있습니다. Build46의
+`*-root-proof-command.txt`·`*-root-proof-attempt2.log`도 앞선 가이드의
+root 주장을 직접 뒷받침합니다. 설치 regular file은 RPM 155개 중
+154개 hash가 일치하고 차이는 `%config(noreplace)` POC roles 파일뿐입니다.
+ABI는 versioned symbol42개이고 GTest/GMock 요구는 `consent-tests`에만
+있습니다. default-deny actor PID12244/UID0의 두 create는 음수 상태·NULL
+handle이었고 생산 daemon PID11808은 같은 kernel peer를 거부했습니다.
+
+Release16 첫 재부팅 시도는 새 `basic` 뒤 재부팅 전에 cache를 실행했습니다.
+cache 시나리오 자체가 같은 package를 unregister·재등록하며 재부팅 뒤
+`persistent`는 decision 불일치(종료값 1)였습니다. 이 로그만으로 원인을
+분리할 수 없어 혼합 입력의 실패 시도로 보존합니다. 격리 store 세 곳을
+hash와 함께 archive하고, 두 번째 시도는 사이에 cache 변경 없이 새
+`basic`·`persistent`를 실행했습니다. Boot ID는
+`cf0b2708-ad08-47af-9b8e-c854bfa786d9`에서
+`126c815c-8314-4d86-9f09-f3f44eb0d1f8`로 바뀌고 Release16 RPM 5개가
+유지됐습니다. 격리 registry·receipt SHA256/inode와 DB inode는 전후
+같았습니다. 재부팅 뒤 `persistent`와 중지된 DB 무결성 검사도 통과했습니다.
+같은 최종 RPM의 `stopped-delete`·`running-delete`·`db-shutdown`은 제한된
+READY 검사와 함께 통과했습니다. 별도 중지된 생산 DB는 integrity `ok`,
+schema2였고 socket/service 재시작은 PID4057, active, success였습니다.
+이는 정상 재부팅·격리 복구 근거이며 돌연 전원 상실이나 registry 전손
+복원 근거는 아닙니다.
+
+Build48 소스·GBS·기기 로그는
+`/var/tmp/consent-artifacts/gbs-build-48`에 있습니다. 생산
+desired-definition 공급원, registry 전손 복구, 실제 holder 삭제, 외부
+제품 adapter는 열린 과제입니다.
