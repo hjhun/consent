@@ -52,6 +52,8 @@ SET(CONSENT_INSTALLATIONS
     "${CONSENT_AUTHORITY_DIR}/installations.conf"
     CACHE FILEPATH "Root-owned installation generation registry"
 )
+OPTION(CONSENT_BUILD_SMOKE "Build isolated developer smoke tests" OFF)
+OPTION(CONSENT_BUILD_SMOKE_TOOLS "Build JSON-RPC fixture tools" OFF)
 OPTION(CONSENT_BUILD_TOOLS "Build C API exerciser programs" ON)
 OPTION(CONSENT_BUILD_TEST_DAEMON "Build isolated integration daemon" OFF)
 OPTION(CONSENT_BUILD_POC
@@ -98,6 +100,7 @@ ENDIF()
 ADD_COMPILE_DEFINITIONS(_GNU_SOURCE)
 
 ADD_SUBDIRECTORY(src)
+INCLUDE(cmake/Smoke.cmake)
 IF(CONSENT_BUILD_TOOLS)
   ADD_SUBDIRECTORY(tests/tools)
 ENDIF()

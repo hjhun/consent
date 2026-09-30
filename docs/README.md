@@ -35,6 +35,8 @@ preserved in Korean.
 | 09 | Receipt-preserving compaction and registry-loss recovery boundaries | [Storage maintenance](guides/09-storage-maintenance.en.md) | [저장소 관리](guides/09-storage-maintenance.ko.md) |
 | 10 | Feature selection, missing-only approval and conversation reuse | [Feature approval](guides/10-feature-approval.en.md) | [기능 승인](guides/10-feature-approval.ko.md) |
 | 11 | CEP 19.2 evidence and open integration gates | [Acceptance audit](guides/11-acceptance.en.md) | [수용 기준 감사](guides/11-acceptance.ko.md) |
+| 12 | Isolated real CM parser and CM/CE consent developer examples | [Developer smoke](guides/12-developer-smoke.en.md) | [개발자 smoke](guides/12-developer-smoke.ko.md) |
+| 13 | Registered JSON-RPC fixture tool and context lookup examples | [Tool examples](guides/13-tool-examples.en.md) | [도구 예제](guides/13-tool-examples.ko.md) |
 
 ## Design documents
 

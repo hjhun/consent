@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "key": "smoke-tool",
+  "name": "Fixture summary tool",
+  "desc": "Synthetic JSON-RPC provider; not a product adapter",
+  "executable": "bin/consent-smoke-tool",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "record": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "fail",
+          "timeout",
+          "malformed",
+          "stderr",
+          "nonzero",
+          "conflict",
+          "nul"
+        ]
+      }
+    },
+    "required": [
+      "record"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "maxLength": 1024
+      }
+    },
+    "required": [
+      "summary"
+    ],
+    "additionalProperties": false
+  }
+}

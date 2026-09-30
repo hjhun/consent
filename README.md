@@ -167,8 +167,12 @@ links each English guide to its Korean counterpart.
 | Installer integration contract | [Guide 06](docs/guides/06-installer-integration.en.md) | [가이드 06](docs/guides/06-installer-integration.ko.md) |
 | Verification and remaining scope | [Guide 07](docs/guides/07-verification.en.md) | [가이드 07](docs/guides/07-verification.ko.md) |
 | Feature selection and task approval | [Guide 10](docs/guides/10-feature-approval.en.md) | [가이드 10](docs/guides/10-feature-approval.ko.md) |
+| Registered fixture tools and context lookup | [Guide 13](docs/guides/13-tool-examples.en.md) | [가이드 13](docs/guides/13-tool-examples.ko.md) |
 
 Contributors and coding agents should also read [AGENTS.md](AGENTS.md).
+
+Developer CM/CE consent examples and the isolated runner are described in
+[Guide 12](docs/guides/12-developer-smoke.en.md).
 
 ## License
 

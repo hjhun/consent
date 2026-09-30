@@ -122,6 +122,7 @@ def copy_source(destination):
         "consent-ui", "obj", "bin", "__pycache__", "*.pyc"
     )
     shutil.copytree(ROOT / "src", destination / "src", ignore=skipped)
+    shutil.copytree(ROOT / "cmake", destination / "cmake")
     shutil.copytree(ROOT / "packaging", destination / "packaging")
     shutil.copytree(ROOT / "docs", destination / "docs")
     for name in ("CMakeLists.txt", "README.md", "AGENTS.md", "LICENSE"):

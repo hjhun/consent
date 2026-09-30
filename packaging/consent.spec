@@ -1,12 +1,13 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    18
+Release:    21
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
 Source1001: %{name}.manifest
 %bcond_without poc
+%bcond_without smoke_tools
 BuildRequires: cmake
 BuildRequires: gcc-c++
 BuildRequires: python3-base
@@ -21,6 +22,9 @@ BuildRequires: pkgconfig(parcel)
 BuildRequires: pkgconfig(capi-base-common)
 BuildRequires: pkgconfig(gtest_main)
 BuildRequires: pkgconfig(gmock)
+%if %{with smoke_tools}
+BuildRequires: pkgconfig(json-glib-1.0)
+%endif
 %if %{with poc}
 BuildRequires: dotnet-build-tools = 8.0.421
 BuildRequires: csapi-tizenfx-nuget = 14.0.0.19364
@@ -107,6 +111,8 @@ cp %{SOURCE1001} .
          -DUNITDIR=%{_unitdir} \
          -DBUILD_TESTING=ON \
          -DCONSENT_BUILD_TOOLS=ON \
+         -DCONSENT_BUILD_SMOKE=ON \
+         -DCONSENT_BUILD_SMOKE_TOOLS=%{?with_smoke_tools:ON}%{!?with_smoke_tools:OFF} \
          -DCONSENT_BUILD_TEST_DAEMON=ON \
          -DCONSENT_BUILD_POC=%{?with_poc:ON}%{!?with_poc:OFF} \
          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -266,6 +272,7 @@ fi
 %files tests
 %defattr(-,root,root,-)
 %manifest %{name}.manifest
+%{_libexecdir}/consent/smoke
 %{_libexecdir}/consent/tests
 %{_libexecdir}/consent/examples
 
