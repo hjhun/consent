@@ -37,6 +37,7 @@ preserved in Korean.
 | 11 | CEP 19.2 evidence and open integration gates | [Acceptance audit](guides/11-acceptance.en.md) | [수용 기준 감사](guides/11-acceptance.ko.md) |
 | 12 | Isolated real CM parser and CM/CE consent developer examples | [Developer smoke](guides/12-developer-smoke.en.md) | [개발자 smoke](guides/12-developer-smoke.ko.md) |
 | 13 | Registered JSON-RPC fixture tool and context lookup examples | [Tool examples](guides/13-tool-examples.en.md) | [도구 예제](guides/13-tool-examples.ko.md) |
+| 14 | Persistent CM/CE mock service integration | [Mock services](guides/14-mock-services.en.md) | [Mock 서비스](guides/14-mock-services.ko.md) |
 
 ## Design documents
 

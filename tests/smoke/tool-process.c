@@ -47,7 +47,9 @@ void tool_install_signal_handlers(void) {
       "tool signal handlers");
 }
 
-int tool_interrupted(void) { return interrupted; }
+int tool_interrupted(void) {
+  return interrupted;
+}
 
 int tool_open(const char* path, int executable) {
   smoke_expect(path[0] == '/', "absolute fixture path");
@@ -85,7 +87,8 @@ static int drain(int* fd, GString* output) {
   for (;;) {
     ssize_t size = read(*fd, data, sizeof(data));
     if (size > 0) {
-      if (output->len + size > TOOL_LIMIT) return 0;
+      if (output->len + size > TOOL_LIMIT)
+        return 0;
       g_string_append_len(output, data, size);
       continue;
     }
@@ -94,13 +97,20 @@ static int drain(int* fd, GString* output) {
       *fd = -1;
       return 1;
     }
-    if (errno == EINTR) continue;
+    if (errno == EINTR)
+      continue;
     return errno == EAGAIN || errno == EWOULDBLOCK;
   }
 }
 
-int tool_execute(int executable_fd, const char* request, const char* id) {
-  if (interrupted) return 0;
+int tool_execute_capture(int executable_fd, const char* request, const char* id,
+                         char** response, int* wait_status, int verbose) {
+  if (response)
+    *response = NULL;
+  if (wait_status)
+    *wait_status = -1;
+  if (interrupted)
+    return 0;
   int out[2] = {-1, -1}, err[2] = {-1, -1};
   int pinned = fcntl(executable_fd, F_DUPFD_CLOEXEC, 10);
   smoke_expect(pinned >= 10 && !pipe2(out, O_CLOEXEC) && !pipe2(err, O_CLOEXEC),
@@ -122,7 +132,8 @@ int tool_execute(int executable_fd, const char* request, const char* id) {
   if (status) {
     close(out[0]);
     close(err[0]);
-    printf("PROVIDER spawn_failed=%d\n", status);
+    if (verbose)
+      printf("PROVIDER spawn_failed=%d\n", status);
     return 0;
   }
   smoke_expect(fcntl(out[0], F_SETFL, O_NONBLOCK) == 0 &&
@@ -141,13 +152,18 @@ int tool_execute(int executable_fd, const char* request, const char* id) {
     }
     struct pollfd descriptors[] = {{out[0], POLLIN, 0}, {err[0], POLLIN, 0}};
     int ready = poll(descriptors, 2, 25);
-    if (ready < 0 && errno != EINTR) healthy = 0;
-    if (out[0] >= 0 && !drain(&out[0], stdout_data)) healthy = 0;
-    if (err[0] >= 0 && !drain(&err[0], stderr_data)) healthy = 0;
+    if (ready < 0 && errno != EINTR)
+      healthy = 0;
+    if (out[0] >= 0 && !drain(&out[0], stdout_data))
+      healthy = 0;
+    if (err[0] >= 0 && !drain(&err[0], stderr_data))
+      healthy = 0;
     if (!reaped) {
       pid_t waited = waitpid(pid, &child_status, WNOHANG);
-      if (waited == pid) reaped = 1;
-      if (waited < 0 && errno != EINTR) healthy = 0;
+      if (waited == pid)
+        reaped = 1;
+      if (waited < 0 && errno != EINTR)
+        healthy = 0;
     }
   }
   if (!reaped) {
@@ -162,39 +178,61 @@ int tool_execute(int executable_fd, const char* request, const char* id) {
    */
   if (out[0] >= 0) {
     drain(&out[0], stdout_data);
-    if (out[0] >= 0) close(out[0]);
+    if (out[0] >= 0)
+      close(out[0]);
   }
   if (err[0] >= 0) {
     drain(&err[0], stderr_data);
-    if (err[0] >= 0) close(err[0]);
+    if (err[0] >= 0)
+      close(err[0]);
   }
-  printf("PROVIDER pid=%ld healthy=%d wait_status=%d stdout=%zu stderr=%zu\n",
-         (long)pid, healthy, child_status, stdout_data->len, stderr_data->len);
-  /* Fixture payload only; streams are captured independently. */
-  printf("PROVIDER_STDERR %s\n", stderr_data->str);
-  printf("PROVIDER_STDOUT %s\n", stdout_data->str);
+  if (wait_status)
+    *wait_status = child_status;
+  if (verbose) {
+    printf("PROVIDER pid=%ld healthy=%d wait_status=%d stdout=%zu stderr=%zu\n",
+           (long)pid, healthy, child_status, stdout_data->len,
+           stderr_data->len);
+    /* Fixture payload only; streams are captured independently. */
+    printf("PROVIDER_STDERR %s\n", stderr_data->str);
+    printf("PROVIDER_STDOUT %s\n", stdout_data->str);
+  }
   int result = 0;
+  const char* selected = NULL;
   if (healthy && !memchr(stdout_data->str, 0, stdout_data->len) &&
       !memchr(stderr_data->str, 0, stderr_data->len)) {
     char* out_text = g_strstrip(stdout_data->str);
     char* err_text = g_strstrip(stderr_data->str);
     int out_result = *out_text ? tool_validate_response(out_text, id) : 0;
     int err_result = *err_text ? tool_validate_response(err_text, id) : 0;
-    if (out_result && !*err_text) result = out_result;
-    if (err_result && !*out_text) result = err_result;
+    if (out_result && !*err_text) {
+      result = out_result;
+      selected = out_text;
+    }
+    if (err_result && !*out_text) {
+      result = err_result;
+      selected = err_text;
+    }
     if (out_result && err_result) {
       JsonParser* out_parser = tool_parse(out_text);
       JsonParser* err_parser = tool_parse(err_text);
       if (json_node_equal(json_parser_get_root(out_parser),
-                          json_parser_get_root(err_parser)))
+                          json_parser_get_root(err_parser))) {
         result = out_result;
+        selected = out_text;
+      }
       g_object_unref(out_parser);
       g_object_unref(err_parser);
     }
   }
   /* A valid native response and process exit/signal are distinct observations.
    */
+  if (response && selected)
+    *response = g_strdup(selected);
   g_string_free(stdout_data, TRUE);
   g_string_free(stderr_data, TRUE);
   return result;
+}
+
+int tool_execute(int executable_fd, const char* request, const char* id) {
+  return tool_execute_capture(executable_fd, request, id, NULL, NULL, 1);
 }

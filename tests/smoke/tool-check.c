@@ -27,102 +27,14 @@
 
 #include "tool-json.h"
 #include "tool-process.h"
+#include "tool-gate.h"
 
 #define TOOL_ROOT "/tmp/consent-smoke"
 #define TOOL_PROVIDER SMOKE_TOOL_PACKAGE "/bin/consent-smoke-tool"
 
-static JsonParser* load_metadata(void) {
-  int fd = tool_open(TOOL_ROOT "/tool-metadata.json", 0);
-  char bytes[TOOL_LIMIT + 1];
-  size_t size = 0;
-  while (size < sizeof(bytes)) {
-    ssize_t count = read(fd, bytes + size, sizeof(bytes) - size);
-    if (count < 0 && errno == EINTR) continue;
-    smoke_expect(count >= 0, "metadata read");
-    if (!count) break;
-    size += count;
-  }
-  close(fd);
-  smoke_expect(size > 0 && size <= TOOL_LIMIT && !memchr(bytes, 0, size),
-               "bounded complete metadata without NUL");
-  bytes[size] = 0;
-  JsonParser* parser = tool_parse(bytes);
-  smoke_expect(parser != NULL, "tool metadata JSON");
-  return parser;
-}
-
-static int validate_catalog(void) {
-  int anchor = tool_open(TOOL_ROOT "/catalog-tool.db", 0);
-  sqlite3* database = NULL;
-  sqlite3_stmt* statement = NULL;
-  smoke_expect(sqlite3_open_v2(TOOL_ROOT "/catalog-tool.db", &database,
-                               SQLITE_OPEN_READONLY, NULL) == SQLITE_OK,
-               "CM fixture catalog open");
-  smoke_expect(sqlite3_prepare_v2(database,
-                                  "SELECT id,owner,executable FROM capability "
-                                  "WHERE id='cli:smoke-tool'",
-                                  -1, &statement, NULL) == SQLITE_OK &&
-                   sqlite3_step(statement) == SQLITE_ROW,
-               "canonical CLI catalog lookup");
-  const char* id = (const char*)sqlite3_column_text(statement, 0);
-  const char* owner = (const char*)sqlite3_column_text(statement, 1);
-  const char* executable = (const char*)sqlite3_column_text(statement, 2);
-  smoke_expect(id && owner && executable && !strcmp(id, "cli:smoke-tool") &&
-                   !strcmp(owner, "smoke.package") &&
-                   !strcmp(executable, TOOL_PROVIDER),
-               "actual canonical identity/owner/fixed installed executable");
-  /* Pin the actual catalog executable inode before any protected admission. */
-  int fd = tool_open(executable, 1);
-  struct stat st;
-  smoke_expect(!fstat(fd, &st), "installed provider inode");
-  printf("CATALOG binding id=%s owner=%s executable=%s inode=%lu\n", id, owner,
-         executable, (unsigned long)st.st_ino);
-  smoke_expect(sqlite3_step(statement) == SQLITE_DONE, "one canonical entry");
-  sqlite3_finalize(statement);
-  smoke_expect(sqlite3_close(database) == SQLITE_OK, "catalog close");
-  close(anchor);
-  return fd;
-}
-
-static void validate_binding(JsonObject* binding, const char* definition,
-                             const char* record) {
-  const char* role = tool_string(binding, "enforcer");
-  const char* actual_record = tool_string(binding, "record");
-  const char* actual_definition = tool_string(binding, "definition");
-  JsonNode* level = json_object_get_member(binding, "level");
-  int cm = g_str_has_prefix(definition, "smoke.cm.tool.");
-  smoke_expect(role && actual_record && actual_definition &&
-                   !strcmp(actual_record, record) &&
-                   !strcmp(actual_definition, definition) &&
-                   !strcmp(role, cm ? "cm" : "ce") && level &&
-                   JSON_NODE_HOLDS_VALUE(level) &&
-                   json_node_get_value_type(level) == G_TYPE_INT64 &&
-                   json_node_get_int(level) == (cm ? 1 : record[5] - '0'),
-               "root metadata definition/record/trusted level");
-  printf("METADATA definition=%s record=%s level=%lld enforcer=%s\n",
-         definition, record, (long long)json_node_get_int(level), role);
-}
-
 static int context_lookup(const char* record, const char* id) {
-  char* path = g_strdup_printf(TOOL_ROOT "/tool-context/%s.txt", record);
-  int fd = tool_open(path, 0);
-  g_free(path);
-  char data[1025];
-  size_t size = 0;
-  while (size < sizeof(data)) {
-    ssize_t count = read(fd, data + size, sizeof(data) - size);
-    if (count < 0 && errno == EINTR) continue;
-    if (count < 0) {
-      close(fd);
-      return 0;
-    }
-    if (!count) break;
-    size += count;
-  }
-  close(fd);
-  if (!size || size > 1024 || memchr(data, 0, size)) return 0;
-  data[size] = 0;
-  char* response = tool_response(id, data, 0);
+  char* response = tool_context_read(record, id);
+  if (!response) return 0;
   printf("CONTEXT_RESPONSE %s\n", response);
   int valid = tool_validate_response(response, id);
   g_free(response);
@@ -139,12 +51,12 @@ int main(int argc, char** argv) {
   const char* definition = argv[1];
   const char* record = smoke_tool_record(definition);
   int cm = g_str_has_prefix(definition, "smoke.cm.tool.");
-  JsonParser* metadata = load_metadata();
+  JsonParser* metadata = tool_load_metadata();
   JsonObject* root = json_node_get_object(json_parser_get_root(metadata));
   JsonObject* binding = tool_object(root, definition);
   smoke_expect(binding != NULL, "known root-owned tool record");
-  validate_binding(binding, definition, record);
-  int provider = cm ? validate_catalog() : -1;
+  tool_validate_binding(binding, definition, record, 1);
+  int provider = cm ? tool_validate_catalog(1) : -1;
   g_object_unref(metadata);
   consent_client_h client = NULL;
   smoke_call(consent_client_create(&client), "tool create");

@@ -39,7 +39,8 @@ IF(CONSENT_BUILD_SMOKE_TOOLS)
     SET(SMOKE_TOOL_PACKAGE "${CMAKE_INSTALL_PREFIX}/${SMOKE_DEST}/tool-package")
   ENDIF()
   FOREACH(ROLE cm ce)
-    ADD_EXECUTABLE(consent-smoke-tool-${ROLE} tool-check.c tool-process.c)
+    ADD_EXECUTABLE(consent-smoke-tool-${ROLE}
+      tool-check.c tool-process.c tool-gate.c)
     TARGET_LINK_LIBRARIES(consent-smoke-tool-${ROLE} PRIVATE
       consent-smoke-common consent-smoke-tool-json PkgConfig::SQLITE)
     TARGET_COMPILE_DEFINITIONS(consent-smoke-tool-${ROLE} PRIVATE
@@ -48,6 +49,17 @@ IF(CONSENT_BUILD_SMOKE_TOOLS)
     SET_TARGET_PROPERTIES(consent-smoke-tool-${ROLE} PROPERTIES
       INSTALL_RPATH "$ORIGIN")
     INSTALL(TARGETS consent-smoke-tool-${ROLE} RUNTIME DESTINATION
+      "${SMOKE_DEST}")
+    ADD_EXECUTABLE(consent-smoke-mock-${ROLE}
+      mock-service.c tool-process.c tool-gate.c)
+    TARGET_LINK_LIBRARIES(consent-smoke-mock-${ROLE} PRIVATE
+      consent-smoke-common consent-smoke-tool-json PkgConfig::SQLITE)
+    TARGET_COMPILE_DEFINITIONS(consent-smoke-mock-${ROLE} PRIVATE
+      SMOKE_TOOL_ROLE="${ROLE}"
+      SMOKE_TOOL_PACKAGE="${SMOKE_TOOL_PACKAGE}")
+    SET_TARGET_PROPERTIES(consent-smoke-mock-${ROLE} PROPERTIES
+      INSTALL_RPATH "$ORIGIN")
+    INSTALL(TARGETS consent-smoke-mock-${ROLE} RUNTIME DESTINATION
       "${SMOKE_DEST}")
   ENDFOREACH()
 ENDIF()

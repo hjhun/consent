@@ -19,12 +19,16 @@
 #include <stdio.h>
 #include <string.h>
 int main(int argc, char** argv) {
-  if (argc != 4 || strcmp(argv[1], "--auto-approve-smoke")) {
-    fprintf(stderr, "Usage: %s --auto-approve-smoke REQUEST_ID MODE\n",
+  if (argc != 4 || (strcmp(argv[1], "--auto-approve-smoke") &&
+                    strcmp(argv[1], "--auto-deny-smoke"))) {
+    fprintf(stderr,
+            "Usage: %s --auto-approve-smoke|--auto-deny-smoke "
+            "REQUEST_ID MODE\n",
             argv[0]);
     return 2;
   }
-  if (strcmp(argv[3], "ONCE") && strcmp(argv[3], "PERSISTENT")) return 2;
+  if (strcmp(argv[3], "ONCE") && strcmp(argv[3], "PERSISTENT"))
+    return 2;
   consent_client_h client = NULL;
   consent_params_t* params = smoke_params();
   consent_result_t* result = NULL;
@@ -37,10 +41,13 @@ int main(int argc, char** argv) {
   smoke_set(params, "prompt_token", token);
   consent_result_free(result);
   result = NULL;
-  smoke_set(params, "decision", "ALLOWED");
+  int deny = !strcmp(argv[1], "--auto-deny-smoke");
+  smoke_set(params, "decision", deny ? "DENIED" : "ALLOWED");
   smoke_set(params, "grant_mode", argv[3]);
   smoke_call(consent_respond(client, params, &result), "smoke UI response");
-  puts("PASS smoke-only automatic approval; not a product user decision");
+  puts(deny
+           ? "PASS smoke-only automatic denial; not a product user decision"
+           : "PASS smoke-only automatic approval; not a product user decision");
   consent_result_free(result);
   consent_params_free(params);
   smoke_call(consent_client_destroy(client), "destroy");

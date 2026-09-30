@@ -20,6 +20,9 @@
 /* Takes a verified executable FD; always reaps the provider and drains pipes.
  * Returns 1 success, -1 native JSON-RPC error, 0 unknown/failed execution. */
 int tool_execute(int executable_fd, const char* request, const char* id);
+/* Allocates a validated native reply, or NULL; caller frees with g_free. */
+int tool_execute_capture(int executable_fd, const char* request, const char* id,
+                         char** response, int* wait_status, int verbose);
 void tool_install_signal_handlers(void);
 int tool_interrupted(void);
 int tool_open(const char* path, int executable);

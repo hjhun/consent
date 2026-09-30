@@ -17,22 +17,27 @@
 #include "common.h"
 
 #include <stdio.h>
+#include <string.h>
 static int completed;
 static int returned;
+static int denied;
 static void on_result(int status, const consent_result_t* result, void* data) {
   (void)data;
   smoke_expect(returned, "callback after return");
   smoke_call(status, "async result");
   smoke_expect(!completed, "callback at most once");
-  smoke_expect(consent_result_get_decision(result) == CONSENT_DECISION_ALLOWED,
-               "allowed callback");
+  smoke_expect(
+      consent_result_get_decision(result) ==
+          (denied ? CONSENT_DECISION_DENIED : CONSENT_DECISION_ALLOWED),
+      "expected decision callback");
   completed = 1;
 }
 int main(int argc, char** argv) {
-  if (argc != 3) {
+  if (argc != 3 && (argc != 4 || strcmp(argv[3], "--expect-denied"))) {
     fprintf(stderr, "Usage: %s DEFINITION REQUEST_OPERATION_ID\n", argv[0]);
     return 2;
   }
+  denied = argc == 4;
   consent_client_h client = NULL;
   consent_params_t* params = smoke_requirement(argv[1]);
   consent_async_id_t async_id;
@@ -62,7 +67,8 @@ int main(int argc, char** argv) {
     g_usleep(1000);
   }
   smoke_expect(completed, "approval callback deadline");
-  puts("PASS argo accepted then allowed callback");
+  puts(denied ? "PASS argo accepted then denied callback"
+              : "PASS argo accepted then allowed callback");
   consent_result_free(result);
   consent_params_free(lookup);
   consent_params_free(params);

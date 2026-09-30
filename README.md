@@ -168,6 +168,7 @@ links each English guide to its Korean counterpart.
 | Verification and remaining scope | [Guide 07](docs/guides/07-verification.en.md) | [가이드 07](docs/guides/07-verification.ko.md) |
 | Feature selection and task approval | [Guide 10](docs/guides/10-feature-approval.en.md) | [가이드 10](docs/guides/10-feature-approval.ko.md) |
 | Registered fixture tools and context lookup | [Guide 13](docs/guides/13-tool-examples.en.md) | [가이드 13](docs/guides/13-tool-examples.ko.md) |
+| Persistent CM/CE mock services | [Guide 14](docs/guides/14-mock-services.en.md) | [가이드 14](docs/guides/14-mock-services.ko.md) |
 
 Contributors and coding agents should also read [AGENTS.md](AGENTS.md).
 

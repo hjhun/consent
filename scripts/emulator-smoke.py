@@ -157,8 +157,10 @@ class Actor:
         assert status == 0
 
 
-def approve(definition, mode, operation):
+def approve(definition, mode, operation, deny=False):
     args = [str(TOOLS / 'consent-smoke-argo'), definition, operation]
+    if deny:
+        args.append('--expect-denied')
     print('COMMAND', json.dumps(args), flush=True)
     process = subprocess.Popen(args, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True)
@@ -180,14 +182,17 @@ def approve(definition, mode, operation):
     print(line, end='', flush=True)
     assert line.startswith('REQUEST_ID '), line
     request = line.strip().split()[1]
-    run(str(TOOLS / 'consent-smoke-ui'), '--auto-approve-smoke', request, mode)
+    run(str(TOOLS / 'consent-smoke-ui'),
+        '--auto-deny-smoke' if deny else '--auto-approve-smoke', request, mode)
     output = process.communicate(timeout=25)[0]
     print(output, end='', flush=True)
     print('ARGO_EXIT', process.returncode, flush=True)
     assert process.returncode == 0
+    if deny:
+        assert 'PASS argo accepted then denied callback' in output
 
 
-def setup(tools=False):
+def setup(tools=False, mock_services=False):
     global MANAGED
     for suffix in ('service', 'socket'):
         unit = Path('/run/systemd/system') / f'consentd-smoke.{suffix}'
@@ -222,6 +227,13 @@ def setup(tools=False):
         for role in ('cm', 'ce'):
             roles += (f'[identity smoke-tool-{role}]\nuid=0\n'
                       f'executable={TOOLS}/consent-smoke-tool-{role}\n'
+                      f'label=System\nroles={role};\n'
+                      'subjects=smoke.subject;\nprofiles=smoke.profile;\n'
+                      f'enforcers={role};\npackages=smoke.package;\n')
+    if mock_services:
+        for role in ('cm', 'ce'):
+            roles += (f'[identity smoke-mock-{role}]\nuid=0\n'
+                      f'executable={TOOLS}/consent-smoke-mock-{role}\n'
                       f'label=System\nroles={role};\n'
                       'subjects=smoke.subject;\nprofiles=smoke.profile;\n'
                       f'enforcers={role};\npackages=smoke.package;\n')
@@ -559,6 +571,292 @@ def tools_scenarios(args, generation):
         actor.close()
 
 
+
+class MockService:
+    """Private persistent service: stdout JSON only, independently drained stderr."""
+    def __init__(self, role, catalog_mode):
+        self.role = role
+        self.process = subprocess.Popen(
+            [str(TOOLS / f'consent-smoke-mock-{role}'), catalog_mode],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=0)
+        CHILDREN.append(self.process)
+        self.buffers = {self.process.stdout: b'', self.process.stderr: b''}
+        self.serial = 0
+        self.eof = set()
+        self.receive(ready=True)
+
+    def receive(self, ready=False):
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            consumed_line = False
+            for stream, data in list(self.buffers.items()):
+                if b'\n' not in data:
+                    continue
+                consumed_line = True
+                raw, self.buffers[stream] = data.split(b'\n', 1)
+                line = raw.decode()
+                if stream is self.process.stderr:
+                    print('MOCK_STDERR', self.process.pid, line, flush=True)
+                    if ready and line.startswith('READY '):
+                        return
+                else:
+                    assert not ready, 'unsolicited service stdout'
+                    result = json.loads(line)
+                    print('MOCK_RESPONSE', self.process.pid, line, flush=True)
+                    assert result['jsonrpc'] == '2.0'
+                    assert ('result' in result) != ('error' in result)
+                    return result
+            if consumed_line:
+                continue
+            remaining = deadline - time.monotonic()
+            readable, _, _ = select.select(
+                [s for s in self.buffers if s not in self.eof], [], [],
+                                           max(0, remaining))
+            if not readable:
+                raise RuntimeError('mock bounded response timeout')
+            for stream in readable:
+                chunk = os.read(stream.fileno(), 4096)
+                if not chunk:
+                    self.eof.add(stream)
+                    continue
+                self.buffers[stream] += chunk
+                assert len(self.buffers[stream]) <= 32768, 'mock stream bound'
+        raise RuntimeError('mock response deadline')
+
+    def rpc(self, method, params=None, rpc_id=None):
+        self.serial += 1
+        identity = rpc_id or f'{self.role}-{self.serial}'
+        request = dict(jsonrpc='2.0', id=identity, method=method,
+                       params={} if params is None else params)
+        print('MOCK_REQUEST', self.process.pid, json.dumps(request), flush=True)
+        self.process.stdin.write((json.dumps(request) + '\n').encode())
+        self.process.stdin.flush()
+        response = self.receive()
+        assert response['id'] == identity, 'current transport id echoed'
+        return response
+
+    def action(self, record, operation, decision='ALLOWED', query=False,
+               step='execute', api_status=0):
+        params = dict(record=record, operation_id=operation, step_id=step)
+        if self.role == 'cm':
+            params['capability'] = 'cli:smoke-tool'
+        method = ('capability.' + ('query' if query else 'execute')
+                  if self.role == 'cm' else
+                  'context.' + ('query' if query else 'get'))
+        response = self.rpc(method, params)
+        assert 'result' in response, response
+        result = response['result']
+        assert result['api_status'] == api_status, result
+        assert result['decision'] == decision, result
+        return result
+
+    def reconnect(self):
+        self.action('summary' if self.role == 'cm' else 'level0',
+                    f'disconnected-{self.serial}', 'API_ERROR',
+                    api_status=-107)
+        response = self.rpc('mock.reconnect')['result']
+        assert response['decision'] == 'RECONNECTED'
+
+    def close(self, expected=0):
+        if not self.process.stdin.closed:
+            self.process.stdin.close()
+        # Bound and drain both streams, including normal EOF shutdown.
+        self.process.stdin = None
+        output, error = self.process.communicate(timeout=10)
+        assert not output and not self.buffers[self.process.stdout], output
+        print('MOCK_FINAL_STDERR', error.decode(), flush=True)
+        print('MOCK_EXIT', self.process.pid, self.process.returncode, flush=True)
+        assert self.process.returncode == expected
+
+
+def mock_scenarios(args, generation):
+    mode = 'fixture'
+    if args.mock_catalog == 'actual':
+        parser = Path('/usr/libexec/capmgr/capmgr-package-tool')
+        if parser.is_file():
+            tools_catalog()  # Any actual invocation error fails, never fallback.
+            mode = 'actual'
+        else:
+            print('catalog_actual/OPTIONAL_MISSING; catalog_fixture selected')
+    provider = TOOLS / 'tool-package/bin/consent-smoke-tool'
+    path = ROOT / 'mock-catalog.json'
+    path.write_text(json.dumps(dict(id='cli:smoke-tool', owner='smoke.package',
+                                    executable=str(provider))))
+    path.chmod(0o600)
+    print('catalog_fixture/PASS synthetic owned mapping; parser metadata absent')
+    definitions = [(f'smoke.cm.tool.{record}', 'cm', 1, record)
+                   for record in ('summary', 'fail', 'timeout', 'malformed',
+                                  'stderr', 'nonzero', 'conflict', 'nul')]
+    definitions += [(f'smoke.ce.tool.level{i}', 'ce', i, f'level{i}')
+                    for i in range(4)]
+    metadata = {name: dict(definition=name, enforcer=role, level=level,
+                           record=record)
+                for name, role, level, record in definitions}
+    path = ROOT / 'tool-metadata.json'
+    path.write_text(json.dumps(metadata))
+    path.chmod(0o600)
+    context = ROOT / 'tool-context'
+    context.mkdir(mode=0o700)
+    for level in range(4):
+        path = context / f'level{level}.txt'
+        path.write_text(f'synthetic context summary level{level}\n')
+        path.chmod(0o600)
+    for name, role, level, _ in definitions:
+        run(str(TOOLS / 'consent-smoke-installer'), generation, name, role,
+            str(level), 'register-' + name)
+    cm = MockService('cm', mode)
+    ce = MockService('ce', mode)
+    for actor in (cm, ce):
+        method = 'catalog.discover' if actor.role == 'cm' else 'context.list'
+        result = actor.rpc(method)['result']
+        assert result['admissions'] == 0
+        assert len(result['records']) == (8 if actor.role == 'cm' else 4)
+        assert all(row['enforcer'] == actor.role
+                   for row in result['records'].values())
+        for kind in ('register', 'request', 'cross'):
+            result = actor.rpc('mock.probe-role', dict(kind=kind))['result']
+            assert result['api_status'] == -13 and result['admissions'] == 0
+        assert actor.rpc('foreign.method')['error']['code'] == -32601
+        record = 'summary' if actor.role == 'cm' else 'level0'
+        for key in ('level', 'path', 'subject', 'receipt', 'profile'):
+            params = dict(record=record, operation_id='invalid', step_id='get')
+            if actor.role == 'cm':
+                params['capability'] = 'cli:smoke-tool'
+            params[key] = 0 if key == 'level' else 'forbidden'
+            method = 'capability.execute' if actor.role == 'cm' else 'context.get'
+            assert actor.rpc(method, params)['error']['code'] == -32602
+        result = actor.action(record, 'before', 'CONSENT_REQUIRED')
+        assert result['admissions'] == 0 and 'execution' not in result
+    assert ce.rpc('context.metadata', dict(record='level3'))['result'][
+        'metadata']['level'] == 3
+    assert ce.rpc('context.metadata', dict(record='level4'))['error'][
+        'code'] == -32602
+    approve('smoke.cm.tool.summary', 'ONCE', 'mock-cm-once')
+    advisory = cm.action('summary', 'cm-advisory', query=True)
+    assert advisory['admissions'] == 0 and 'execution' not in advisory
+    first = cm.action('summary', 'cm-once')
+    assert first['execution']['state'] == 'succeeded'
+    assert first['execution']['data']['summary'] == 'synthetic capability summary'
+    retry = cm.action('summary', 'cm-once')  # Different transport id.
+    assert retry['deduplicated'] and retry['execution'] == first['execution']
+    assert retry['admissions'] == 1
+    cm.action('summary', 'cm-next', 'CONSENT_REQUIRED')
+    # Same operation+step with a changed binding cannot expose old payload.
+    conflict = cm.rpc('capability.execute', dict(
+        capability='cli:smoke-tool', record='fail', operation_id='cm-once',
+        step_id='execute'))['result']
+    assert conflict['api_status'] == -2147483644 and 'execution' not in conflict
+    replacement = MockService('cm', mode)
+    result = replacement.action('summary', 'cm-once')
+    assert result['state'] == 'blocked_unknown_receipt'
+    assert result['admissions'] == 0 and 'execution' not in result
+    replacement.close()
+    run(str(TOOLS / 'consent-smoke-admin'), 'smoke.cm.tool.summary')
+    result = cm.action('summary', 'cm-once', 'API_ERROR', api_status=-116)
+    assert 'execution' not in result and result['admissions'] == 1
+    result = cm.action('summary', 'cm-revoked-new', 'CONSENT_REQUIRED')
+    assert 'execution' not in result and result['admissions'] == 1
+    approve('smoke.cm.tool.summary', 'ONCE', 'mock-deny', deny=True)
+    denied = cm.action('summary', 'denied', 'CONSENT_REQUIRED')
+    assert 'execution' not in denied and denied['admissions'] == 1
+    run(str(TOOLS / 'consent-smoke-admin'), 'smoke.cm.tool.summary')
+    for record, state in (('fail', 'native_error'), ('timeout', 'unknown')):
+        approve(f'smoke.cm.tool.{record}', 'ONCE', f'mock-{record}')
+        before = cm.rpc('catalog.discover')['result']['admissions']
+        first = cm.action(record, f'cm-{record}')
+        retry = cm.action(record, f'cm-{record}')
+        assert first['execution']['state'] == state
+        assert retry['execution'] == first['execution'] and retry['deduplicated']
+        assert first['admissions'] == retry['admissions'] == before + 1
+    for level in range(4):
+        record = f'level{level}'
+        before = ce.rpc('context.metadata', dict(record=record))['result'][
+            'admissions']
+        ce.action(record, f'ce-{record}-before', 'CONSENT_REQUIRED')
+        approve(f'smoke.ce.tool.{record}', 'ONCE', f'mock-{record}')
+        advisory = ce.action(record, f'ce-{record}-query', query=True)
+        assert advisory['admissions'] == before and 'execution' not in advisory
+        first = ce.action(record, f'ce-{record}-once')
+        retry = ce.action(record, f'ce-{record}-once')
+        assert first['execution']['state'] == 'succeeded'
+        assert first['execution']['data']['summary'].endswith(record + '\n')
+        assert retry['execution'] == first['execution'] and retry['deduplicated']
+        assert retry['admissions'] == before + 1
+        ce.action(record, f'ce-{record}-next', 'CONSENT_REQUIRED')
+    # Concrete malformed byte frames: each child tracked, bounded and reaped.
+    for frame in (b'{}\0garbage\n', b'x' * 16385 + b'\n', b'{'):
+        actor = MockService('ce', mode)
+        actor.process.stdin.write(frame)
+        actor.process.stdin.flush()
+        actor.process.stdin.close()
+        response = actor.receive()
+        assert response['error']['code'] == -32700
+        actor.close(expected=2)
+    # Persistent handles/ledgers survive client recreation; no auto reconnect.
+    actors = ((cm, 'summary'), (ce, 'level0'))
+    for actor, record in actors:
+        definition = f'smoke.{actor.role}.tool.{record}'
+        run(str(TOOLS / 'consent-smoke-admin'), definition)
+        approve(definition, 'PERSISTENT', 'normal-' + definition)
+    stop()
+    start()
+    for actor, record in actors:
+        actor.reconnect()
+        assert actor.action(record, 'normal-' + actor.role)['execution'][
+            'state'] == 'succeeded'
+    phases = ['running-delete', 'stopped-delete', 'corrupt']
+    random.Random(args.seed).shuffle(phases)
+    print('MOCK_SEED', args.seed, 'ORDER', phases, flush=True)
+    for phase in phases:
+        old_epochs = {}
+        counts = {}
+        for actor, record in actors:
+            definition = f'smoke.{actor.role}.tool.{record}'
+            run(str(TOOLS / 'consent-smoke-admin'), definition)
+            approve(definition, 'PERSISTENT', phase + '-persist-' + definition)
+            result = actor.action(record, phase + '-before-' + actor.role)
+            old_epochs[actor.role] = result['epoch']
+            counts[actor.role] = result['admissions']
+        if phase != 'running-delete':
+            stop()
+        mutate_database(STATE / 'consent.db', corrupt=phase == 'corrupt')
+        if phase != 'running-delete':
+            start()
+            for actor, _ in actors:
+                actor.reconnect()
+        for actor, record in actors:
+            result = actor.action(record, phase + '-lost-' + actor.role,
+                                  'CONSENT_REQUIRED')
+            assert result['epoch'] != old_epochs[actor.role]
+            assert result['admissions'] == counts[actor.role]
+            assert 'execution' not in result
+        stop()
+        inspect_recovery(len(definitions))
+        start()
+        for actor, record in actors:
+            actor.reconnect()
+            approve(f'smoke.{actor.role}.tool.{record}', 'PERSISTENT',
+                    phase + '-fresh-' + actor.role)
+            result = actor.action(record, phase + '-fresh-' + actor.role)
+            assert result['execution']['state'] == 'succeeded'
+            assert result['admissions'] == counts[actor.role] + 1
+        print('PASS mock service recovery', phase, 'same_pids',
+              cm.process.pid, ce.process.pid, flush=True)
+    stop()
+    mutate_database(STATE / 'definitions.registry')
+    mutate_database(STATE / 'consent.db')
+    result = subprocess.run(['systemctl', 'start', 'consentd-smoke.service'],
+                            timeout=25)
+    assert result.returncode != 0
+    for actor, record in actors:
+        result = actor.action(record, 'registry-loss', 'API_ERROR',
+                              api_status=-107)
+        assert 'execution' not in result
+        actor.close()
+    print('PASS mock registry loss blocked; no automatic reset')
+
+
 def main(args):
     assert os.getuid() == 0
     assert Path('/proc/self/attr/current').read_text().strip() == 'System'
@@ -578,23 +876,37 @@ def main(args):
         print('PASS explicit owned fixture cleanup')
         return
     before = production_fingerprint()
-    if args.tools:
+    if args.tools or args.mock_services:
         for binary in ('consent-smoke-tool-cm', 'consent-smoke-tool-ce',
                        'tool-package/bin/consent-smoke-tool',
                        'tool-package/cli.json'):
             if not (TOOLS / binary).is_file():
                 raise RuntimeError('--tools requires installed smoke tool mode: '
                                    + binary)
-    setup(args.tools)
+    if args.mock_services:
+        for role in ('cm', 'ce'):
+            if not (TOOLS / f'consent-smoke-mock-{role}').is_file():
+                raise RuntimeError('--mock-services requires installed mock binaries')
+    setup(args.tools, args.mock_services)
     validate_fixture()
-    resource = None if args.tools else catalog()
-    preflight = subprocess.run([str(TOOLS / 'consent-smoke-capmgr-preflight')],
+    resource = None if args.tools or args.mock_services else catalog()
+    if not args.mock_services:
+        preflight = subprocess.run([str(TOOLS / 'consent-smoke-capmgr-preflight')],
                                timeout=10)
-    print('PREFLIGHT_EXIT', preflight.returncode, flush=True)
-    assert preflight.returncode in (0, 3), 'CM library missing or ABI failure'
+        print('PREFLIGHT_EXIT', preflight.returncode, flush=True)
+        assert preflight.returncode in (0, 3), 'CM library missing or ABI failure'
     generation = authority('begin', 'smoke.package', 'begin-smoke', 'absent')
     authority('attach', 'smoke.package', 'smoke.app', 'attach-smoke', generation)
     authority('commit', 'smoke.package', 'commit-smoke', generation)
+    if args.mock_services:
+        mock_scenarios(args, generation)
+        stop()
+        assert before == production_fingerprint(), 'production/PoC state changed'
+        print('PASS production and PoC state metadata unchanged')
+        print('developer_mock_services/PASS; product_internal_integration/BLOCKED')
+        if args.require_product:
+            raise RuntimeError('product public API integration required but blocked')
+        return
     if args.tools:
         tools_scenarios(args, generation)
         stop()
@@ -733,7 +1045,11 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--seed', type=int, default=20260930)
-    parser.add_argument('--tools', action='store_true')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--tools', action='store_true')
+    modes.add_argument('--mock-services', action='store_true')
+    parser.add_argument('--mock-catalog', choices=('fixture', 'actual'),
+                        default='fixture')
     parser.add_argument('--cleanup', action='store_true')
     parser.add_argument('--require-product', action='store_true')
     options = parser.parse_args()
