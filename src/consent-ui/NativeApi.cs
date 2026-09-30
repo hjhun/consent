@@ -19,7 +19,8 @@ namespace ConsentUI;
 
 internal interface IConsentBackend : IDisposable {
   PromptSnapshot Fetch(string requestId, string locale);
-  string Respond(PromptSnapshot snapshot, bool allow);
+  string Respond(PromptSnapshot snapshot, bool allow,
+                 bool alwaysAllowed = false);
 }
 
 internal sealed class NativeApi : IConsentBackend {
@@ -49,6 +50,8 @@ internal sealed class NativeApi : IConsentBackend {
     parameters.Set("locale", locale);
     parameters.Set("template_version", "1");
     parameters.Set("approval_version", "1");
+    parameters.Set("approval_supported_versions", "1,2");
+    parameters.Set("approval_period_choice", "1");
     IntPtr result = IntPtr.Zero;
     try {
       Check(consent_get_prompt(client, parameters.Handle, out result));
@@ -82,9 +85,10 @@ internal sealed class NativeApi : IConsentBackend {
     }
   }
 
-  public string Respond(PromptSnapshot snapshot, bool allow) {
+  public string Respond(PromptSnapshot snapshot, bool allow,
+                        bool alwaysAllowed = false) {
     using var parameters = new Parameters();
-    foreach (var field in snapshot.ResponseFields(allow))
+    foreach (var field in snapshot.WithChoice(alwaysAllowed).ResponseFields(allow))
       parameters.Set(field.Key, field.Value);
     IntPtr result = IntPtr.Zero;
     try {

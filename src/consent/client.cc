@@ -476,9 +476,15 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       MutexLock lock(mutex_);
       if (closed_ || disconnected_)
         return CONSENT_ERROR_DISCONNECTED;
+      if (operation->message.count("approval_period_choice") &&
+          !period_choice_supported_)
+        return CONSENT_ERROR_INVALID_OPERATION;
       if (operation->message.count("approval_version")) {
-        if (Get(operation->message, "approval_version") != "1")
+        const auto version = Get(operation->message, "approval_version");
+        if (version != "1" && version != "2")
           return CONSENT_ERROR_INVALID_PARAMETER;
+        if (version == "2" && !period_choice_supported_)
+          return CONSENT_ERROR_INVALID_OPERATION;
         if (!approval_supported_)
           return CONSENT_ERROR_INVALID_OPERATION;
       }
@@ -866,6 +872,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   bool disconnected_ = false;
   bool synced_ = false;
   std::atomic<bool> profile_authority_{false};
+  bool period_choice_supported_ = false;
   bool approval_supported_ = false;
   uint64_t next_local_ = 1;
   uint64_t next_wire_ = 1;
@@ -919,6 +926,9 @@ int Client::Connect() {
   if (status == 0) {
     MutexLock lock(state_->mutex_);
     state_->approval_supported_ = Get(result, "approval_version") == "1";
+    state_->period_choice_supported_ =
+        Get(result, "approval_supported_versions") == "1,2" &&
+        Get(result, "approval_period_choice") == "1";
   }
   return status;
 }

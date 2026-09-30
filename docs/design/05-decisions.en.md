@@ -799,3 +799,21 @@ including the 97-artifact public C API scenario. See Guide07 for exact source an
 logs. They do not replace existing assert tests or establish product
 holder/Installer integration. A stale DB or changed scope requires an explicit
 caller progress reset and a new sweep; reset is not physical deletion proof.
+
+
+## D-21: Explicit period choice without changing version 1
+
+An immutable version-1 selection cannot be expanded by an always-allow checkbox.
+Use negotiated approval version 2 with canonical base/PERSISTENT choices instead.
+Keep base selection context and retry fingerprint immutable, bind the separate UI
+choice to the prompt token, and derive effective choices from every selected
+policy. Show the total batch when offering PERSISTENT so existing short approvals
+cannot hide rows being upgraded. Validate chosen coverage on response, stored
+result and replay; protected execution still requires AUTHORIZE.
+
+The compact NUI PoC may use this explicit opt-in while existing callers retain
+version-1 behavior. Default unchecked keeps the caller's original period. Data
+retention remains independent. This decision does not deploy a production UI or
+change trusted roles, profile authority, registration or storage recovery policy.
+The original framework proposal and earlier decisions retain their historical
+scope. Build and target verification are reported separately in Guides 08/10.

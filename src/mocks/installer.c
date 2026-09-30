@@ -19,5 +19,7 @@
 int main(int argc, char** argv) {
   if (argc == 3 && !strcmp(argv[1], "feature-register"))
     return consent_feature_register_main(argv[2]);
+  if (argc == 3 && !strcmp(argv[1], "feature-register-choice"))
+    return consent_feature_register_choice_main(argv[2]);
   return consent_mock_main("installer", argc, argv);
 }

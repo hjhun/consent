@@ -52,6 +52,16 @@ extern "C" {
  *     240-field/64 KiB prompt and rendered-text budgets; overflow fails with
  *     CONSENT_ERROR_TOO_LARGE without implicit partial approval.
  *
+ * @details Explicit period-choice opt-in uses approval_version=2 and
+ *     period_choices=<base>,PERSISTENT after the trusted daemon advertises
+ *     approval_supported_versions=1,2 and approval_period_choice=1. The base
+ *     grant_mode, duration_ms and selection digest remain immutable. The UI
+ *     returns a separately bound chosen_grant_mode; requesters must not supply
+ *     chosen or effective-choice fields. PERSISTENT is offered only when every
+ *     selected definition permits it, with the complete selected scope shown.
+ *     Unsupported peers fail explicitly; version 2 never downgrades to version
+ *     1. See the protocol guide for coverage, token and result validation.
+ *
  * @remarks The client polls a pending request until a terminal result or its
  *     local timeout. Immediate and cached ALLOWED results are advisory;
  *     perform AUTHORIZE before protected execution.

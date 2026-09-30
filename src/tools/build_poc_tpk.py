@@ -24,6 +24,7 @@ import re
 import selectors
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -150,7 +151,7 @@ def stage_sources(source, work, include_tests=False):
     return stage, copied
 
 
-def verify_tpk(path, manifest, package, assembly):
+def verify_tpk(path, manifest, package, assembly, native=None):
     namespace = {"m": "http://tizen.org/ns/packages"}
     root = ET.fromstring(manifest)
     application = root.find("m:ui-application", namespace)
@@ -183,6 +184,10 @@ def verify_tpk(path, manifest, package, assembly):
             raise ValueError("TPK is missing the compiled UI or signatures")
         if archive.read("tizen-manifest.xml") != manifest:
             raise ValueError("packaging changed the reviewed manifest")
+        for item in native or []:
+            payload = archive.read("bin/" + item["soname"])
+            if hashlib.sha256(payload).hexdigest() != item["sha256"]:
+                raise ValueError("TPK native library payload mismatch")
         for name in ("author-signature.xml", "signature1.xml"):
             signature = ET.fromstring(archive.read(name))
             ds = {"ds": "http://www.w3.org/2000/09/xmldsig#"}
@@ -190,6 +195,39 @@ def verify_tpk(path, manifest, package, assembly):
                 raise ValueError("TPK signature element is missing")
     # ZIP structure is checked here. The Tizen installer must verify certificate
     # trust and XML signatures on the development target before runtime claims.
+
+
+def stage_native(project, libraries):
+    # Build-only target inputs. App launch never supplies a library or endpoint.
+    native = []
+    root = ET.parse(project)
+    group = ET.SubElement(root.getroot(), "ItemGroup")
+    destination = project.parent / ".poc-native"
+    destination.mkdir()
+    for path, soname in libraries:
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or not 64 <= info.st_size <= 16777216:
+            raise ValueError("native input must be a bounded regular ELF file")
+        payload = path.read_bytes()
+        if len(payload) != info.st_size or not payload.startswith(b"\x7fELF"):
+            raise ValueError("native input is not a complete ELF library")
+        dynamic = subprocess.run(
+            ["readelf", "-d", str(path)], check=True, timeout=10,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        ).stdout
+        actual = re.findall(r"\(SONAME\).*?\[([^]\n]+)\]", dynamic)
+        if actual != [soname]:
+            raise ValueError("native target SONAME mismatch")
+        (destination / soname).write_bytes(payload)
+        item = ET.SubElement(group, "TizenTpkFiles", {
+            "Include": ".poc-native/" + soname,
+        })
+        ET.SubElement(item, "TizenTpkSubDir").text = "bin"
+        ET.SubElement(item, "TizenTpkFileName").text = soname
+        native.append({"source": str(path), "soname": soname,
+                       "sha256": hashlib.sha256(payload).hexdigest()})
+    root.write(project, encoding="utf-8", xml_declaration=True)
+    return native
 
 
 def main():
@@ -202,6 +240,8 @@ def main():
     )
     parser.add_argument("--package", default="org.tizen.consentui")
     parser.add_argument("--assembly", default="ConsentUI")
+    parser.add_argument("--consent-library", type=Path)
+    parser.add_argument("--feature-library", type=Path)
     parser.add_argument("--tizen-net-version", default="14.0.0.19364")
     parser.add_argument(
         "--run-tests",
@@ -210,6 +250,10 @@ def main():
         help="run managed unit tests (default: main UI only)",
     )
     args = parser.parse_args()
+    if bool(args.consent_library) != bool(args.feature_library):
+        raise ValueError("both fixed native targets must be supplied")
+    if args.consent_library and args.package != "org.tizen.consentui":
+        raise ValueError("native bundling is restricted to the main PoC UI")
     source = args.source_dir.resolve(strict=True)
     work = args.work_dir.resolve()
     output = args.output.resolve()
@@ -246,6 +290,12 @@ def main():
     project = stage / args.project
     if not project.is_file():
         raise ValueError("PoC project is missing")
+    native = []
+    if args.consent_library:
+        native = stage_native(project, [
+            (args.consent_library, "libconsent-poc.so.0"),
+            (args.feature_library, "libconsent-feature-poc.so.0"),
+        ])
     (work / "global.json").write_text(
         json.dumps({"sdk": {"version": "8.0.421", "rollForward": "disable"}})
         + "\n"
@@ -332,6 +382,7 @@ def main():
         (project.parent / "tizen-manifest.xml").read_bytes(),
         args.package,
         args.assembly,
+        native,
     )
     test_evidence = {"executed": False}
     if run_tests:
@@ -408,6 +459,7 @@ def main():
         "signer": "GBS Samsung.Tizen.Sdk development defaults",
         "sources": sources,
         "managed_tests": test_evidence,
+        "native_libraries": native,
         "tpk_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
     }
     output.with_suffix(".build.json").write_text(

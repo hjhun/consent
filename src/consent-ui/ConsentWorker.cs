@@ -46,12 +46,14 @@ internal sealed class ConsentWorker {
   });
 
   public bool Respond(PromptSnapshot snapshot, bool allow,
-                      Action<string> completed) => Enqueue(api => {
+                      Action<string> completed,
+                      bool alwaysAllowed = false) => Enqueue(api => {
     // Never use a stale UI callback after a newer token was fetched.
-    if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanApprove))
+    if (!ReferenceEquals(snapshot, latest) || (allow && !snapshot.CanApprove) ||
+        (alwaysAllowed && !snapshot.CanChoosePersistent))
       throw new InvalidOperationException("Stale or unsupported UI choice");
     decisionAttempted = true;
-    completed(api.Respond(snapshot, allow));
+    completed(api.Respond(snapshot, allow, alwaysAllowed));
   });
 
   public void Stop() {

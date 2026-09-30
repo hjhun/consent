@@ -801,6 +801,8 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
     reply["id"] = consent::Get(request, "id");
     reply["status"] = "0";
     reply["approval_version"] = "1";
+    reply["approval_supported_versions"] = "1,2";
+    reply["approval_period_choice"] = "1";
     Queue(connection, reply);
     return;
   }

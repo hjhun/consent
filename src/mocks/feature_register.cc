@@ -19,7 +19,8 @@
 #include <cstdio>
 #include <cstring>
 
-extern "C" int consent_feature_register_main(const char* generation) {
+namespace {
+int Register(const char* generation, bool period_choice) {
   using namespace consent_mock;
   if (!generation || strnlen(generation, 129) > 128 || !Identifier(generation))
     return 1;
@@ -35,7 +36,9 @@ extern "C" int consent_feature_register_main(const char* generation) {
           {"text_revision", "1"},
           {"level", "1"},
           {"enforcer", "mock-" + feature.worker},
-          {"modes", "ONCE,SESSION,TIMED"},
+          {"modes", period_choice && feature.id == "calendar.read"
+                        ? "ONCE,SESSION,TIMED,PERSISTENT"
+                        : "ONCE,SESSION,TIMED"},
           {"retention_ms", feature.id == "calendar.read" ? "1800000" : "0"},
           {"default_locale", "en"},
           {"locale_fallback.en-US", "en"},
@@ -59,7 +62,9 @@ extern "C" int consent_feature_register_main(const char* generation) {
                        : "표시된 서재 조명 대상과 조명이 꺼지는 영향만 허용합니다.")},
           {"expected_generation", generation},
           {"operation_id",
-           "feature-register-v1-" + feature.id + '-' + generation}};
+           std::string(period_choice ? "feature-register-v2-"
+                                    : "feature-register-v1-") +
+               feature.id + '-' + generation}};
       auto parameters = Parameters(definition);
       status = consent_register(client, "org.tizen.consentui",
                                 "org.tizen.consentui", parameters.get());
@@ -74,4 +79,14 @@ extern "C" int consent_feature_register_main(const char* generation) {
   }
   consent_client_destroy(client);
   return status ? 1 : 0;
+}
+
+}  // namespace
+
+extern "C" int consent_feature_register_main(const char* generation) {
+  return Register(generation, false);
+}
+
+extern "C" int consent_feature_register_choice_main(const char* generation) {
+  return Register(generation, true);
 }

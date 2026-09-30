@@ -27,6 +27,7 @@ namespace approval {
 // decimal byte-length prefixes, independently of the Parcel or DB encoding.
 Message SelectionFields(const Message& request);
 std::string SelectionDigest(const Message& request);
+bool Versioned(const Message& request);
 bool Validate(const Message& request, std::string* error = nullptr);
 void CopyContext(const Message& source, Message* destination);
 bool SameContext(const Message& left, const Message& right);

@@ -19,5 +19,7 @@
 int main(int argc, char** argv) {
   if (argc == 2 && !strcmp(argv[1], "feature-serve"))
     return consent_feature_argo_main();
+  if (argc == 2 && !strcmp(argv[1], "feature-serve-choice"))
+    return consent_feature_argo_choice_main();
   return consent_mock_main("argo", argc, argv);
 }

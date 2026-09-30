@@ -282,3 +282,63 @@ native model 시험과 실제 버튼 클릭·platform credential 근거를 구�
 - 허용된 대안은 자신의 정확한 작업만 실행하고 거부된 원래 작업을 실행하지 않는다.
 - 실제 한영 화면에 전체 대상·효과·기간이 표시되며 같은 launcher를 쓰는 다른 package는
   Settings bridge를 사용할 수 없다.
+
+## Opt-in approval-v2 기간 선택
+
+Hello는 `approval_version=1`을 유지하고 별도로 정확한
+`approval_supported_versions=1,2`와 `approval_period_choice=1`을 알립니다.
+Client는 신뢰된 협상 뒤에만 v2를 허용하며 미지원 daemon/UI는 명시적으로 실패합니다.
+C ABI·Parcel envelope·DB schema는 그대로입니다.
+
+v2는 바뀌지 않는 기본 `grant_mode`와 `duration_ms`를 유지하고 정규화된
+`period_choices=<base>,PERSISTENT`를 요구합니다. 이 필드들도 선택 digest와
+정확한 context에 묶입니다. Request/check caller는 `chosen_grant_mode`,
+`effective_period_choices`와 내부 평가 target을 전달할 수 없습니다. Daemon은
+이미 충족된 조건까지 전체 정책의 모드를 교차 검증합니다. PERSISTENT가 가능하면
+전체 조건을 prompt에 표시하고, 아니면 부족한 기본 조건만 표시하며 체크박스를
+비활성화합니다. Level3·ONCE-only·혼합 미지원 정책을 보이지 않게 확대하지 않습니다.
+
+UI는 기본 context·digest와 token에 묶인 유효 선택지를 되돌리고 별도로
+`chosen_grant_mode`를 보냅니다. Respond는 현재 전체 정책과 선택 기간의 충족을
+확인한 뒤 표시한 조건만 승인합니다. 기본 TASK가 짧은 승인을 재사용하더라도
+PERSISTENT TASK 선택은 모든 조건의 persistent 승인을 요구합니다. 보관 기간은
+독립적입니다. 최종 Respond·result·request 재시도는 기본 metadata와 선택한
+기간을 알립니다. 저장된 ALLOWED 결과와 정확한 request 재시도는 같은 authoritative
+선택 기간 검사로 소비·철회된 조건을 INVALIDATED 처리합니다. 원래 ID·fingerprint는
+유지하고 과거 승인을 부활시키지 않습니다. 실제 실행은 최신 AUTHORIZE·receipt가
+여전히 필요합니다.
+
+### 실행한 UI09 검증
+
+동일 Release27/r7 native build의 CTest33개(29 PASS, root 전용4 SKIP)가
+통과했습니다. Managed 선택·검토·geometry 검사도 build에 포함됩니다. 실제 선택한
+x86_64 emulator에서 UI와 private namespace의 CM/CE worker 모두 서명 TPK의
+정확한 전체 library byte를 사용했습니다. 전역 RPM upgrade 대신 소유 tests helper를
+추출했습니다. RPM-packaged byte hash/build ID는 별도로 기록하며 TPK와 같다고
+주장하지 않습니다.
+
+`/var/tmp/consent-artifacts/consent-ui-native-09/attempt-r7-02/`는 실제 기본 해제
+ONCE, 거절·무효과, 체크·전체 검토 PERSISTENT, fresh CE receipt를 갖는 새 operation
+재사용, 철회·거절, ONCE-only CM 실행을 기록합니다. 선택 승인이 PERSISTENT여도
+base `grant_mode`는 ONCE로 유지됩니다. 실제 기본 NUI checkbox는 주황색이며
+작은 배치 구현이 Samsung runtime theme 설치를 의미하지 않습니다.
+
+일부 `attempt-r7-06/`은 정상 restart의 승인 유지와 소유 DB 손실
+(grants0, cleanup_unknown1) 이후 실제 새 승인·효과를 증명합니다. 최종 generation
+후 새 UI는 timeout으로 성공에 포함하지 않습니다. 별도 `attempt-r7-09/`가 해당
+성공을 완료했습니다: 실제 소유 helper generation 변경, 새 REQUIRED/이전
+STALE(-116), 기본 해제 새 팝업, 체크·전체 페이지 검토, 새 coordinator epoch의
+fresh CE action/receipt와 authoritative ALLOWED gate입니다. 실제 TPK 재설치
+lifecycle 증거가 아닙니다. Gate-only receipt와 실제 효과 receipt는 구분합니다.
+
+성공02/09 host exit0/finally errors[]와 일부06 복원은 기존 전역 package/state/
+config/unit의 정확한 일치를 보존하며 예상 package inode/time과 runtime parent
+timestamp 변경은 별도 기록합니다. 소유 fixture와 Aurum을 정리했습니다.
+Production18 PID31569와 기존 inactive PoC는 유지됐고 이전 build/capture/controller
+실패도 보관했습니다.
+
+[Guide08 UI09 증거](08-consent-ui-poc.ko.md#ui09-실행-r7-증거-2026-09-30)에
+정확한 명령·파일·한계가 있습니다. `source-r7.json`은 실행한34개 snapshot이며
+이후 최종 Guide08/10 한·영 문장만 변경하고 나머지30개 byte는 동일합니다.
+실제 consent API를 쓰는 synthetic CM/CE 참여자이며 제품 CM/CE adapter나 배포된
+제품 UI를 의미하지 않습니다.

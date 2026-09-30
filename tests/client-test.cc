@@ -86,6 +86,7 @@ constexpr const char* kEndpoint = "/tmp/consent-test/consent.sock";
 std::atomic<unsigned> requests{0};
 std::atomic<bool> stop{false};
 std::atomic<bool> approval_capability{true};
+std::atomic<bool> period_choice_capability{false};
 std::atomic<bool> profile_authority{false};
 
 bool ReadAll(int fd, void* data, size_t size) {
@@ -157,6 +158,10 @@ void Serve(int listener) {
       reply["profile_authority"] = "1";
     if (method == "hello" && approval_capability)
       reply["approval_version"] = "1";
+    if (method == "hello" && period_choice_capability) {
+      reply["approval_supported_versions"] = "1,2";
+      reply["approval_period_choice"] = "1";
+    }
     if (method == "request") {
       ++requests;
       if (!consent::Get(input, "session").empty()) {
@@ -249,7 +254,8 @@ void ProfileCacheAdmission(int listener) {
   profile_authority = false;
 }
 
-void ApprovalAdmission(int listener, bool capability) {
+void ApprovalAdmission(int listener, bool capability, bool choices = false) {
+  period_choice_capability = choices;
   approval_capability = capability;
   std::thread server(Serve, listener);
   consent_client_h client = nullptr;
@@ -343,10 +349,29 @@ void ApprovalAdmission(int listener, bool capability) {
   CHECK(callback.count == (capability ? 1U : 0U));
   CHECK(check_callback.count == (capability ? 1U : 0U) && !invalid.count);
   CHECK(requests == before + (capability ? 3U : 0U));
+  CHECK(!consent_params_set(params, "approval_version", "2"));
+  result = nullptr;
+  status = consent_request(client, params, 2000, &result);
+  CHECK(status == (choices ? 0 : CONSENT_ERROR_INVALID_OPERATION));
+  CHECK(choices ? result != nullptr : result == nullptr);
+  consent_result_free(result);
+  Callback choice;
+  operation = 99;
+  status = consent_check_async(client, params, Result, &choice, &operation);
+  if (choices) {
+    CHECK(!status && operation);
+    choice.returned = true;
+    DispatchUntil(&choice);
+    CHECK(choice.count == 1 && !choice.status);
+  } else {
+    CHECK(status == CONSENT_ERROR_INVALID_OPERATION && !operation &&
+          !choice.count);
+  }
   consent_params_free(params);
   CHECK(!consent_client_destroy(client));
   server.join();
   approval_capability = true;
+  period_choice_capability = false;
   printf(
       "PASS selected approval %s: SYNC/ASYNC request/check admission and "
       "cache isolation\n",
@@ -470,6 +495,7 @@ int main(int argc, char** argv) {
   CHECK(!listen(listener, 4));
   ApprovalAdmission(listener, false);
   ApprovalAdmission(listener, true);
+  ApprovalAdmission(listener, true, true);
   ProfileCacheAdmission(listener);
   std::thread server(Serve, listener);
   consent_client_h client = nullptr;

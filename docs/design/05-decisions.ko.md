@@ -703,3 +703,19 @@ GBS/emulator로 검증했습니다. 정확한 소스와 로그는 Guide07에 기
 기존 assert 시험을 대체하지 않으며 제품 holder/Installer 통합 완료를 의미하지
 않습니다. DB stale 또는 scope 변경 시 caller는 progress를 명시적으로 초기화하고
 새 sweep을 시작해야 하며 초기화는 물리삭제 완료 근거가 아닙니다.
+
+
+## D-21: version 1을 바꾸지 않는 명시적 기간 선택
+
+version 1의 불변 선택을 항상 허용 체크박스로 확대할 수는 없습니다. 대신 협상된
+approval version 2와 정규 base/PERSISTENT 선택지를 사용합니다. base context와
+재시도 fingerprint는 불변으로 유지하고 별도의 UI 선택은 prompt token에 바인딩합니다.
+전체 선택 정책에서 유효 선택지를 계산하며 PERSISTENT 제공 시 전체 batch를 표시하여
+기존 짧은 승인 뒤에 확대 승인할 행이 숨겨지지 않게 합니다. 응답, 저장 결과, 재시도에서
+선택 기간 coverage를 검증하며 보호 실행은 여전히 AUTHORIZE가 필요합니다.
+
+작은 NUI PoC는 명시적 opt-in을 사용하고 기존 호출자는 version 1 동작을 유지합니다.
+기본 미선택은 호출자의 원래 기간입니다. 데이터 보관 기간은 별도입니다. 이 결정은
+production UI 배포나 신뢰 역할, profile authority, 등록, 저장소 복구 정책 변경을
+의미하지 않습니다. 원래 framework 제안과 이전 결정의 역사적 범위는 유지합니다.
+빌드와 기기 검증은 Guide 08/10에서 별도로 보고합니다.

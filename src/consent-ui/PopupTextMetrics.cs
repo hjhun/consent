@@ -16,9 +16,19 @@
 namespace ConsentUI;
 
 internal static class PopupTextMetrics {
-  public const float Width = 752;
-  public const float Height = 290;
-  public const float FontPixels = 24;
+  public const float Width = 492;
+  public const float Height = 204;
+  public const float FontPixels = 16;
+  public static (float Scale, float X, float Y) Geometry(float width,
+                                                        float height) {
+    float scale = Math.Max(0, Math.Min(1,
+        Math.Min((width - 48) / 580, (height - 48) / 600)));
+    float x = (width - 580 * scale) / 2;
+    float y = width <= 600 ? height - 600 * scale - 24
+                          : (height - 600 * scale) / 2;
+    return (scale, x, y);
+  }
+
   public static bool HeightFits(float height) =>
       float.IsFinite(height) && height > 0 && height <= Height;
   public static bool GlyphFits(float width) =>

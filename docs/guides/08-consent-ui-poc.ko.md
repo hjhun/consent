@@ -4,8 +4,8 @@
 사용하는 개발용 통합입니다. 운영 역할, 실제 제품 승인 UI, Installer의
 제품 설치 트랜잭션 연동을 완료한 것으로 해석하지 않습니다.
 
-[현재 팝업 HTML 미리보기](../previews/consent-popup.html)는 API·실제 승인 없이
-NUI 배치와 전체 페이지 검토 흐름을 재현합니다. 기존 NUI 시각·상호작용 코드는
+[이전 배치 HTML 보관본](../previews/consent-popup.html)는 API·실제 승인 없이
+이전 NUI 배치와 전체 페이지 검토 흐름을 재현합니다. 기존 NUI 시각·상호작용 코드는
 제품 UI에 재사용할 수 있지만 현재 NativeApi는 `libconsent-poc.so.0`로 고정돼
 있습니다. 제품 build·endpoint/패키지 설정·신뢰 UI 역할·argo launch mapping이
 필요하며 임의 라이브러리의 runtime 대체가 아닙니다. Installer hook은 각 plugin이
@@ -16,10 +16,11 @@ NUI 배치와 전체 페이지 검토 흐름을 재현합니다. 기존 NUI 시�
 ‘항상 허용’ 체크박스를 제공합니다. 현재 프로필의 동일한 기능·범위·목적·수신자에
 적용할 PERSISTENT 정책 제안이며, 각 취득 데이터 보관은 여전히 최대 30분입니다.
 정책 변경·재설치·프로필 authority 동기화 손실 시 재승인이 필요할 수 있습니다.
-Repository는 허용된 legacy definition의 PERSISTENT를 지원하지만 현재 feature
+Repository는 허용된 legacy definition의 PERSISTENT를 지원하지만 기본/approval-v1 feature
 정의에는 해당 모드가 없고 approval-v1 선택 모드는 ONCE·SESSION·TIMED뿐입니다.
 제안은 native 정책·API를 변경하거나 실제 승인을 생성하지 않습니다. 위의 기존
-재현본은 그대로 유지됩니다.
+재현본은 그대로 유지됩니다. 실제 native 흐름은 아래
+[UI09 opt-in fixture](#ui09-작은-native-배치와-명시적-승인-기간-선택)를 참고하세요.
 
 Samsung의 [dialog](https://developer.samsung.com/one-ui/comp/dialog.html)와
 [grid](https://developer.samsung.com/one-ui/layout/grid.html) 안내를 참고해 local
@@ -449,3 +450,99 @@ artifact 한 개를 취득한 뒤 다시 요청합니다. release 후 audit/unit
 기존 DB/registry inode를 유지하며 active입니다. 설치 패키지와 보호된 일반 근거 파일은
 검토용으로 남겼으며 소유 Aurum bootstrap/forward는 종료했습니다. 최종 Guide07/08
 근거와 PO Guide10 정리만 archive 이후 문서이며, 소스와 시험 TPK는 exact29를 유지합니다.
+
+## UI09: 작은 native 배치와 명시적 승인 기간 선택
+
+새 native 카드는 논리 크기 580×600, 제목 26px·본문 16px, 둥근 흰색·회색
+표면과 파란 주 동작을 사용합니다. 배율은 1을 넘지 않으며 짧은 창과 가로 창도
+24px 여백으로 제한합니다. 기능 설정 화면은 기존의 별도 배치를 유지합니다.
+바인딩된 전체 metadata는 생략 없이 페이지로 표시하고 모두 검토해야 허용됩니다.
+
+native 체크박스는 기본 해제되어 requester의 ONCE·SESSION·TIMED 기간을
+유지합니다. 전체 등록 조건이 허용하는 명시적 approval-v2 요청만 PERSISTENT를
+선택할 수 있습니다. 별도 opt-in fixture 명령은 `feature-register-choice`와
+`feature-serve-choice`이며 기본 명령과 approval-v1은 유지됩니다. 체크박스는
+신원·프로필·기능·범위·동작·목적·수신자·보관 기간을 바꿀 수 없습니다. 선택·언어·
+내용 변경은 전체 검토를 초기화하고 같은 바인딩의 token 갱신만 검토를 유지합니다.
+거절이 기본 focus이며 시간 만료·닫기는 허용하지 않습니다. 제출 전에 원래 worker
+snapshot의 참조 일치를 확인합니다.
+
+고정 `libconsent-poc.so.0`와 feature library는 동일 native build target에서
+main TPK로 포함해 개발 서명하며 SONAME·payload hash를 기록합니다. App launch가
+라이브러리나 socket을 입력하지 않습니다. 개발 검증은 소유한 격리 daemon과 보호된
+fixture 신원을 사용합니다. 제품 UI 역할·endpoint/패키지 배포·argo launch 구성은
+남은 외부 계약입니다. 아래 실제 target 증거는 host managed 검사와 구분합니다.
+기본 NUI 체크박스는 주황색으로 표시됐으며 Samsung runtime theme 설치를 주장하지
+않습니다.
+
+### UI09 실행 r7 증거 (2026-09-30)
+
+증거는 `/var/tmp/consent-artifacts/consent-ui-native-09/`에 보존했습니다.
+실행한 34개 파일의 `source-r7.json`은 frozen/exported build 입력과 일치합니다.
+최종 Guide08/10 한·영 증거 문단은 실행 후 작성했으며 나머지30개 파일은 byte가
+동일합니다. 이후 문서 작성에 대해 다시 build했다고 주장하지 않습니다.
+
+```sh
+gbs build -A x86_64 --profile tizen_10_1_emulator --include-all
+```
+
+`gbs-r7-command.json`, `gbs-r7.log`, `gbs-r7.exit`은 exit0과 CTest33개
+(29 PASS, root 전용4 SKIP)를 기록합니다. `rpms-r7/`에 Release27 runtime,
+devel, daemon, PoC, tests RPM을 보존했습니다. 이번 실행은 전역 RPM 설치가
+아닙니다. 일치하는 tests helper를 보호된 소유 fixture에 추출하고 동일 서명 main
+TPK의 library byte를 UI와 private unit bind에 사용했습니다. 기존 설치본은
+runtime/devel/tests26, daemon/PoC18입니다. 기존 main TPK를 backup하고
+인증서 신원 일치를 확인한 뒤 복원했습니다.
+
+`host-provenance-r7.json`, `source-postcheck-r7.json`,
+`tpk-native-audit-r7.json`에 입력·ELF 증거가 있습니다. 서명 TPK library는
+전체 native TARGET_FILE hash와 정확히 일치합니다. RPM-packaged library는 byte hash와 GNU build ID가 다르며 검사한 네 section
+`.text`, `.rodata`, `.dynsym`, `.gnu.version`이 일치합니다. Postprocessing 설명은
+확인한 원인이 아니라 추론입니다.
+동일 build ID나 RPM byte 일치를 주장하지 않습니다.
+`attempt-r7-02/interactive/65-result.json`의 실제 `/proc` maps는 UI와 CM/CE
+worker 모두 staged device/inode/hash가 일치함을 증명합니다. daemon 실행 파일의
+provenance는 별도로 기록했습니다.
+
+증거 디렉터리에서 실행한 host 명령은 `python3 interactive_r7_02.py`,
+`python3 interactive_r7_06.py`, `python3 interactive_r7_09.py`입니다.
+명시적으로 선택한 emulator-26101의 x86_64를 확인했습니다. 각 controller는
+Aurum 시작·forward·종료, 고정 unit dispatch와 TPK 복원을 finally로 소유합니다.
+팝업60초와 action window600초 제한은 유지했습니다.
+
+- `attempt-r7-02`: exit0. 실제 기본 해제 ONCE 승인으로 CE count0→1,
+  거절 후1 유지, 체크·전체 검토 PERSISTENT 승인으로2, 동일 전체 tuple의 새
+  operation은 추가 승인 팝업 없이 fresh CE receipt로3입니다. 철회 후 거절은
+  3을 유지합니다. 신뢰된 ONCE-only device 정책은 체크박스를 비활성화하며
+  실제 CM action으로4가 됩니다. Screenshot과 `actions-journal-final.log`는
+  선택된 기간과 변경되지 않은 base ONCE를 구분합니다.
+- `attempt-r7-06`: outer1이며 일부 lifecycle 증거를 보존했습니다. 정상 restart는
+  PERSISTENT1을 유지하고 fresh receipt를 반환합니다. 소유 stopped DB 삭제 후
+  schema2/definitions2/grants0/cleanup_unknown1이며 실제 새 UI 승인으로 CE가
+  실행됩니다. generation retirement 후 새 operation은 REQUIRED, 저장한 이전 operation retry는
+  STALE(-116)입니다. 이 시도에서 최종 generation 후 새 UI 성공은 증명하지 못했습니다.
+- `attempt-r7-09`: host exit0으로 generation 후 실제 성공을 완료했습니다.
+  소유 installation-authority helper가 generation을 변경하고 인증된 등록은
+  definition2개를 반환합니다. 새 operation은 승인이 필요하고 저장한 이전
+  operation은 STALE(-116)입니다. 실제 기본 해제 팝업→체크→전체 검토→승인 후
+  CE operation `feature-7f244d44-...`가 새 effect receipt `3334dd94...`,
+  새 coordinator epoch의 count1/retry0을 기록합니다. 별도 공개 gate receipt
+  `5737...`는 권한 검사만 증명합니다. 정확한 값은
+  `generation-positive-summary.json`에 있습니다. 이는 소유 helper generation
+  변경이며 **TPK 재설치 lifecycle 시험이 아닙니다**.
+
+완료한 mutation 시도의 finally·복원 로그를 보존했습니다. 성공02/09와 일부06의
+finally는 `errors=[]`이며 기존 package file·보호된 운영/PoC tree·unit이 정확히
+일치합니다. Runtime parent의 보호 metadata는 동일하고 예상 timestamp 변경은
+별도 기록했습니다. TPK 교체·복원의 inode/time 변경도 명시했습니다.
+Production18 PID31569는 active, 기존 PoC는 inactive를 유지했습니다. 소유 unit,
+endpoint, state/authority와 유한 payload를 제거하고 Aurum bootstrap·forward를
+종료했습니다. 전역 graphics·정책·account는 변경하지 않았습니다.
+
+이전 실패도 유지합니다: r1 SDK 입력, r2 private fixture 호출, r3 동일 버전 정책
+fixture, r5 unit parent 보호 검사, r6 초기 lifecycle lock 부재, r7-01 capture 경로,
+r7-03 legacy check 금지 필드, r7-04 JSONL artifact parser, r7-05 retained-root
+preflight, r7-06 timeout/black capture, r7-07 queue method, r7-08 gate boolean 누락.
+생성된 artifact Python cache 정리는 실행 helper hash와 이후 미실행 ROOT-FD
+검사를 구분했습니다. 이를 위해 native 검증을 완화하지 않았습니다. CM/CE는 실제
+격리 consent API를 사용하는 synthetic provider이며 제품 adapter 검증이 아닙니다.

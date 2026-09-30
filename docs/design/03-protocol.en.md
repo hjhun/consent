@@ -368,3 +368,40 @@ rendered text. Short literal v1 prompts fit up to 11 rows; 12 or 16 missing
 rows exceed the field budget. Failure is explicit E2BIG before token mutation;
 there is no partial approval or implicit splitting. The PoC catalog keeps its
 complete selected vector within these bounds.
+
+
+## Explicit period choice (approval version 2)
+
+Version 1 retains its immutable selected period. Version 2 is an explicit opt-in,
+not a reinterpretation of existing requests. The authenticated hello retains
+`approval_version=1` and separately advertises
+`approval_supported_versions=1,2` and `approval_period_choice=1`. A new client
+requires both exact capabilities before sending version 2. An old daemon or UI
+fails explicitly; there is no downgrade.
+
+The requester supplies `approval_version=2`, its original `grant_mode`
+(`ONCE`, `SESSION` or `TIMED`), the original TIMED `duration_ms` when applicable,
+and canonical `period_choices=<base>,PERSISTENT`. These fields participate in
+selection digest and prompt context binding. Base mode, duration and digest stay
+immutable across response and exact request retry. Requesters cannot inject
+`chosen_grant_mode`, `effective_period_choices` or private evaluation fields.
+
+The daemon computes `effective_period_choices` from the mode intersection of
+**all** selected definitions. Level-3/ONCE-only or any unsupported definition
+removes PERSISTENT. If PERSISTENT is offered, the prompt displays the total batch,
+including rows covered by existing short grants. The unchecked default retains
+the base period; checking selects PERSISTENT only within the bound choices.
+The response echoes effective choices and supplies `chosen_grant_mode` separately
+under the prompt token. Changing choice requires reviewing the complete text.
+
+Coverage is evaluated for the chosen period across the complete AND batch. Even
+TASK coverage cannot use a short grant to satisfy PERSISTENT. Hidden covered rows
+are never silently upgraded. Respond, stored result and exact request retry
+report chosen mode with the original context; consumed or revoked coverage
+invalidates a formerly ALLOWED result. A concurrent last-row approval can finish
+a pending request with the base choice and complete context. AUTHORIZE remains
+mandatory before protected execution. Access period does not extend separately
+bounded data retention.
+
+This describes the opt-in developer PoC implementation contract. It does not
+provision production UI roles, endpoint packaging or argo launch policy.

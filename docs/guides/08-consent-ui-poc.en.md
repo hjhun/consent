@@ -5,8 +5,8 @@ mock participants against the public C API and an isolated consent daemon.
 It does not provision production roles, replace the platform approval UI, or
 integrate a production Installer lifecycle hook.
 
-A self-contained [current popup HTML preview](../previews/consent-popup.html)
-reproduces the NUI layout and page-review flow without APIs or real approvals.
+A self-contained [prior-layout HTML archive](../previews/consent-popup.html)
+reproduces the earlier NUI layout and page-review flow without APIs or real approvals.
 The existing NUI visual/interaction code can be reused for a product UI; its
 current NativeApi library is fixed to `libconsent-poc.so.0`. A production build,
 endpoint/package setup, trusted UI role and argo launch mapping remain required;
@@ -20,9 +20,10 @@ PERSISTENT policy for the current profile and the same capability, scope,
 purpose and recipient; each acquisition still has a maximum 30-minute retention.
 Policy changes, reinstall or a profile-authority gap may require fresh approval.
 The repository supports PERSISTENT for eligible legacy definitions, but the
-current feature definitions omit it and approval-v1 selected modes are limited
+default feature definitions omit it and approval-v1 selected modes are limited
 to ONCE, SESSION and TIMED. This proposal changes no native policy or API and
-creates no grants. The faithful preview above remains unchanged.
+creates no grants. See the [implemented UI09 opt-in fixture](#ui09-compact-native-layout-and-explicit-period-choice)
+for the actual native flow. The prior-layout preview above remains unchanged.
 
 The proposal follows Samsung's [dialog](https://developer.samsung.com/one-ui/comp/dialog.html)
 and [grid](https://developer.samsung.com/one-ui/layout/grid.html) guidance with
@@ -474,3 +475,106 @@ active with default-deny roles and unchanged DB/registry inodes. Installed
 packages and protected regular evidence remain available for review. The scoped
 Aurum bootstrap/forward were stopped. Final Guide07/08 evidence and PO Guide10
 updates are post-archive documentation only; source and tested TPKs remain exact29.
+
+## UI09: compact native layout and explicit period choice
+
+The new native card uses a 580×600 logical layout, 26px title, 16px body,
+rounded white/grey surfaces and a blue primary action. It never scales above 1;
+24px margins bound short and landscape windows. Feature settings retain their
+separate existing geometry. Complete bound metadata remains paginated without
+ellipsis, and every page must be reviewed before approval.
+
+An initially unchecked native checkbox keeps the requester's original ONCE,
+SESSION or TIMED period. PERSISTENT is available only for explicit approval-v2
+requests whose entire registered batch permits it. The separate opt-in fixture
+commands are `feature-register-choice` and `feature-serve-choice`; default
+commands and approval-v1 remain unchanged. The checkbox cannot alter identity,
+profile, capability, scope, operation, purpose, recipient or retention. Choice,
+language or changed content resets full review; unchanged token refresh retains
+only the same reviewed binding. Deny has initial focus; timeout/close never
+approves. The original worker snapshot reference is checked before submission.
+
+The fixed `libconsent-poc.so.0` and feature library are bundled from matching
+native build targets into the signed main TPK, with SONAME/payload hash evidence.
+No library/socket is accepted from app launch data. Development verification
+uses an owned isolated daemon and protected fixture identities. This is a PoC;
+production UI role, endpoint/package deployment and argo launch provisioning
+remain external requirements. The actual target evidence below is distinct
+from host managed checks. The default NUI checkbox rendered orange; this is
+not a claim that a Samsung runtime theme was installed.
+
+### UI09 executed r7 evidence (2026-09-30)
+
+Evidence is retained under
+`/var/tmp/consent-artifacts/consent-ui-native-09/`. The executed 34-file
+`source-r7.json` matches the frozen/exported build inputs; the final Guide08/10
+English/Korean evidence paragraphs were written afterwards. The other 30 files
+remain byte-identical. No rebuild is claimed for the later documentation.
+
+```sh
+gbs build -A x86_64 --profile tizen_10_1_emulator --include-all
+```
+
+`gbs-r7-command.json`, `gbs-r7.log` and `gbs-r7.exit` record exit0 and CTest
+33 tests: 29 PASS, 4 root-only SKIP. `rpms-r7/` retains Release27 runtime,
+devel, daemon, PoC and tests RPMs. No global RPM was installed for this run:
+matching tests helpers were extracted into the protected owned fixture, and
+matching signed main TPK bytes supplied both the UI and private unit library
+binds. The installed runtime/devel/tests were26, daemon/PoC18. The original
+installed main TPK was backed up, certificate identity checked, and restored.
+
+`host-provenance-r7.json`, `source-postcheck-r7.json` and
+`tpk-native-audit-r7.json` retain inputs and ELF evidence. Signed TPK libraries
+match full native TARGET_FILE hashes exactly. The RPM-packaged libraries have different byte hashes and GNU build IDs;
+the four inspected sections `.text`, `.rodata`, `.dynsym`, `.gnu.version` match.
+A postprocessing explanation is an inference, not a demonstrated cause.
+This is not a same-build-ID or RPM-byte-equality claim. Actual `/proc` maps in
+`attempt-r7-02/interactive/65-result.json` prove the UI and both CM/CE workers
+used the exact staged device/inode/hash; daemon executable provenance is
+recorded separately.
+
+The archived host commands were `python3 interactive_r7_02.py`,
+`python3 interactive_r7_06.py` and `python3 interactive_r7_09.py`, run from the
+evidence directory with explicit selected emulator `emulator-26101` (x86_64).
+Each owns bounded Aurum startup/forward/stop, fixed unit dispatch and TPK
+restoration in finally; the prompt deadline remains60s and action window600s.
+
+- `attempt-r7-02`: exit0. Actual unchecked ONCE approval starts CE count0→1;
+  denial leaves1; checked/full-review PERSISTENT starts2; a new operation with
+  the same complete tuple executes without another approval popup, count3 and
+  a fresh CE receipt. Revoke plus denial leaves3. Trusted ONCE-only device
+  policy disables the checkbox; actual CM action reaches4. Screenshots and
+  `actions-journal-final.log` distinguish choice from immutable base ONCE.
+- `attempt-r7-06`: outer1, partial lifecycle evidence retained. Normal restart
+  preserves PERSISTENT1 and authorizes with a fresh receipt. Owned stopped DB
+  deletion gives schema2/definitions2/grants0/cleanup_unknown1; fresh actual
+  UI approval executes CE. Generation retirement gives new REQUIRED and old
+  operation retry STALE(-116). Final fresh-generation UI was not proved in that attempt.
+- `attempt-r7-09`: host exit0, fresh-generation positive completed. The owned
+  installation-authority helper changes generation, then authenticated
+  registration returns2 definitions. A new operation requires approval and
+  the saved old operation is STALE(-116). Actual default-off popup, checked
+  full review, approval and CE operation `feature-7f244d44-...` produce new
+  effect receipt `3334dd94...`, count1 in a new coordinator epoch, retry0.
+  Separate public gate receipt `5737...` is authorization-only evidence.
+  `generation-positive-summary.json` retains exact values. This is an owned
+  helper generation change, **not a TPK reinstall lifecycle test**.
+
+All completed mutation attempts retain finally/restoration logs. Successful
+02/09 and partial06 finally report `errors=[]`; original package files,
+protected production/PoC trees and units compare exactly. Runtime parent
+protected metadata stays equal, with expected timestamps separately reported;
+TPK replacement/restoration inode/time changes are explicit. Production18
+PID31569 stays active and original PoC remains inactive. Owned units, endpoints,
+state/authority and retained finite payload were removed; Aurum bootstrap and
+owned forward were stopped. No global graphics, policy or account was changed.
+
+Earlier failures remain: r1 SDK input, r2 private fixture call, r3 invalid
+same-version fixture policy, r5 protected unit-parent rejection, r6 missing
+initial lifecycle lock, r7-01 capture-route failure, r7-03 forbidden legacy
+check field, r7-04 JSONL artifact parser, r7-05 retained-root preflight,
+r7-06 timeout/black capture, r7-07 queue method and r7-08 missing gate boolean.
+The generated artifact Python cache cleanup records its executed helper hash
+separately from a later unexecuted ROOT-FD check. No native validation was
+weakened for these corrections. CM/CE participants remain synthetic providers
+using actual isolated consent APIs; production CM/CE adapters are not verified.

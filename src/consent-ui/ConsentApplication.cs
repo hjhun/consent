@@ -52,6 +52,11 @@ internal sealed class ConsentApplication : NUIApplication {
   private Button? previous;
   private Button? next;
   private Button? language;
+  private TextLabel? title;
+  private TextLabel? choiceNotice;
+  private CheckBox? always;
+  private bool settingChoice;
+  private PromptSnapshot? nativeSnapshot;
   private readonly PromptReview review = new();
   private readonly LaunchGate launches = new();
   private PromptSnapshot? snapshot => review.Snapshot;
@@ -111,6 +116,7 @@ internal sealed class ConsentApplication : NUIApplication {
 
   private void BeginPrompt(string id) {
     requestId = id;
+    nativeSnapshot = null;
     review.Clear();
     busy = false;
     lifetime.Restart();
@@ -333,6 +339,13 @@ internal sealed class ConsentApplication : NUIApplication {
     if (activeFeatureRequest is not null &&
         !activeFeatureRequest.Matches(fresh))
       throw new InvalidOperationException("Feature prompt binding mismatch");
+    nativeSnapshot = fresh;
+    if (snapshot is not null && snapshot.AlwaysAllowed &&
+        snapshot.SameBinding(fresh))
+      fresh = fresh.WithChoice(true);
+    settingChoice = true;
+    always!.IsSelected = fresh.AlwaysAllowed;
+    settingChoice = false;
     body!.Text = fresh.Pages[review.PageFor(fresh)];
     EnsureTextFits();
     review.Install(fresh);
@@ -422,13 +435,15 @@ internal sealed class ConsentApplication : NUIApplication {
     timer?.Stop();
     phase = UiPhase.Response;
     UpdateButtons();
-    var displayed = snapshot;
+    var displayed = nativeSnapshot ??
+        throw new InvalidOperationException("Missing native snapshot");
+    bool persistent = snapshot.AlwaysAllowed;
     if (!worker.Respond(displayed, approved,
                         decision => PostUi(() => {
                           Console.WriteLine(
                               $"ConsentUI response decision={decision}");
                           FinishPrompt(decision);
-                        })))
+                        }), persistent))
       Close();
   }
 
@@ -496,9 +511,9 @@ internal sealed class ConsentApplication : NUIApplication {
     };
     root.TouchEvent += (_, _) => true;
     card = new View {
-      Size = new Size(824, 624),
+      Size = new Size(580, 600),
       BackgroundColor = Color.White,
-      CornerRadius = 24,
+      CornerRadius = 28,
       FocusableChildren = true,
       // Scale about the same top-left point used by Resize()'s centered offset.
       // The default center pivot otherwise shifts half the scale growth
@@ -507,12 +522,20 @@ internal sealed class ConsentApplication : NUIApplication {
       PivotPoint = PivotPoint.TopLeft,
       PositionUsesPivotPoint = true,
     };
-    card.Add(Label("ConsentUI", 36, 20, 550, 48, 32));
-    language = MakeButton("한국어", 622, 20, 166,
+    title = Label("ConsentUI", 28, 24, 380, 40, 26);
+    card.Add(title);
+    language = MakeButton("한국어", 426, 24, 126,
                           () => Refresh(Korean ? "en-US" : "ko-KR"));
-    notice = Label("Waiting for a consent request…", 36, 78, 752, 72, 22);
+    notice = Label("Waiting for a consent request…", 28, 78, 524, 44, 15);
     card.Add(notice);
-    body = Label("", 36, 156, PopupTextMetrics.Width, PopupTextMetrics.Height,
+    var context = new View {
+      Position = new Position(28, 132),
+      Size = new Size(524, 228),
+      BackgroundColor = new Color("#F3F4F6FF"),
+      CornerRadius = 18,
+    };
+    card.Add(context);
+    body = Label("", 44, 144, PopupTextMetrics.Width, PopupTextMetrics.Height,
                  PopupTextMetrics.FontPixels);
     glyphMeasure = Label("", 0, 0, PopupTextMetrics.Width,
                          PopupTextMetrics.Height, PopupTextMetrics.FontPixels);
@@ -520,13 +543,37 @@ internal sealed class ConsentApplication : NUIApplication {
     glyphMeasure.Hide();
     root.Add(glyphMeasure);
     card.Add(body);
-    previous = MakeButton("Previous", 36, 450, 156, () => MovePage(-1));
-    next = MakeButton("Next", 632, 450, 156, () => MovePage(1));
-    pageLabel = Label("", 214, 456, 396, 48, 22);
+    previous = MakeButton("Previous", 28, 370, 108, () => MovePage(-1));
+    next = MakeButton("Next", 444, 370, 108, () => MovePage(1));
+    pageLabel = Label("", 148, 382, 284, 28, 15);
     pageLabel.HorizontalAlignment = HorizontalAlignment.Center;
     card.Add(pageLabel);
-    deny = MakeButton("Deny", 36, 538, 360, () => Choose(false));
-    allow = MakeButton("Allow once", 428, 538, 360, () => Choose(true));
+    always = new CheckBox {
+      Text = "항상 허용",
+      Position = new Position(28, 426),
+      Size = new Size(524, 44),
+      IsSelected = false,
+    };
+    always.TextLabel.PixelSize = 17;
+    always.SelectedChanged += (_, _) => {
+      if (settingChoice || closing || busy || snapshot is null)
+        return;
+      try {
+        var selected = snapshot.WithChoice(always.IsSelected);
+        body!.Text = selected.Pages[0];
+        EnsureTextFits();
+        review.Install(selected);
+        UpdateLabels();
+        UpdateButtons();
+      } catch (Exception error) {
+        Fail(error);
+      }
+    };
+    card.Add(always);
+    choiceNotice = Label("", 28, 476, 524, 40, 13);
+    card.Add(choiceNotice);
+    deny = MakeButton("Deny", 28, 528, 252, () => Choose(false));
+    allow = MakeButton("Allow once", 300, 528, 252, () => Choose(true));
     root.Add(card);
     Window.Default.Add(root);
     Resize();
@@ -553,12 +600,12 @@ internal sealed class ConsentApplication : NUIApplication {
     var button = new Button {
       Text = text,
       Position = new Position(x, y),
-      Size = new Size(width, 56),
+      Size = new Size(width, 48),
       BackgroundColor = new Color("#E8EDF8FF"),
       TextColor = new Color("#152D68FF"),
-      CornerRadius = 12,
+      CornerRadius = 24,
     };
-    button.TextLabel.PixelSize = 24;
+    button.TextLabel.PixelSize = 16;
     button.TextLabel.EnableMarkup = false;
     button.TextLabel.Ellipsis = false;
     button.Clicked += (_, _) => {
@@ -576,6 +623,16 @@ internal sealed class ConsentApplication : NUIApplication {
     if (notice is null)
       return;
     language!.Text = Korean ? "English" : "한국어";
+    always!.Text = Korean ? "항상 허용" : "Always allow";
+    title!.Text = snapshot?.Fields.GetValueOrDefault("r0.feature_id") ==
+                  "calendar.read" && snapshot.TotalCount == 1
+        ? (Korean ? "달력 접근을 허용할까요?" : "Allow calendar access?")
+        : (Korean ? "접근을 허용할까요?" : "Allow access?");
+    choiceNotice!.Text = snapshot?.CanChoosePersistent == true
+        ? (Korean ? "현재 프로필의 같은 조건에만 적용됩니다. 보관 기간은 늘어나지 않습니다."
+                  : "Same profile and exact conditions. Retention is unchanged.")
+        : (Korean ? "이 요청과 정책은 항상 허용을 지원하지 않습니다."
+                  : "Always allow is unavailable for this request or policy.");
     previous!.Text = Korean ? "이전" : "Previous";
     next!.Text = Korean ? "다음" : "Next";
     if (settingsReview is not null) {
@@ -603,7 +660,9 @@ internal sealed class ConsentApplication : NUIApplication {
       return;
     }
     deny!.Text = Korean ? "거절" : "Deny";
-    allow!.Text = snapshot?.VersionedApproval == true
+    allow!.Text = snapshot?.AlwaysAllowed == true
+                      ? (Korean ? "항상 허용" : "Always allow")
+                  : snapshot?.VersionedApproval == true
                       ? (Korean ? "표시한 기간 허용" : "Allow as displayed")
                   : Korean ? "이번 한 번 허용"
                            : "Allow once";
@@ -627,6 +686,7 @@ internal sealed class ConsentApplication : NUIApplication {
     if (allow is null)
       return;
     if (settingsReview is not null) {
+      always!.IsEnabled = false;
       bool available = !closing && !busy;
       SetEnabled(allow, available && settingsReview.CanApply);
       SetEnabled(deny!, available);
@@ -637,8 +697,13 @@ internal sealed class ConsentApplication : NUIApplication {
       return;
     }
     bool ready = !closing && !busy && snapshot is not null;
+    always!.IsEnabled = ready && snapshot!.CanChoosePersistent;
     SetEnabled(allow, ready && snapshot!.CanApprove &&
                           reviewed == snapshot.Pages.Count);
+    if (allow.IsEnabled) {
+      allow.BackgroundColor = new Color("#0072DEFF");
+      allow.TextColor = Color.White;
+    }
     SetEnabled(deny!, ready);
     SetEnabled(language!, ready);
     SetEnabled(previous!, ready && page > 0);
@@ -647,8 +712,8 @@ internal sealed class ConsentApplication : NUIApplication {
 
   private static void SetEnabled(Button button, bool enabled) {
     button.IsEnabled = enabled;
-    button.BackgroundColor = new Color(enabled ? "#E8EDF8FF" : "#ECEDEFFF");
-    button.TextColor = new Color(enabled ? "#152D68FF" : "#737A85FF");
+    button.BackgroundColor = new Color(enabled ? "#F0F1F3FF" : "#ECEDEFFF");
+    button.TextColor = new Color(enabled ? "#373B43FF" : "#737A85FF");
     // Explicit parent opacity keeps disabled state distinguishable even when
     // the installed component theme supplies the same enabled/disabled colors.
     button.Opacity = enabled ? 1.0f : 0.45f;
@@ -659,16 +724,17 @@ internal sealed class ConsentApplication : NUIApplication {
       return;
     var size = Window.Default.Size;
     root.Size = new Size(size.Width, size.Height);
-    float scale = Math.Min(size.Width / 864f, size.Height / 664f);
-    if (scale <= 0)
+    var geometry = PopupTextMetrics.Geometry(size.Width, size.Height);
+    if (geometry.Scale <= 0)
       return;
-    card.Scale = new Vector3(scale, scale, 1);
-    card.Position = new Position((size.Width - 824 * scale) / 2,
-                                 (size.Height - 624 * scale) / 2);
+    card.Scale = new Vector3(geometry.Scale, geometry.Scale, 1);
+    card.Position = new Position(geometry.X, geometry.Y);
     if (settings is not null) {
-      settings.Scale = new Vector3(scale, scale, 1);
-      settings.Position = new Position((size.Width - 824 * scale) / 2,
-                                       (size.Height - 624 * scale) / 2);
+      float settingsScale = Math.Min(size.Width / 864f,
+                                     size.Height / 664f);
+      settings.Scale = new Vector3(settingsScale, settingsScale, 1);
+      settings.Position = new Position((size.Width - 824 * settingsScale) / 2,
+          (size.Height - 624 * settingsScale) / 2);
     }
   }
 

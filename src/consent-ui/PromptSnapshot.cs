@@ -28,6 +28,13 @@ internal sealed class PromptSnapshot {
   public bool CanAllowOnce => CanApprove && GrantMode == "ONCE";
   public bool VersionedApproval { get; }
   public string GrantMode { get; }
+  public bool PeriodChoice { get; }
+  public bool CanChoosePersistent { get; }
+  public bool AlwaysAllowed { get; }
+  public string ChosenGrantMode => AlwaysAllowed ? "PERSISTENT" : GrantMode;
+  private readonly IReadOnlyList<(string Title, string Body)> rawText;
+  private readonly FeatureCatalog? catalog;
+  private readonly string binding;
   public long DurationMilliseconds { get; }
   public int TotalCount { get; }
   private readonly string content;
@@ -35,7 +42,10 @@ internal sealed class PromptSnapshot {
   public PromptSnapshot(string requestId, string locale,
                         IReadOnlyDictionary<string, string> fields,
                         IReadOnlyList<(string Title, string Body)> text,
-                        FeatureCatalog? catalog = null) {
+                        FeatureCatalog? catalog = null,
+                        bool alwaysAllowed = false) {
+    this.catalog = catalog;
+    rawText = text.ToArray();
     if (!ValidRequestId(requestId) || !ValidLocale(locale) ||
         !fields.TryGetValue("request_id", out var actual) ||
         actual != requestId ||
@@ -52,8 +62,9 @@ internal sealed class PromptSnapshot {
     VersionedApproval = fields.ContainsKey("approval_version");
     GrantMode = VersionedApproval ? Required(fields, "grant_mode") : "ONCE";
     TotalCount = count;
+    PeriodChoice = fields.GetValueOrDefault("approval_version") == "2";
     if (VersionedApproval) {
-      if (Required(fields, "approval_version") != "1" ||
+      if (Required(fields, "approval_version") is not("1" or "2") ||
           Required(fields, "request_kind") is not("PREAPPROVAL" or "TASK") ||
           !ValidRequestId(Required(fields, "selection_id")) ||
           Positive(fields, "selection_revision") < 1 ||
@@ -75,6 +86,22 @@ internal sealed class PromptSnapshot {
       } else if (fields.ContainsKey("duration_ms"))
         throw new InvalidOperationException("Unexpected approval duration");
     }
+    if (PeriodChoice) {
+      if (Required(fields, "period_choices") != GrantMode + ",PERSISTENT")
+        throw new InvalidOperationException("Invalid period choice binding");
+      string effective = Required(fields, "effective_period_choices");
+      if (effective != GrantMode && effective != GrantMode + ",PERSISTENT")
+        throw new InvalidOperationException("Invalid effective periods");
+      CanChoosePersistent = effective == GrantMode + ",PERSISTENT";
+      if (CanChoosePersistent && count != TotalCount)
+        throw new InvalidOperationException("Incomplete persistent disclosure");
+    } else if (fields.ContainsKey("period_choices") ||
+               fields.ContainsKey("effective_period_choices")) {
+      throw new InvalidOperationException("Unexpected period choices");
+    }
+    if (alwaysAllowed && !CanChoosePersistent)
+      throw new InvalidOperationException("Persistent choice is unavailable");
+    AlwaysAllowed = alwaysAllowed;
     RequestId = requestId;
     Locale = locale;
     Token = token;
@@ -96,6 +123,8 @@ internal sealed class PromptSnapshot {
           .Append(':')
           .Append(field.Value);
     }
+    binding = stable.ToString();
+    stable.Append(ChosenGrantMode);
     var pages = new List<string>();
     bool supported = true;
     var originalIndices = new HashSet<int>();
@@ -107,7 +136,7 @@ internal sealed class PromptSnapshot {
         if (string.IsNullOrEmpty(fields.GetValueOrDefault(prefix + required)))
           throw new InvalidOperationException("Missing bound prompt field");
       supported &= fields[prefix + "modes"].Split(',').Contains(
-          GrantMode, StringComparer.Ordinal);
+          ChosenGrantMode, StringComparer.Ordinal);
       if (VersionedApproval) {
         int original =
             checked((int)CanonicalNumber(fields, prefix + "original_index", 0));
@@ -135,6 +164,13 @@ internal sealed class PromptSnapshot {
                                                   PeriodLabel(korean), korean);
         details = $"{heading}\n{metadata}\n\n{text[i].Title}\n{text[i].Body}";
       }
+      if (PeriodChoice) {
+        details += korean
+            ? "\n현재 프로필의 동일한 기능·범위·목적·수신자에만 적용됩니다. " +
+              "정책 변경·재설치·프로필 동기화 손실 시 재승인이 필요할 수 있습니다."
+            : "\nOnly the same profile, capability, scope, purpose and recipient. " +
+              "Policy changes, reinstall or profile resync may require approval.";
+      }
       pages.AddRange(Paginate(details));
     }
     if (pages.Count > 1024)
@@ -146,7 +182,9 @@ internal sealed class PromptSnapshot {
     Pages = pages.AsReadOnly();
   }
 
-  public string PeriodLabel(bool korean) => GrantMode switch {
+  public string PeriodLabel(bool korean) => ChosenGrantMode switch {
+    "PERSISTENT" => korean ? "반복 허용 · 취소 가능"
+                           : "Repeated access · revocable",
     "ONCE" => korean ? "이번 한 번" : "One access only",
     "SESSION" => korean ? "이번 대화 동안" : "For this conversation",
     "TIMED" when DurationMilliseconds % 60000 ==
@@ -174,6 +212,8 @@ internal sealed class PromptSnapshot {
                       field.Key is "approval_version" or "request_kind" or
                                    "selection_id" or "selection_revision" or
                                    "selection_digest" or "duration_ms" or
+                                   "period_choices" or
+                                   "effective_period_choices" or
                                    "count" or "total_count";
       bool row =
           field.Key.StartsWith("r", StringComparison.Ordinal) &&
@@ -191,6 +231,8 @@ internal sealed class PromptSnapshot {
       if (context || approval || row)
         response[field.Key] = field.Value;
     }
+    if (PeriodChoice)
+      response["chosen_grant_mode"] = ChosenGrantMode;
     return new System.Collections.ObjectModel
         .ReadOnlyDictionary<string, string>(response);
   }
@@ -212,6 +254,11 @@ internal sealed class PromptSnapshot {
       throw new InvalidOperationException("Invalid numeric approval binding");
     return number;
   }
+
+  public PromptSnapshot WithChoice(bool alwaysAllowed) => new(
+      RequestId, Locale, Fields, rawText, catalog, alwaysAllowed);
+
+  public bool SameBinding(PromptSnapshot other) => binding == other.binding;
 
   public bool SameContent(PromptSnapshot other) => content == other.content;
 

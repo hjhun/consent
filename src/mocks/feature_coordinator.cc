@@ -165,8 +165,9 @@ class Coordinator final {
 #ifdef CONSENT_FEATURE_UNIT_TEST
   explicit Coordinator(std::nullptr_t) : selection_id_("fixture-selection") {}
 #endif
-  Coordinator()
-      : context_(g_main_context_new()), selection_id_("selection-" + Random()) {
+  explicit Coordinator(bool period_choice = false)
+      : context_(g_main_context_new()), selection_id_("selection-" + Random()),
+        period_choice_(period_choice) {
     if (!context_ || consent_client_create_with_context(context_, &client_))
       throw std::runtime_error("cannot connect to consent daemon");
   }
@@ -630,13 +631,15 @@ class Coordinator final {
   Message Request(const std::vector<std::string>& features, bool task,
                   bool ephemeral = false) const {
     Message request = Context();
-    request["approval_version"] = "1";
+    request["approval_version"] = period_choice_ ? "2" : "1";
     request["request_kind"] = task ? "TASK" : "PREAPPROVAL";
     request["selection_id"] = selection_id_;
     request["selection_revision"] = std::to_string(revision_);
     request["grant_mode"] = task ? (ephemeral ? "ONCE" : "SESSION") : mode_;
     if (!task && mode_ == "TIMED")
       request["duration_ms"] = std::to_string(duration_);
+    if (period_choice_)
+      request["period_choices"] = request["grant_mode"] + ",PERSISTENT";
     request["count"] = std::to_string(features.size());
     for (size_t index = 0; index < features.size(); ++index)
       for (const auto& field : FindFeature(features[index])->row)
@@ -1058,6 +1061,7 @@ class Coordinator final {
   std::string session_, generation_, decision_ = "IDLE", reason_, request_id_,
                                      digest_, artifact_;
   unsigned action_count_ = 0;
+  bool period_choice_ = false;
   bool session_failed_ = false;
   std::unique_ptr<Job> job_;
   std::map<std::string, std::unique_ptr<Child>> children_;
@@ -1077,6 +1081,15 @@ class Coordinator final {
 extern "C" int consent_feature_argo_main() {
   try {
     return consent_mock::Coordinator().Run();
+  } catch (const std::exception& error) {
+    std::fprintf(stderr, "feature coordinator: %s\n", error.what());
+    return 1;
+  }
+}
+
+extern "C" int consent_feature_argo_choice_main() {
+  try {
+    return consent_mock::Coordinator(true).Run();
   } catch (const std::exception& error) {
     std::fprintf(stderr, "feature coordinator: %s\n", error.what());
     return 1;

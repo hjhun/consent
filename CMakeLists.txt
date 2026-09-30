@@ -101,6 +101,7 @@ ADD_COMPILE_DEFINITIONS(_GNU_SOURCE)
 
 ADD_SUBDIRECTORY(src)
 INCLUDE(cmake/Smoke.cmake)
+INCLUDE(cmake/UiNative.cmake)
 IF(CONSENT_BUILD_TOOLS)
   ADD_SUBDIRECTORY(tests/tools)
 ENDIF()
@@ -168,7 +169,9 @@ IF(CONSENT_BUILD_POC)
       --source-dir "${PROJECT_SOURCE_DIR}/src/consent-ui" --work-dir
       "${PROJECT_BINARY_DIR}/poc-ui-build" --output "${CONSENT_UI_TPK}"
       --tizen-net-version 14.0.0.19364
-    DEPENDS ${CONSENT_UI_SOURCES}
+      --consent-library "$<TARGET_FILE:consent-poc>"
+      --feature-library "$<TARGET_FILE:consent-feature-poc>"
+    DEPENDS consent-poc consent-feature-poc ${CONSENT_UI_SOURCES}
             "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
     VERBATIM
   )

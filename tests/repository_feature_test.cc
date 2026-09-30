@@ -904,10 +904,177 @@ void TimedAdmissionIsNotSliding() {
   std::cout
       << "PASS PREAPPROVAL timed coverage stays anchored to stored admission\n";
 }
+Message ChoiceRequest(Fixture& fixture, bool pair = true) {
+  auto request = fixture.Selection("TASK", "ONCE", pair);
+  request["approval_version"] = "2";
+  request["period_choices"] = "ONCE,PERSISTENT";
+  Fixture::Seal(&request);
+  return request;
+}
+
+Message ChoicePrompt(Fixture& fixture, const Message& pending) {
+  return fixture.Call(fixture.ui,
+      {{"method", "get_prompt"},
+       {"request_id", Get(pending, "request_id")},
+       {"locale", "en-US"}, {"approval_version", "1"},
+       {"approval_supported_versions", "1,2"},
+       {"approval_period_choice", "1"}});
+}
+
+Message ChoiceResponse(Fixture& fixture, const Message& prompt,
+                       const std::string& chosen = "PERSISTENT") {
+  auto response = fixture.Response(prompt);
+  response["effective_period_choices"] =
+      Get(prompt, "effective_period_choices");
+  response["chosen_grant_mode"] = chosen;
+  return response;
+}
+
+void PeriodChoiceCoverage() {
+  for (const auto* chosen : {"ONCE", "PERSISTENT"}) {
+    Fixture fixture;
+    fixture.Seed("ONCE");
+    auto request = ChoiceRequest(fixture);
+    auto pending = fixture.Call(fixture.argo, request);
+    fixture.Call(fixture.ui,
+        {{"method", "get_prompt"}, {"approval_version", "1"},
+         {"locale", "en-US"},
+         {"request_id", Get(pending, "request_id")}}, -EINVAL);
+    auto prompt = ChoicePrompt(fixture, pending);
+    Check(Get(prompt, "count") == "2" &&
+              Get(prompt, "total_count") == "2" &&
+              Get(prompt, "effective_period_choices") == "ONCE,PERSISTENT",
+          "persistent choice discloses previously short-covered A plus B");
+    auto response = ChoiceResponse(fixture, prompt, chosen);
+    auto tampered = response;
+    tampered["grant_mode"] = "PERSISTENT";
+    fixture.Call(fixture.ui, tampered, -EACCES);
+    tampered = response;
+    tampered["effective_period_choices"] = "PERSISTENT";
+    fixture.Call(fixture.ui, tampered, -EACCES);
+    auto allowed = fixture.Call(fixture.ui, response);
+    Check(Get(allowed, "decision") == "ALLOWED" &&
+              Get(allowed, "chosen_grant_mode") == chosen,
+          "whole AND has exact chosen coverage");
+    for (const auto* field : {"approval_version", "grant_mode",
+                             "selection_digest", "period_choices"})
+      Check(Get(allowed, field) == Get(request, field),
+            "final response preserves immutable request context");
+    auto retry = fixture.Call(fixture.argo, request);
+    Check(Get(retry, "chosen_grant_mode") == chosen &&
+              Get(retry, "request_id") == Get(pending, "request_id"),
+          "immutable completed retry preserves real UI period choice");
+    auto result = fixture.Call(fixture.argo,
+        {{"method", "get_request_result"},
+         {"request_id", Get(pending, "request_id")},
+         {"subject", "subject"}, {"profile", "profile"}});
+    Check(Get(result, "chosen_grant_mode") == chosen &&
+              Get(result, "decision") == "ALLOWED",
+          "result verifies stored chosen period");
+    auto check = request;
+    check["method"] = "check";
+    check["mode"] = "AUTHORIZE";
+    Check(Get(fixture.Call(fixture.checker, check), "decision") == "ALLOWED",
+          "actual AUTHORIZE admits exact original tuple");
+    check["operation_id"] = "choice-next";
+    check["step_id"] = "choice-next-step";
+    Check(Get(fixture.Call(fixture.checker, check), "decision") ==
+              (std::string(chosen) == "PERSISTENT" ? "ALLOWED"
+                                                   : "CONSENT_REQUIRED"),
+          "base ONCE is not secretly upgraded; persistent repeats");
+    if (std::string(chosen) == "PERSISTENT") {
+      fixture.Call(fixture.admin,
+          {{"method", "revoke"}, {"definition", "a"},
+           {"subject", "subject"}, {"profile", "profile"}});
+    }
+    auto invalidated = fixture.Call(fixture.argo, request);
+    Check(Get(invalidated, "decision") == "INVALIDATED" &&
+              Get(invalidated, "chosen_grant_mode") == chosen,
+          "retry revalidates chosen coverage after consumption or revoke");
+    result = fixture.Call(fixture.argo,
+        {{"method", "get_request_result"},
+         {"request_id", Get(pending, "request_id")},
+         {"subject", "subject"}, {"profile", "profile"}});
+    Check(Get(result, "decision") == "INVALIDATED",
+          "result and immutable retry agree after lost chosen coverage");
+  }
+  std::cout << "PASS period choice total disclosure, mixed short grant "
+               "coverage, truthful retry/result and authoritative execution\n";
+}
+
+void PeriodChoiceConcurrentCoverage() {
+  Fixture fixture(false);
+  fixture.Register("a", "1", {{"modes", "ONCE"}});
+  auto request = ChoiceRequest(fixture, false);
+  auto pending = fixture.Call(fixture.argo, request);
+  Check(Get(pending, "decision") == "PENDING", "initial v2 missing row");
+  fixture.Seed("ONCE");
+  auto terminal = ChoicePrompt(fixture, pending);
+  Check(Get(terminal, "decision") == "ALLOWED" &&
+            !terminal.count("prompt_token") &&
+            Get(terminal, "chosen_grant_mode") == "ONCE",
+        "concurrent covered last row finalizes honest base choice");
+  for (const auto* field : {"approval_version", "grant_mode",
+                           "selection_digest", "period_choices"})
+    Check(Get(terminal, field) == Get(request, field),
+          "terminal prompt preserves original context");
+  auto result = fixture.Call(fixture.argo,
+      {{"method", "get_request_result"},
+       {"request_id", Get(pending, "request_id")},
+       {"subject", "subject"}, {"profile", "profile"}});
+  auto retry = fixture.Call(fixture.argo, request);
+  Check(Get(result, "decision") == "ALLOWED" &&
+            Get(retry, "decision") == "ALLOWED" &&
+            Get(result, "chosen_grant_mode") == "ONCE" &&
+            Get(retry, "chosen_grant_mode") == "ONCE",
+        "terminal result and request replay preserve chosen coverage");
+  request["method"] = "check";
+  request["mode"] = "AUTHORIZE";
+  fixture.Call(fixture.checker, request);
+  request["method"] = "request";
+  request["mode"] = "QUERY";
+  Check(Get(fixture.Call(fixture.argo, request), "decision") == "INVALIDATED",
+        "concurrent terminal base approval invalidates after consumption");
+  std::cout << "PASS v2 concurrent last-row coverage terminal metadata "
+               "and post-consumption replay invalidation\n";
+}
+
+void PeriodChoiceIntersectionAndSpoofing() {
+  Fixture fixture(false);
+  fixture.Register("a", "1", {{"modes", "ONCE"}, {"level", "3"}});
+  fixture.Register("b");
+  fixture.Seed("ONCE");
+  auto request = ChoiceRequest(fixture);
+  auto pending = fixture.Call(fixture.argo, request);
+  auto prompt = ChoicePrompt(fixture, pending);
+  Check(Get(prompt, "count") == "1" &&
+            Get(prompt, "effective_period_choices") == "ONCE",
+        "hidden ONCE-only row prevents whole-batch persistent choice");
+  fixture.Call(fixture.ui, ChoiceResponse(fixture, prompt), -EACCES);
+  fixture.Call(fixture.ui, ChoiceResponse(fixture, prompt, "ONCE"));
+  for (const auto* key : {"chosen_grant_mode", "effective_period_choices",
+                          "_approval_mode"}) {
+    auto spoof = ChoiceRequest(fixture, false);
+    spoof[key] = "PERSISTENT";
+    fixture.Call(fixture.argo, spoof, -EINVAL);
+    spoof["method"] = "check";
+    fixture.Call(fixture.checker, spoof, -EINVAL);
+  }
+  auto invalid = ChoiceRequest(fixture, false);
+  invalid["period_choices"] = "PERSISTENT,ONCE";
+  Fixture::Seal(&invalid);
+  fixture.Call(fixture.argo, invalid, -EINVAL);
+  std::cout << "PASS all-policy intersection, level3 and requester "
+               "choice/target spoof rejection\n";
+}
+
 }  // namespace
 
 int main() {
   try {
+    PeriodChoiceCoverage();
+    PeriodChoiceConcurrentCoverage();
+    PeriodChoiceIntersectionAndSpoofing();
     ExistingGrantCoverage();
     SessionReuse();
     SessionControllerAndArgoRoles();

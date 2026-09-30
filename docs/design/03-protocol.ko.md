@@ -316,3 +316,38 @@ token을 바꾸지 않습니다.
 짧은 literal v1은 11개까지 표시되고 부족 조건 12/16개는 필드 예산을 초과합니다.
 명시 E2BIG를 token 갱신 전에 반환하며 부분 승인·묵시 분할은 하지 않습니다.
 PoC catalog는 선택 전체가 예산 안에 들어오도록 제한합니다.
+
+
+## 명시적 기간 선택 (approval version 2)
+
+version 1의 선택 기간 불변 계약은 유지합니다. version 2는 기존 요청의 재해석이
+아닌 명시적 opt-in입니다. 인증된 hello는 `approval_version=1`을 유지하면서
+`approval_supported_versions=1,2`와 `approval_period_choice=1`을 별도로
+광고합니다. 새 client는 두 capability가 정확히 일치해야 version 2를 전송합니다.
+이전 daemon 또는 UI에서는 명시적으로 실패하며 downgrade하지 않습니다.
+
+요청자는 `approval_version=2`, 원래 `grant_mode` (`ONCE`, `SESSION`, `TIMED`),
+해당하는 경우 원래 TIMED `duration_ms`, 정규 형식
+`period_choices=<base>,PERSISTENT`를 제공합니다. 이 필드는 selection digest와
+prompt context 바인딩에 포함됩니다. 응답과 동일 요청 재시도에서도 base 기간,
+duration, digest는 불변입니다. 요청자는 `chosen_grant_mode`,
+`effective_period_choices` 또는 내부 평가 필드를 주입할 수 없습니다.
+
+daemon은 **전체** 선택 definition의 허용 mode 교집합으로
+`effective_period_choices`를 계산합니다. level 3/ONCE-only 또는 하나라도 지원하지
+않는 definition이면 PERSISTENT를 제외합니다. PERSISTENT를 제공할 때는 기존 짧은
+승인으로 충족된 행까지 전체 batch를 표시합니다. 기본 미선택은 base 기간이며,
+체크한 경우 바인딩된 선택지 안에서만 PERSISTENT를 선택합니다. 응답은 prompt token에
+묶인 effective choices와 별도의 `chosen_grant_mode`를 전달합니다. 선택 변경 시
+전체 안내를 다시 검토해야 합니다.
+
+coverage는 선택한 기간으로 전체 AND batch를 평가합니다. TASK라도 짧은 grant로
+PERSISTENT를 충족할 수 없으며 숨겨진 행을 조용히 확대 승인하지 않습니다.
+Respond, 저장 결과, 동일 요청 재시도는 원래 context와 선택 기간을 반환합니다.
+소비 또는 철회로 coverage가 사라지면 이전 ALLOWED 결과는 invalidated가 됩니다.
+동시에 마지막 누락 행이 승인되면 pending 요청은 base 선택과 전체 context로
+완료될 수 있습니다. 보호 실행 직전 AUTHORIZE는 여전히 필수입니다. 접근 기간이
+별도로 제한된 데이터 보관 기간을 늘리지 않습니다.
+
+이는 opt-in 개발자 PoC 구현 계약이며 production UI 역할, endpoint 패키징,
+argo 실행 정책의 provisioning을 의미하지 않습니다.

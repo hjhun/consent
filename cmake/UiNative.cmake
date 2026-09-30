@@ -1,0 +1,47 @@
+# Owned UI demonstration targets retain production authentication and storage.
+IF(NOT BUILD_TESTING OR NOT CONSENT_BUILD_POC)
+  RETURN()
+ENDIF()
+SET(UI09_ROOT "/opt/var/lib/consent-ui-native-09")
+SET(UI09_STATE "/opt/var/lib/consent-ui09-state")
+SET(UI09_AUTHORITY "/opt/var/lib/consent-ui09-authority")
+SET(UI09_DEST "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests")
+GET_TARGET_PROPERTY(UI09_DAEMON_SOURCES consentd SOURCES)
+ADD_EXECUTABLE(consentd-ui09 ${UI09_DAEMON_SOURCES})
+TARGET_INCLUDE_DIRECTORIES(consentd-ui09 PRIVATE "${PROJECT_SOURCE_DIR}/src"
+  "${PROJECT_SOURCE_DIR}/src/consent/inc")
+TARGET_LINK_LIBRARIES(consentd-ui09 PRIVATE consent-common consent-storage
+  PkgConfig::GLIB PkgConfig::SQLITE PkgConfig::SYSTEMD PkgConfig::PKGMGR
+  Threads::Threads)
+TARGET_COMPILE_DEFINITIONS(consentd-ui09 PRIVATE
+  CONSENT_LOG_TAG="CONSENTD"
+  CONSENT_SOCKET_PATH="${CONSENT_POC_SOCKET_PATH}"
+  CONSENT_STATE_DIR="${UI09_STATE}"
+  CONSENT_AUTHORITY_DIR="${UI09_AUTHORITY}"
+  CONSENT_SERVICE_UNIT="consentd-ui09.service"
+  CONSENT_ROLE_CONFIG="${UI09_ROOT}/roles.conf"
+  CONSENT_INSTALLATIONS="${UI09_AUTHORITY}/installations.conf")
+SET_PROPERTY(TARGET consentd-ui09 APPEND_STRING PROPERTY LINK_FLAGS
+  " -Wl,--as-needed,--gc-sections -pie")
+INSTALL(TARGETS consentd-ui09 RUNTIME DESTINATION "${UI09_DEST}")
+ADD_EXECUTABLE(consent-ui09-admin
+  "${PROJECT_SOURCE_DIR}/tests/tools/ui09_admin.c")
+TARGET_LINK_LIBRARIES(consent-ui09-admin PRIVATE consent-poc)
+INSTALL(TARGETS consent-ui09-admin RUNTIME DESTINATION "${UI09_DEST}")
+FOREACH(TOOL storage-prepare installation-authority)
+  STRING(REPLACE "-" "_" SOURCE "${TOOL}")
+  ADD_EXECUTABLE(consent-${TOOL}-ui09
+    "${PROJECT_SOURCE_DIR}/src/tools/${SOURCE}.cc")
+  TARGET_INCLUDE_DIRECTORIES(consent-${TOOL}-ui09 PRIVATE
+    "${PROJECT_SOURCE_DIR}/src")
+  TARGET_LINK_LIBRARIES(consent-${TOOL}-ui09 PRIVATE consent-common
+    PkgConfig::GLIB PkgConfig::SYSTEMD)
+  TARGET_COMPILE_DEFINITIONS(consent-${TOOL}-ui09 PRIVATE
+    CONSENT_STATE_DIR="${UI09_STATE}"
+    CONSENT_AUTHORITY_DIR="${UI09_AUTHORITY}"
+    CONSENT_SERVICE_USER="${CONSENT_SERVICE_USER}"
+    CONSENT_SERVICE_UNIT="consentd-ui09.service"
+    CONSENT_INSTALLATIONS="${UI09_AUTHORITY}/installations.conf")
+  INSTALL(TARGETS consent-${TOOL}-ui09 RUNTIME DESTINATION "${UI09_DEST}")
+ENDFOREACH()
+INSTALL(PROGRAMS scripts/emulator-ui-native.py DESTINATION "${UI09_DEST}")

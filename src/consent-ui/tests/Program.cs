@@ -93,6 +93,55 @@ static class Program {
         mutate?.Invoke(fields);
       });
 
+  private static void PeriodChoicePrompts() {
+    foreach (var size in new[] { (1920f, 1080f), (390f, 844f),
+                                 (480f, 320f), (400f, 240f) }) {
+      var geometry = PopupTextMetrics.Geometry(size.Item1, size.Item2);
+      Check(geometry.Scale > 0 && geometry.Scale <= 1 &&
+                geometry.X >= 24 && geometry.Y >= 24 &&
+                geometry.X + 580 * geometry.Scale <= size.Item1 - 24 &&
+                geometry.Y + 600 * geometry.Scale <= size.Item2 - 24,
+            "Compact geometry preserves margins on short/landscape windows");
+    }
+    var choice = Versioned("ONCE", fields => {
+      fields["approval_version"] = "2";
+      fields["period_choices"] = "ONCE,PERSISTENT";
+      fields["effective_period_choices"] = "ONCE,PERSISTENT";
+      fields["total_count"] = "1";
+      fields["r0.original_index"] = "0";
+      fields["r0.modes"] = "ONCE,SESSION,TIMED,PERSISTENT";
+    });
+    Check(!choice.AlwaysAllowed && choice.ChosenGrantMode == "ONCE" &&
+              choice.CanChoosePersistent,
+          "New choice prompt defaults unchecked and preserves base");
+    var selected = choice.WithChoice(true);
+    var response = selected.ResponseFields(true);
+    Check(response["grant_mode"] == "ONCE" &&
+              response["chosen_grant_mode"] == "PERSISTENT" &&
+              response["selection_digest"] ==
+                  choice.Fields["selection_digest"],
+          "Choice is separate from immutable base/digest");
+    Check(string.Join('\n', selected.Pages).Contains("30 minutes") &&
+              selected.PeriodLabel(false).Contains("Repeated access"),
+          "Access changes without extending retention");
+    var review = new PromptReview();
+    review.Install(choice);
+    while (review.Page + 1 < choice.Pages.Count)
+      review.Move(1);
+    Check(review.CanAllow, "Base disclosure fully reviewed");
+    review.Install(selected);
+    Check(review.Page == 0 && review.Reviewed == 1 && !review.CanAllow,
+          "Choice refresh resets whole disclosure review");
+    Check(choice.SameBinding(selected) && !choice.SameContent(selected),
+          "Refresh preserves only exact same bound choice");
+    Reject(() => Versioned("ONCE", fields => {
+      fields["approval_version"] = "2";
+      fields["period_choices"] = "ONCE,PERSISTENT";
+      fields["effective_period_choices"] = "ONCE,PERSISTENT";
+    }));
+    Console.WriteLine("PASS period-choice binding, default, retention and review reset");
+  }
+
   private static void ApprovalBinding() {
     var session = Versioned();
     Check(
@@ -701,11 +750,11 @@ static class Program {
                                       291f })
       Check(!PopupTextMetrics.HeightFits(invalid),
             "Nonfinite/overflow height rejected");
-    Check(!PopupTextMetrics.HeightFits(0) && PopupTextMetrics.HeightFits(290),
+    Check(!PopupTextMetrics.HeightFits(0) && PopupTextMetrics.HeightFits(PopupTextMetrics.Height),
           "Positive constrained height bound");
-    Check(!PopupTextMetrics.GlyphFits(753) &&
+    Check(!PopupTextMetrics.GlyphFits(PopupTextMetrics.Width + 1) &&
               !PopupTextMetrics.GlyphFits(float.NaN) &&
-              PopupTextMetrics.GlyphFits(752),
+              PopupTextMetrics.GlyphFits(PopupTextMetrics.Width),
           "Individual glyph width bound");
     foreach (string text in new[] {
                new string('W', 8192), new string('힣', 8192),
@@ -778,7 +827,8 @@ static class Program {
         throw new PromptFinished("ALLOWED");
       return Snapshot($"token-{++sequence}");
     }
-    public string Respond(PromptSnapshot snapshot, bool allow) {
+    public string Respond(PromptSnapshot snapshot, bool allow,
+                          bool alwaysAllowed = false) {
       ThreadCheck();
       Choices.Enqueue((snapshot, allow));
       if (ResponseFailure)
@@ -934,6 +984,7 @@ static class Program {
 
   public static void Main() {
     Model();
+    PeriodChoicePrompts();
     ApprovalBinding();
     Settings();
     Review();

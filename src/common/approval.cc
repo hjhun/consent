@@ -20,9 +20,9 @@
 namespace consent {
 namespace approval {
 namespace {
-constexpr std::array<const char*, 7> kContext = {
+constexpr std::array<const char*, 8> kContext = {
     {"approval_version", "request_kind", "selection_id", "selection_revision",
-     "selection_digest", "grant_mode", "duration_ms"}};
+     "selection_digest", "grant_mode", "duration_ms", "period_choices"}};
 constexpr std::array<const char*, 9> kRow = {
     {"definition", "policy_version", "scope", "operation", "purpose",
      "recipient", "holder", "feature_id", "feature_revision"}};
@@ -49,6 +49,11 @@ bool Fail(std::string* error, const char* text) {
   return false;
 }
 }  // namespace
+
+bool Versioned(const Message& request) {
+  const auto version = Get(request, "approval_version");
+  return version == "1" || version == "2";
+}
 
 void CopyContext(const Message& source, Message* destination) {
   for (const auto* key : kContext) {
@@ -120,7 +125,8 @@ bool Validate(const Message& request, std::string* error) {
     }
     return true;
   }
-  if (Get(request, "approval_version") != "1" ||
+  const auto version = Get(request, "approval_version");
+  if ((version != "1" && version != "2") ||
       (Get(request, "request_kind") != "PREAPPROVAL" &&
        Get(request, "request_kind") != "TASK") ||
       !Identifier(Get(request, "selection_id")) ||
@@ -151,6 +157,10 @@ bool Validate(const Message& request, std::string* error) {
           error,
           "feature selection requires explicit policy and feature revisions");
   }
+  if (version == "2" ? Get(request, "period_choices") !=
+                           mode + ",PERSISTENT"
+                     : request.count("period_choices") != 0)
+    return Fail(error, "invalid opt-in approval period choices");
   const auto digest = Get(request, "selection_digest");
   if (digest.size() != 64 || digest != SelectionDigest(request))
     return Fail(error, "selection digest mismatch");
@@ -161,8 +171,10 @@ bool Covers(const Message& request, const std::string& mode, int64_t expires,
             int64_t now) {
   if (expires != 0 && expires <= now)
     return false;
-  if (Get(request, "approval_version") != "1" ||
-      Get(request, "request_kind") == "TASK")
+  const auto target_mode = Get(request, "_approval_mode");
+  if (target_mode == "PERSISTENT")
+    return mode == "PERSISTENT";
+  if (!Versioned(request) || Get(request, "request_kind") == "TASK")
     return true;
   const auto selected = Get(request, "grant_mode");
   if (selected == "ONCE" || mode == "PERSISTENT")

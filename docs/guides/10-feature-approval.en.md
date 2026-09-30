@@ -315,3 +315,67 @@ platform credential evidence. The feature increment must demonstrate:
   action unexecuted.
 - Actual English/Korean screens show complete targets, effects and periods;
   another package sharing the launcher cannot use the Settings bridge.
+
+## Opt-in approval-v2 period choice
+
+Hello keeps `approval_version=1` and separately advertises exact
+`approval_supported_versions=1,2` plus `approval_period_choice=1`. The client
+admits v2 only after trusted negotiation; unsupported daemon/UI combinations
+fail explicitly. C ABI, Parcel envelope and database schema stay unchanged.
+
+Version 2 keeps immutable base `grant_mode` and its `duration_ms`, and requires
+canonical `period_choices=<base>,PERSISTENT`. These fields join the selection
+digest and exact context binding. Request/check callers cannot supply
+`chosen_grant_mode`, `effective_period_choices` or private evaluation targets.
+The daemon intersects policy modes over TOTAL conditions, including already
+covered ones. If PERSISTENT is possible, the prompt displays ALL conditions;
+otherwise it remains a missing-only base prompt with a disabled checkbox.
+Level3/ONCE-only and mixed unsupported policies cannot be upgraded invisibly.
+
+The UI echoes base/context/digest and token-bound effective choices, then sends
+separate `chosen_grant_mode`. Respond verifies the current total policy and
+chosen-period coverage before granting; PERSISTENT TASK coverage requires
+persistent grants, even where base TASK checking accepts shorter grants.
+Only displayed conditions are granted. Retention stays independent. Final
+Respond/result/request replay preserve base metadata and report the chosen
+period. Stored ALLOWED results and exact request replays share authoritative
+chosen-coverage validation; consumed/revoked coverage becomes INVALIDATED,
+without changing the original request ID/fingerprint or reviving old approvals.
+Actual execution still requires a fresh authoritative AUTHORIZE/receipt.
+
+### Executed UI09 verification
+
+The matching Release27/r7 native build passed CTest33 (29 PASS, 4 root-only
+SKIP); managed choice/review/geometry checks are included in that build. The
+actual selected x86_64 emulator used the signed TPK's exact full library bytes
+for both UI and privately namespaced CM/CE workers, with extracted owned test
+helpers rather than a global RPM upgrade. RPM-packaged byte hashes/build IDs
+are separately recorded and are not claimed equal to TPK payloads.
+
+`/var/tmp/consent-artifacts/consent-ui-native-09/attempt-r7-02/` records actual
+unchecked ONCE, denial/no effect, checked/full-review PERSISTENT, new-operation
+reuse with a fresh CE receipt, revoke/denial and ONCE-only CM execution. Base
+`grant_mode` remains ONCE even when the chosen approval is PERSISTENT. Actual
+NUI default checkbox color is orange; compact styling does not install a
+Samsung runtime theme.
+
+Partial `attempt-r7-06/` proves normal restart persistence and owned DB loss
+(grants0, cleanup_unknown1) followed by actual fresh approval/effect. Its final
+fresh-generation window timed out and is not counted as a positive. Distinct
+`attempt-r7-09/` completes that positive: actual owned helper generation change,
+new REQUIRED/old STALE(-116), default-off refreshed popup, checked all-page
+review, fresh CE action/receipt in a new coordinator epoch and authoritative
+ALLOWED gate. This is not actual TPK reinstall lifecycle evidence. The gate-only
+receipt and actual effect receipt are distinct.
+
+Successful02/09 host exit0/finally errors[] and partial06 restoration retain
+exact original global package/state/config/unit equality, expected package
+inode/time and runtime-parent timestamp deltas separately. Owned fixtures and
+Aurum were cleaned. Production18 PID31569 and original inactive PoC remained
+unchanged. All earlier build/capture/controller failures remain archived.
+
+[Guide08's UI09 evidence](08-consent-ui-poc.en.md#ui09-executed-r7-evidence-2026-09-30)
+contains exact commands, files and limits. `source-r7.json` is the executed
+34-file snapshot; only the final paired Guide08/10 prose differs afterwards,
+with the remaining30 files byte-identical. These are synthetic CM/CE participants
+using actual consent APIs, not production CM/CE adapters or deployed product UI.

@@ -25,8 +25,10 @@ extern "C" {
  * transmitted as an identity or role; consentd authenticates the executable. */
 int consent_mock_main(const char* role, int argc, char** argv);
 int consent_feature_argo_main(void);
+int consent_feature_argo_choice_main(void);
 int consent_feature_worker_main(const char* role);
 int consent_feature_register_main(const char* generation);
+int consent_feature_register_choice_main(const char* generation);
 
 #ifdef __cplusplus
 }
