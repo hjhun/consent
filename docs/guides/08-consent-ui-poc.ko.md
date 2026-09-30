@@ -12,6 +12,22 @@ NUI 배치와 전체 페이지 검토 흐름을 재현합니다. 기존 NUI 시�
 인증된 Installer publication과 보호된 package/app generation 계약을 따라
 담당합니다.
 
+별도의 [작은 One UI 스타일 제안](../previews/consent-popup-oneui.html)은 기본 해제된
+‘항상 허용’ 체크박스를 제공합니다. 현재 프로필의 동일한 기능·범위·목적·수신자에
+적용할 PERSISTENT 정책 제안이며, 각 취득 데이터 보관은 여전히 최대 30분입니다.
+정책 변경·재설치·프로필 authority 동기화 손실 시 재승인이 필요할 수 있습니다.
+Repository는 허용된 legacy definition의 PERSISTENT를 지원하지만 현재 feature
+정의에는 해당 모드가 없고 approval-v1 선택 모드는 ONCE·SESSION·TIMED뿐입니다.
+제안은 native 정책·API를 변경하거나 실제 승인을 생성하지 않습니다. 위의 기존
+재현본은 그대로 유지됩니다.
+
+Samsung의 [dialog](https://developer.samsung.com/one-ui/comp/dialog.html)와
+[grid](https://developer.samsung.com/one-ui/layout/grid.html) 안내를 참고해 local
+font, desktop 최대 폭 580px, mobile 좌우 24px 여백을 사용합니다. Browser 글꼴은
+NUI와 다를 수 있습니다. 거절이 기본 focus이며 닫기·Escape·미리보기의 60초 만료는
+허용하지 않습니다. 스크롤이 생기면 전체 안내를 검토해야 허용할 수 있으며,
+체크박스 변경 시 안내를 다시 표시합니다.
+
 ```mermaid
 flowchart LR
   I[Installer mock] --> L[libconsent-poc.so.0]

@@ -1,0 +1,256 @@
+<!doctype html>
+<!--
+ Copyright (c) 2026 Samsung Electronics Co., Ltd. All rights reserved.
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ http://www.apache.org/licenses/LICENSE-2.0
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>ConsentUI · One UI 스타일 제안</title>
+<style>
+  :root { color-scheme: light; font-family: "SamsungOne", "Noto Sans CJK KR",
+    "Noto Sans", sans-serif; color: #17181b; background: #eff0f2; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-size: 16px; }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  .preview-label { position: fixed; margin: 0; top: 18px; left: 24px;
+    right: 24px; font-size: 13px; line-height: 20px; color: #555a64; }
+  #outside { width: min(580px, calc(100% - 48px)); margin: 110px auto; }
+  h1, p, dd, #helper, #period { word-break: keep-all;
+    overflow-wrap: anywhere; }
+  #outside[inert] { visibility: hidden; }
+  #outside p { line-height: 1.7; }
+  #outside button { background: #0072de; color: white; border: 0;
+    border-radius: 20px; padding: 12px 24px; }
+  a { color: #0072de; }
+  #popup { width: min(580px, calc(100% - 48px)); padding: 0; border: 0;
+    border-radius: 28px; background: #fff; color: #17181b;
+    max-height: calc(100dvh - 48px); overflow: hidden;
+    box-shadow: 0 18px 60px #00000020; }
+  #popup[open] { display: flex; flex-direction: column; }
+  #popup::backdrop { background: #12141b70; }
+  #review { overflow-y: auto; min-height: 0; padding: 24px 28px 0;
+    overscroll-behavior: contain; scrollbar-gutter: stable; }
+  header { display: flex; gap: 12px; align-items: flex-start; }
+  h1 { font-size: 26px; font-weight: 700; line-height: 1.35;
+    letter-spacing: -.5px; margin: 0; flex: 1; }
+  #close { flex: none; color: #62666d; background: transparent; border: 0;
+    padding: 9px 0 9px 8px; font-size: 14px; min-height: 44px; }
+  .provider { margin: 8px 0 18px; color: #62666d; font-size: 15px;
+    line-height: 23px; }
+  .context { margin: 0; padding: 8px 16px; border-radius: 18px;
+    background: #f3f4f6; }
+  .context div { display: grid; grid-template-columns: 58px 1fr;
+    gap: 16px; padding: 8px 0; line-height: 24px; }
+  dt { color: #62666d; font-size: 15px; }
+  dd { margin: 0; font-weight: 500; font-size: 16px; overflow-wrap: anywhere; }
+  .retention { margin: 16px 0; line-height: 22px; }
+  .retention h2 { margin: 0 0 4px; font-size: 15px; font-weight: 700; }
+  .retention p { margin: 0; color: #62666d; font-size: 15px; }
+  .choice { display: flex; align-items: center; gap: 12px;
+    min-height: 44px; font-size: 17px; font-weight: 600; cursor: pointer; }
+  #always { accent-color: #0072de; width: 22px; height: 22px; margin: 0;
+    flex: none; cursor: pointer; }
+  #helper { margin: 4px 0 10px; font-size: 15px; line-height: 22px;
+    color: #62666d; }
+  #period { margin: 0 0 16px; font-size: 15px; line-height: 22px;
+    font-weight: 600; color: #17181b; }
+  footer { flex: none; padding: 12px 28px 20px; background: #fff; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .actions button { min-height: 48px; border: 0; border-radius: 24px;
+    font-size: 16px; font-weight: 600; padding: 10px 12px; }
+  #deny { color: #373b43; background: #f0f1f3; }
+  #allow { color: #fff; background: #0072de; }
+  #allow:disabled { background: #e6e8ec; color: #7b808a; cursor: default; }
+  #review-hint { margin: 0 0 10px; color: #62666d; font-size: 13px;
+    line-height: 20px; }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 2px solid #0072de; outline-offset: 3px; }
+  @media (max-width: 600px) {
+    #popup { margin: auto auto max(24px, env(safe-area-inset-bottom));
+      max-height: calc(100dvh - 48px - env(safe-area-inset-bottom)); }
+    #review { padding: 22px 24px 0; }
+    h1 { font-size: 24px; }
+    .context { padding: 8px 12px; }
+    .context div { gap: 8px; grid-template-columns: 44px 1fr; }
+    footer { padding: 14px 24px 22px; }
+  }
+</style>
+</head>
+<body>
+<p class="preview-label">새 디자인 제안 · 현재 NUI가 아님 · 실제 승인 없음</p>
+<main id="outside">
+  <h2>작은 팝업, 분명한 선택</h2>
+  <p>One UI 스타일의 디자인 제안입니다. 현재 프로필을 기준으로 하며,
+    ‘항상 허용’은 제안용 PERSISTENT입니다. 현재 approval-v1은
+    ONCE·SESSION·TIMED만 지원합니다. 기존 예제 정책에는 PERSISTENT가 없으며,
+    이 체크박스의 정책·네이티브 연동은 아직 제안입니다.</p>
+  <button type="button" id="reopen">미리보기 다시 열기</button>
+  <p><a href="consent-popup.html">현재 개발된 NUI 팝업 재현본 보기</a></p>
+  <p>API·네트워크·저장 기능을 사용하지 않습니다. 닫기·거절·Escape와
+    60초 시간 초과는 허용하지 않습니다.</p>
+  <p id="feedback" role="status" aria-live="polite"></p>
+</main>
+<dialog id="popup" aria-modal="true" aria-labelledby="title"
+  aria-describedby="provider">
+  <section id="review" aria-label="접근 범위와 승인 기간 검토" tabindex="0">
+    <header>
+      <h1 id="title">달력 접근을 허용할까요?</h1>
+      <button type="button" id="close" aria-label="미리보기 닫기">닫기</button>
+    </header>
+    <p class="provider" id="provider">Mock calendar provider의 접근 요청</p>
+    <dl class="context" id="context"></dl>
+    <section class="retention" aria-labelledby="retention-title">
+      <h2 id="retention-title">취득 데이터 보관</h2>
+      <p id="retention"></p>
+    </section>
+    <label class="choice" for="always">
+      <input type="checkbox" id="always" aria-describedby="helper period">
+      <span>항상 허용</span>
+    </label>
+    <p id="helper"></p>
+    <p id="period" role="status" aria-live="polite"></p>
+  </section>
+  <footer>
+    <p id="review-hint" role="status" aria-live="polite" hidden>
+      아래까지 내려 접근 범위와 보관 기간을 확인해 주세요.
+    </p>
+    <div class="actions">
+      <button type="button" id="deny">허용 안 함</button>
+      <button type="button" id="allow">이번 한 번 허용</button>
+    </div>
+  </footer>
+</dialog>
+<script>
+'use strict';
+// Fixed sample mapping from feature_common.cc / FeatureDisplay.cs. PERSISTENT
+// is a UI proposal, not an approval-v1 mode or an authenticated API request.
+const binding = Object.freeze({profile: '현재 프로필', capability: 'calendar.read',
+  scope: '향후 7일의 달력', purpose: '대화 요약',
+  recipient: '이 기기의 현재 대화'});
+const popup = document.getElementById('popup');
+const outside = document.getElementById('outside');
+const review = document.getElementById('review');
+const always = document.getElementById('always');
+const allow = document.getElementById('allow');
+const deny = document.getElementById('deny');
+const period = document.getElementById('period');
+const feedback = document.getElementById('feedback');
+let proposedMode = 'ONCE';
+let started = 0;
+let timer = null;
+let closingFeedback = '';
+let revision = 0;
+let ready = false;
+
+function expired() { return performance.now() - started >= 60000; }
+
+function updateReview() {
+  if (!popup.open) return;
+  ready = review.scrollHeight - review.scrollTop - review.clientHeight <= 2;
+  allow.disabled = !ready;
+  document.getElementById('review-hint').hidden = ready;
+}
+
+function renderDisclosure() {
+  const current = ++revision;
+  ready = false;
+  allow.disabled = true;
+  proposedMode = always.checked ? 'PERSISTENT' : 'ONCE';
+  const context = document.getElementById('context');
+  context.replaceChildren();
+  for (const [name, value] of [['범위', binding.scope],
+      ['목적', binding.purpose], ['수신자', binding.recipient]]) {
+    const row = document.createElement('div');
+    const label = document.createElement('dt');
+    const text = document.createElement('dd');
+    label.textContent = name;
+    text.textContent = value;
+    row.append(label, text);
+    context.append(row);
+  }
+  document.getElementById('retention').textContent =
+    '각 취득 데이터는 최대 30분 보관합니다. 대화 종료나 접근 승인 취소 시 더 일찍 끝납니다.';
+  document.getElementById('helper').textContent =
+    '현재 프로필의 동일한 기능·범위·목적·수신자에만 적용됩니다. 체크하면 반복 접근을 허용하며, 데이터 보관 기간은 늘어나지 않습니다. 정책 변경·재설치·프로필 동기화 손실 시 재승인이 필요할 수 있습니다.';
+  period.textContent = always.checked
+    ? '접근 승인: 반복 허용 · 취소 가능 · 현재 프로필'
+    : '접근 승인: 이번 한 번';
+  allow.textContent = always.checked ? '항상 허용' : '이번 한 번 허용';
+  // Re-review the complete disclosure after a meaningful duration change.
+  review.scrollTop = 0;
+  requestAnimationFrame(() => {
+    if (current === revision && popup.open) updateReview();
+  });
+}
+
+function finish(reason) {
+  if (!popup.open) return;
+  if (reason === 'allow') {
+    if (expired()) { finish('timeout'); return; }
+    if (!ready) return;
+  }
+  closingFeedback = reason === 'allow'
+    ? '미리보기 선택: ' + (proposedMode === 'PERSISTENT' ? '항상 허용' : '이번 한 번 허용') +
+      '. 실제 승인·저장은 생성되지 않았습니다.'
+    : reason === 'timeout'
+      ? '60초가 지나 미리보기를 닫았습니다. 허용되지 않았습니다.'
+      : reason === 'deny'
+        ? '허용 안 함을 선택했습니다. 실제 승인은 생성되지 않았습니다.'
+        : '미리보기를 닫았습니다. 허용되지 않았습니다.';
+  popup.close();
+}
+
+function openPreview() {
+  if (popup.open) return;
+  always.checked = false;
+  started = performance.now();
+  closingFeedback = '';
+  feedback.textContent = '';
+  renderDisclosure();
+  popup.showModal();
+  outside.inert = true;
+  deny.focus();
+  updateReview();
+  timer = setInterval(() => { if (expired()) finish('timeout'); }, 100);
+}
+
+always.addEventListener('change', () => {
+  if (!popup.open) return;
+  if (expired()) { finish('timeout'); return; }
+  renderDisclosure();
+});
+review.addEventListener('scroll', updateReview);
+window.addEventListener('resize', updateReview);
+document.getElementById('close').addEventListener('click', () => finish('close'));
+deny.addEventListener('click', () => finish('deny'));
+allow.addEventListener('click', () => finish('allow'));
+popup.addEventListener('cancel', event => {
+  event.preventDefault();
+  finish('close');
+});
+popup.addEventListener('close', () => {
+  clearInterval(timer);
+  timer = null;
+  ready = false;
+  outside.inert = false;
+  feedback.textContent = closingFeedback ||
+    '미리보기를 닫았습니다. 허용되지 않았습니다.';
+  document.getElementById('reopen').focus();
+});
+document.getElementById('reopen').addEventListener('click', openPreview);
+openPreview();
+</script>
+</body>
+</html>

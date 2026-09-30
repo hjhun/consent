@@ -14,6 +14,23 @@ this is not runtime substitution of an arbitrary library. Installer hooks belong
 to each plugin, using authenticated Installer publication and protected
 package/app generations.
 
+A separate [compact One UI-style proposal](../previews/consent-popup-oneui.html)
+adds an initially unchecked “Always allow” checkbox. It illustrates a proposed
+PERSISTENT policy for the current profile and the same capability, scope,
+purpose and recipient; each acquisition still has a maximum 30-minute retention.
+Policy changes, reinstall or a profile-authority gap may require fresh approval.
+The repository supports PERSISTENT for eligible legacy definitions, but the
+current feature definitions omit it and approval-v1 selected modes are limited
+to ONCE, SESSION and TIMED. This proposal changes no native policy or API and
+creates no grants. The faithful preview above remains unchanged.
+
+The proposal follows Samsung's [dialog](https://developer.samsung.com/one-ui/comp/dialog.html)
+and [grid](https://developer.samsung.com/one-ui/layout/grid.html) guidance with
+local fonts, a 580px desktop cap and 24px mobile margins. Browser typography
+can differ from NUI. Deny has initial focus; close, Escape and the preview's
+60-second deadline never approve. A scrollable disclosure must be reviewed
+before allowing; changing the checkbox refreshes that disclosure.
+
 ```mermaid
 flowchart LR
   I[Installer mock] --> L[libconsent-poc.so.0]

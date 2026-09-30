@@ -69,3 +69,5 @@ and relative links when moving or adding documents; preserve historical evidence
 and distinguish source inspection from executed verification.
 
 [Current popup HTML preview](previews/consent-popup.html) · 현재 팝업 미리보기
+
+[Compact One UI-style proposal](previews/consent-popup-oneui.html) · 작은 팝업 제안
