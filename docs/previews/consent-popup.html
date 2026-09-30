@@ -1,0 +1,294 @@
+<!doctype html>
+<!--
+ Copyright (c) 2026 Samsung Electronics Co., Ltd. All rights reserved.
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+ http://www.apache.org/licenses/LICENSE-2.0
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>ConsentUI — 현재 팝업 HTML 미리보기</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: #fff;
+    font-family: "Noto Sans CJK KR", "Noto Sans", sans-serif; }
+  .preview-label { position: fixed; left: 12px; top: 6px; margin: 0;
+    font-size: 12px; color: #ddd; }
+  #controls { max-width: 720px; margin: 90px auto; padding: 24px;
+    font-size: 16px; line-height: 1.7; }
+  #controls label { display: block; margin-top: 24px; }
+  #controls select, #controls button { font: inherit; padding: 10px 14px;
+    margin: 8px 8px 8px 0; }
+  #feedback { min-height: 3em; }
+  #popup { position: fixed; margin: 0; padding: 0; border: 0;
+    width: 824px; height: 624px; max-width: none; max-height: none;
+    border-radius: 24px; background: #fff; color: #17171b;
+    transform-origin: top left; overflow: visible; color-scheme: light; }
+  #popup::backdrop { background: #00000099; }
+  .label, .button { position: absolute; margin: 0; }
+  .label { font-weight: 400; overflow: visible; white-space: pre-wrap;
+    word-break: break-all; }
+  #dialog-title { left: 36px; top: 20px; width: 550px; height: 48px;
+    font-size: 32px; line-height: 48px; }
+  #notice { left: 36px; top: 78px; width: 752px; height: 72px;
+    font-size: 22px; line-height: 28px; }
+  #body { left: 36px; top: 156px; width: 752px; height: 290px;
+    font: inherit; font-size: 24px; line-height: 30px; white-space: pre;
+    word-break: normal; }
+  .button { height: 56px; border: 0; border-radius: 12px;
+    background: #e8edf8; color: #152d68; cursor: pointer;
+    font: inherit; font-size: 24px; padding: 0; }
+  .button:disabled { background: #ecedef; color: #737a85; opacity: .45;
+    cursor: default; }
+  .button:focus-visible { outline: 2px solid #152d68; outline-offset: 3px; }
+  #language { left: 622px; top: 20px; width: 166px; }
+  #previous { left: 36px; top: 450px; width: 156px; }
+  #next { left: 632px; top: 450px; width: 156px; }
+  #page { left: 214px; top: 456px; width: 396px; height: 48px;
+    font-size: 22px; line-height: 48px; text-align: center; }
+  #deny { left: 36px; top: 538px; width: 360px; }
+  #allow { left: 428px; top: 538px; width: 360px; }
+</style>
+</head>
+<body>
+<p class="preview-label">HTML 미리보기 · 실제 승인 없음</p>
+<main id="controls">
+  <h1>현재 ConsentUI 팝업</h1>
+  <p>소스의 크기·색·문구·페이지 검토 동작을 재현합니다. 브라우저의
+    Noto Sans CJK KR 글꼴과 NUI 렌더링에는 차이가 있을 수 있습니다.</p>
+  <p>이 파일은 API·네트워크·실제 grant·승인 저장 기능을 사용하지 않습니다.
+    예제는 팝업 밖에서 선택합니다. 팝업 안에서 승인 기간을 바꾸지 않습니다.</p>
+  <label for="example">등록된 요청 예제</label>
+  <select id="example">
+    <option value="session">달력 · SESSION (현재 스크린샷)</option>
+    <option value="once">위치 기록 · legacy ONCE</option>
+    <option value="timed">달력 · TIMED (승인 후 30분)</option>
+    <option value="unsupported">달력 · SESSION 미지원 (거절만)</option>
+  </select>
+  <button type="button" id="reopen">팝업 다시 열기</button>
+  <p>기본 포커스는 거절입니다. Tab으로 이동하고 ← / →로 페이지를
+    검토하세요. Escape, 거절, 닫기와 60초 시간 초과는 허용하지 않습니다.</p>
+  <p id="feedback" role="status" aria-live="polite"></p>
+</main>
+<dialog id="popup" aria-labelledby="dialog-title"
+  aria-describedby="notice body" aria-modal="true">
+  <h2 class="label" id="dialog-title">ConsentUI</h2>
+  <button type="button" class="button" id="language">English</button>
+  <p class="label" id="notice"></p>
+  <pre class="label" id="body"></pre>
+  <button type="button" class="button" id="previous">이전</button>
+  <p class="label" id="page" role="status" aria-live="polite"></p>
+  <button type="button" class="button" id="next">다음</button>
+  <button type="button" class="button" id="deny">거절</button>
+  <button type="button" class="button" id="allow">표시한 기간 허용</button>
+</dialog>
+<script>
+'use strict';
+// Sources: ConsentApplication.BuildView/Resize/UpdateLabels/UpdateButtons,
+// PromptSnapshot.Paginate/PeriodLabel, PromptReview, FeatureDisplay.Metadata,
+// feature_common.cc + feature_register.cc; legacy fixtures 01 and 03.
+const popup = document.getElementById('popup');
+const example = document.getElementById('example');
+const controls = document.getElementById('controls');
+const feedback = document.getElementById('feedback');
+const body = document.getElementById('body');
+const notice = document.getElementById('notice');
+const pageLabel = document.getElementById('page');
+const language = document.getElementById('language');
+const previous = document.getElementById('previous');
+const next = document.getElementById('next');
+const deny = document.getElementById('deny');
+const allow = document.getElementById('allow');
+let korean = true;
+let pages = [];
+let page = 0;
+let reviewed = 0;
+let started = 0;
+let timer = null;
+let snapshot = null;
+let closingFeedback = '';
+
+function paginate(text) {
+  text = text.replaceAll('\r\n', '\n').replaceAll('\t', ' ');
+  if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]|\p{Cf}/u.test(text))
+    throw new Error('Unsupported display controls');
+  const result = [];
+  let chunk = '';
+  let lines = 1;
+  let columns = 0;
+  const elements = new Intl.Segmenter(korean ? 'ko' : 'en',
+    {granularity: 'grapheme'}).segment(text);
+  for (const item of elements) {
+    const element = item.segment;
+    if (element.length > 16)
+      throw new Error('Display cluster is too large');
+    if (element === '\n' || columns === 26) {
+      if (lines === 6) {
+        result.push(chunk);
+        chunk = '';
+        lines = 1;
+      } else {
+        chunk += '\n';
+        ++lines;
+      }
+      columns = 0;
+      if (element === '\n')
+        continue;
+    }
+    chunk += element;
+    ++columns;
+  }
+  if (chunk.length)
+    result.push(chunk);
+  if (!result.length || result.length > 1024)
+    throw new Error('Invalid page count');
+  return result;
+}
+
+function content() {
+  if (snapshot.legacy) {
+    return korean
+      ? '조건 1/1\n위치 기록 읽기\n\n범위 "30"의 모의 위치 기록을 목적 "mock-answer", 수신자 "mock-local"에 대해 한 번 읽도록 허용합니까? 취득한 모의 데이터는 최대 60초 동안 보관합니다.'
+      : 'Condition 1/1\nRead location history\n\nAllow one read of mock location scope "30" for purpose "mock-answer" and recipient "mock-local"? Keep acquired mock data for at most 60 seconds.';
+  }
+  const period = snapshot.mode === 'TIMED'
+    ? (korean ? '승인 후 30분' : 'For 30 minutes after approval')
+    : (korean ? '이번 대화 동안' : 'For this conversation');
+  return korean
+    ? '조건 1/1\n기능: 달력 읽기 및 현재 대화에서 사용\n제공 앱: Mock calendar provider\n동작: 달력 읽기\n범위: 향후 7일\n목적: 대화 요약\n수신자: 이 기기의 현재 대화\n접근 승인 기간: ' + period + '\n취득 데이터 보관: 최대 30분. 대화 종료나 접근 승인 취소 시 더 일찍 종료됩니다.\n\n달력 읽기 및 현재 대화에서 사용\n표시된 동작, 범위, 목적, 수신자와 승인 기간을 확인해 주세요. 모의 데이터는 현재 대화에서 최대 30분 보관합니다.'
+    : 'Condition 1/1\nFeature: Read calendar and use in this conversation\nProvider app: Mock calendar provider\nOperation: Read calendar\nScope: Next 7 days\nPurpose: Conversation summary\nRecipient: Current conversation on this device\nAccess approval period: ' + period + '\nAcquired-data retention: Up to 30 minutes; ends earlier when the conversation closes or access is revoked.\n\nRead calendar and use in this conversation\nReview the displayed operation, scope, purpose, recipient and approval period. Mock data remains in this conversation for at most 30 minutes.';
+}
+
+function resize() {
+  const scale = Math.min(innerWidth / 864, innerHeight / 664);
+  popup.style.transform = 'scale(' + scale + ')';
+  popup.style.left = ((innerWidth - 824 * scale) / 2) + 'px';
+  popup.style.top = ((innerHeight - 624 * scale) / 2) + 'px';
+}
+
+function expired() { return performance.now() - started >= 60000; }
+
+function render() {
+  body.textContent = pages[page];
+  notice.textContent = !snapshot.supported
+    ? (korean ? '이 요청의 승인 기간을 지원하지 않습니다. 거절만 가능합니다.'
+      : 'This approval period is unsupported. Only denial is available.')
+    : (korean ? '모든 페이지를 확인한 후 선택하세요. 닫거나 60초가 지나면 허용되지 않습니다.'
+      : 'Review every page before choosing. Closing or waiting 60 seconds does not approve.');
+  language.textContent = korean ? 'English' : '한국어';
+  previous.textContent = korean ? '이전' : 'Previous';
+  next.textContent = korean ? '다음' : 'Next';
+  deny.textContent = korean ? '거절' : 'Deny';
+  allow.textContent = snapshot.legacy
+    ? (korean ? '이번 한 번 허용' : 'Allow once')
+    : (korean ? '표시한 기간 허용' : 'Allow as displayed');
+  pageLabel.textContent = (page + 1) + ' / ' + pages.length;
+  previous.disabled = page === 0;
+  next.disabled = page + 1 === pages.length;
+  allow.disabled = !snapshot.supported || reviewed !== pages.length;
+}
+
+function finish(reason) {
+  if (!popup.open)
+    return;
+  if (reason === 'allow' &&
+      (!snapshot.supported || reviewed !== pages.length || expired())) {
+    if (expired())
+      finish('timeout');
+    return;
+  }
+  closingFeedback = reason === 'allow'
+    ? '미리보기에서 허용을 선택했습니다. 실제 승인은 생성되지 않습니다.'
+    : reason === 'deny'
+      ? '미리보기에서 거절을 선택했습니다. 실제 승인은 생성되지 않습니다.'
+      : reason === 'timeout'
+        ? '60초가 지나 미리보기를 닫았습니다. 허용되지 않았습니다.'
+        : '미리보기를 닫았습니다. 허용되지 않았습니다.';
+  popup.close();
+}
+
+function openPreview() {
+  if (popup.open)
+    return;
+  const chosen = example.value;
+  snapshot = Object.freeze({legacy: chosen === 'once',
+    mode: chosen === 'timed' ? 'TIMED' : chosen === 'once' ? 'ONCE' : 'SESSION',
+    supported: chosen !== 'unsupported'});
+  pages = paginate(content());
+  page = 0;
+  reviewed = 1;
+  started = performance.now();
+  closingFeedback = '';
+  feedback.textContent = '';
+  render();
+  resize();
+  popup.showModal();
+  controls.inert = true;
+  deny.focus();
+  timer = setInterval(() => { if (expired()) finish('timeout'); }, 100);
+}
+
+function move(offset) {
+  if (!popup.open || expired()) {
+    if (popup.open)
+      finish('timeout');
+    return;
+  }
+  const target = page + offset;
+  if (target < 0 || target >= pages.length)
+    return;
+  page = target;
+  reviewed = Math.max(reviewed, page + 1);
+  render();
+}
+
+previous.addEventListener('click', () => move(-1));
+next.addEventListener('click', () => move(1));
+deny.addEventListener('click', () => finish('deny'));
+allow.addEventListener('click', () => finish('allow'));
+language.addEventListener('click', () => {
+  if (expired()) { finish('timeout'); return; }
+  korean = !korean;
+  document.documentElement.lang = korean ? 'ko' : 'en';
+  popup.lang = document.documentElement.lang;
+  pages = paginate(content());
+  page = 0;
+  reviewed = 1;
+  render();
+});
+popup.addEventListener('cancel', event => {
+  event.preventDefault();
+  finish('close');
+});
+popup.addEventListener('close', () => {
+  clearInterval(timer);
+  timer = null;
+  controls.inert = false;
+  feedback.textContent = closingFeedback ||
+    '미리보기를 닫았습니다. 허용되지 않았습니다.';
+  document.getElementById('reopen').focus();
+});
+popup.addEventListener('keydown', event => {
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault();
+    move(event.key === 'ArrowLeft' ? -1 : 1);
+  }
+  // The browser activates only the focused button for Enter/Space. Default
+  // focus is Deny; there is no implicit form submit or global approval key.
+});
+document.getElementById('reopen').addEventListener('click', openPreview);
+window.addEventListener('resize', resize);
+openPreview();
+</script>
+</body>
+</html>

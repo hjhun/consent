@@ -47,7 +47,11 @@ map을 링크 의존성에 추가합니다. ABI·wire·역할·프로필 세대�
 
 1. 제품 CM의 신뢰 identity·consent 위임·최종 실행 어댑터와 최신 CE 소스,
    identity·등급·어댑터 계약.
-2. Installer 수명 provisioning, 제품 UI와 인증 역할.
+2. 각 plugin이 install/update/remove hook을 담당하되 인증된 Installer
+   publication/offline handle과 보호된 package/app generation을 사용합니다.
+   consent 연동 테스트는 이 계약을 유지합니다. 기존 NUI 시각·상호작용 코드는
+   재사용하며 제품 build·endpoint 패키징·신뢰 UI 역할·argo launch mapping은
+   남습니다. 임의 라이브러리 runtime 대체를 뜻하지 않습니다.
 3. 보호된 sessiond mapping과 권한 provisioning. Profile05 조사에서는 설치된
    sessiond의 비활성 상태, bus owner 부재와 mapping 부재를 확인했습니다.
    이 관찰만으로 서비스가 비활성인 원인을 확정하지 않습니다.

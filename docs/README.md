@@ -67,3 +67,5 @@ startup import still validates the installed package/app and protected generatio
 Keep English/Korean pairs synchronized when behavior changes. Update this index
 and relative links when moving or adding documents; preserve historical evidence
 and distinguish source inspection from executed verification.
+
+[Current popup HTML preview](previews/consent-popup.html) · 현재 팝업 미리보기

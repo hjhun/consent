@@ -5,6 +5,15 @@ mock participants against the public C API and an isolated consent daemon.
 It does not provision production roles, replace the platform approval UI, or
 integrate a production Installer lifecycle hook.
 
+A self-contained [current popup HTML preview](../previews/consent-popup.html)
+reproduces the NUI layout and page-review flow without APIs or real approvals.
+The existing NUI visual/interaction code can be reused for a product UI; its
+current NativeApi library is fixed to `libconsent-poc.so.0`. A production build,
+endpoint/package setup, trusted UI role and argo launch mapping remain required;
+this is not runtime substitution of an arbitrary library. Installer hooks belong
+to each plugin, using authenticated Installer publication and protected
+package/app generations.
+
 ```mermaid
 flowchart LR
   I[Installer mock] --> L[libconsent-poc.so.0]

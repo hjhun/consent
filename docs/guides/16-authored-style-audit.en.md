@@ -50,7 +50,11 @@ roles, profile generation and storage policy are preserved.
 
 1. Product CM trusted identity, consent delegation and final execution adapter;
    current CE source, identity, taxonomy and adapter contracts.
-2. Installer lifecycle provisioning, production UI and authenticated roles.
+2. Each plugin owns install/update/remove hooks, using authenticated Installer
+   publication/offline handles and protected package/app generations. Consent
+   integration tests retain that contract. Existing NUI visuals/interactions
+   are reusable; production build/endpoint packaging, trusted UI role and argo
+   launch mapping remain. No arbitrary runtime library substitution is implied.
 3. Protected sessiond mapping and privilege provisioning. Profile05 discovery
    found installed sessiond inactive, bus names unowned and mapping absent;
    that observation does not establish why the service was inactive.

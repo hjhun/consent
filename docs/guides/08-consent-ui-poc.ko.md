@@ -4,6 +4,14 @@
 사용하는 개발용 통합입니다. 운영 역할, 실제 제품 승인 UI, Installer의
 제품 설치 트랜잭션 연동을 완료한 것으로 해석하지 않습니다.
 
+[현재 팝업 HTML 미리보기](../previews/consent-popup.html)는 API·실제 승인 없이
+NUI 배치와 전체 페이지 검토 흐름을 재현합니다. 기존 NUI 시각·상호작용 코드는
+제품 UI에 재사용할 수 있지만 현재 NativeApi는 `libconsent-poc.so.0`로 고정돼
+있습니다. 제품 build·endpoint/패키지 설정·신뢰 UI 역할·argo launch mapping이
+필요하며 임의 라이브러리의 runtime 대체가 아닙니다. Installer hook은 각 plugin이
+인증된 Installer publication과 보호된 package/app generation 계약을 따라
+담당합니다.
+
 ```mermaid
 flowchart LR
   I[Installer mock] --> L[libconsent-poc.so.0]
