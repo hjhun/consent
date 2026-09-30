@@ -28,6 +28,7 @@
 #include "common/message.hh"
 #include "common/dispatch.hh"
 #include "identity.hh"
+#include "profile_authority.hh"
 
 namespace consentd {
 
@@ -56,6 +57,8 @@ class Server {
   void Close(const std::shared_ptr<Connection>& connection,
              const char* reason) noexcept;
   void Publish(const consent::Message& snapshot);
+  bool LoadProfiles();
+  void StartProfiles();
   void InitializeWakeSources();
   void StartThreads();
   void Stop() noexcept;
@@ -85,6 +88,10 @@ class Server {
   GSource* sigterm_ = nullptr;
   GSource* sigint_ = nullptr;
   IdentityPolicy identity_;
+  std::shared_ptr<ProfileState> profiles_;
+  std::unique_ptr<ProfileAuthority> profile_authority_;
+  int profile_uid_ = 0;
+  bool profile_fixture_ = false;
   std::unique_ptr<Repository> repository_;
   std::map<uint64_t, std::shared_ptr<Connection>> clients_;
   std::atomic<unsigned> connections_{0};

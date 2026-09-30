@@ -17,13 +17,16 @@
 #include "common.h"
 
 #include <stdio.h>
+#include <string.h>
 int main(int argc, char** argv) {
-  if (argc != 2) {
+  if (argc != 2 && (argc != 4 || strcmp(argv[2], "--profile"))) {
     fprintf(stderr, "Usage: %s DEFINITION\n", argv[0]);
     return 2;
   }
   consent_client_h client = NULL;
   consent_params_t* params = smoke_params();
+  if (argc == 4)
+    smoke_set(params, "profile", argv[3]);
   consent_result_t* result = NULL;
   smoke_set(params, "definition", argv[1]);
   smoke_call(consent_client_create(&client), "create");

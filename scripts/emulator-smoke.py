@@ -36,6 +36,7 @@ TOOLS = Path('/usr/libexec/consent/smoke')
 MARKER = 'CONSENT-SMOKE-01 revision 1\n'
 ACTORS = []
 CHILDREN = []
+PROFILE_FIXTURE = None
 MANAGED = False
 
 
@@ -157,10 +158,13 @@ class Actor:
         assert status == 0
 
 
-def approve(definition, mode, operation, deny=False):
+def approve(definition, mode, operation, deny=False, profile=None):
     args = [str(TOOLS / 'consent-smoke-argo'), definition, operation]
     if deny:
         args.append('--expect-denied')
+    if profile is not None:
+        assert not deny
+        args += ['--profile', profile]
     print('COMMAND', json.dumps(args), flush=True)
     process = subprocess.Popen(args, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True)
@@ -192,7 +196,7 @@ def approve(definition, mode, operation, deny=False):
         assert 'PASS argo accepted then denied callback' in output
 
 
-def setup(tools=False, mock_services=False):
+def setup(tools=False, mock_services=False, profiles=False):
     global MANAGED
     for suffix in ('service', 'socket'):
         unit = Path('/run/systemd/system') / f'consentd-smoke.{suffix}'
@@ -237,6 +241,31 @@ def setup(tools=False, mock_services=False):
                       f'label=System\nroles={role};\n'
                       'subjects=smoke.subject;\nprofiles=smoke.profile;\n'
                       f'enforcers={role};\npackages=smoke.package;\n')
+    if profiles:
+        roles = roles.replace('profiles=smoke.profile;',
+                              'profiles=smoke.profile.A;smoke.profile.B;'
+                              'smoke.profile.default;')
+        for role in ('argo', 'cm', 'ui'):
+            delegated = 'argo;session' if role == 'argo' else role
+            roles += (f'[identity smoke-profile-{role}]\nuid=0\n'
+                      f'executable={TOOLS}/consent-smoke-profile-{role}\n'
+                      f'label=System\nroles={delegated};\n'
+                      'subjects=smoke.subject;\n'
+                      'profiles=smoke.profile.A;smoke.profile.B;'
+                      'smoke.profile.default;\n'
+                      f'enforcers={"cm" if role == "cm" else "cm;ce"};\n'
+                      'packages=smoke.package;\n')
+        config = AUTHORITY / 'profiles.conf'
+        config.write_text('[authority]\nmode=fixture\nsession_uid=1\n' +
+                          ''.join(f'[binding {name}]\n'
+                                  'subject=smoke.subject\n'
+                                  f'subsession={user}\n'
+                                  f'profile=smoke.profile.{name}\n'
+                                  for name, user in (('A', 'A'), ('B', 'B'),
+                                                     ('default', ''))))
+        config.chmod(0o640)
+        os.chown(config, 0, group)
+        launch_profile_fixture()
     policy = ROOT / 'roles.conf'
     policy.write_text(roles)
     policy.chmod(0o640)
@@ -574,10 +603,14 @@ def tools_scenarios(args, generation):
 
 class MockService:
     """Private persistent service: stdout JSON only, independently drained stderr."""
-    def __init__(self, role, catalog_mode):
+    def __init__(self, role, catalog_mode, profiles=False):
         self.role = role
+        self.profile = 'smoke.profile.A' if profiles else None
+        command = [str(TOOLS / f'consent-smoke-mock-{role}'), catalog_mode]
+        if profiles:
+            command.append('--profiles')
         self.process = subprocess.Popen(
-            [str(TOOLS / f'consent-smoke-mock-{role}'), catalog_mode],
+            command,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, bufsize=0)
         CHILDREN.append(self.process)
@@ -639,6 +672,8 @@ class MockService:
     def action(self, record, operation, decision='ALLOWED', query=False,
                step='execute', api_status=0):
         params = dict(record=record, operation_id=operation, step_id=step)
+        if self.profile is not None:
+            params['profile'] = self.profile
         if self.role == 'cm':
             params['capability'] = 'cli:smoke-tool'
         method = ('capability.' + ('query' if query else 'execute')
@@ -670,15 +705,272 @@ class MockService:
         assert self.process.returncode == expected
 
 
-def mock_scenarios(args, generation):
-    mode = 'fixture'
-    if args.mock_catalog == 'actual':
-        parser = Path('/usr/libexec/capmgr/capmgr-package-tool')
-        if parser.is_file():
-            tools_catalog()  # Any actual invocation error fails, never fallback.
-            mode = 'actual'
-        else:
-            print('catalog_actual/OPTIONAL_MISSING; catalog_fixture selected')
+class ProfilePipe(Actor):
+    def __init__(self, role):
+        self.tool = False
+        self.process = subprocess.Popen(
+            [str(TOOLS / f'consent-smoke-{role}')], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        CHILDREN.append(self.process)
+        self.buffer = b''
+        self.lines = []
+        self.until('READY')
+        ACTORS.append(self)
+
+    def command(self, text, marker='PROFILE_API'):
+        self.process.stdin.write((text + '\n').encode())
+        self.process.stdin.flush()
+        return self.until(marker)
+
+
+def launch_profile_fixture():
+    global PROFILE_FIXTURE
+    config = AUTHORITY / 'profile-bus.conf'
+    config.write_text(
+        '<busconfig><type>session</type>'
+        f'<listen>unix:path={AUTHORITY}/profile-bus.sock</listen>'
+        '<auth>EXTERNAL</auth><policy context="default">'
+        '<allow user="root"/><allow user="security_fw"/>'
+        '<allow send_destination="*"/><allow receive_sender="*"/>'
+        '</policy><policy user="root"><allow own="*"/></policy></busconfig>')
+    config.chmod(0o600)
+    with (ROOT / 'profile-bus.log').open('wb') as log:
+        process = subprocess.Popen(['dbus-daemon', '--nofork', '--nopidfile',
+                                    '--config-file=' + str(config)],
+                                   stdout=log, stderr=log)
+    CHILDREN.append(process)
+    socket = AUTHORITY / 'profile-bus.sock'
+    deadline = time.monotonic() + 10
+    while not socket.exists() and time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError('private fixture bus failed')
+        time.sleep(.02)
+    info = socket.lstat()
+    assert stat.S_ISSOCK(info.st_mode) and info.st_uid == 0
+    os.chown(socket, 0, pwd.getpwnam('security_fw').pw_gid)
+    socket.chmod(0o660)
+    PROFILE_FIXTURE = ProfilePipe('profile-fixture')
+
+
+def profile_wait(actor, profile, status=0):
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        params = dict(record='summary' if actor.role == 'cm' else 'level0',
+                      operation_id='profile-readiness', step_id='query',
+                      profile=profile)
+        if actor.role == 'cm':
+            params['capability'] = 'cli:smoke-tool'
+        method = 'capability.query' if actor.role == 'cm' else 'context.query'
+        result = actor.rpc(method, params)['result']
+        if result['api_status'] == status:
+            return result
+        assert result['api_status'] in (-16, -13, 0), result
+        time.sleep(.02)
+    raise RuntimeError('bounded profile authority state wait')
+
+
+def profile_transition(actor, switch_id, previous, next_profile):
+    PROFILE_FIXTURE.command(f'started {switch_id} {previous} {next_profile}', 'DONE')
+    PROFILE_FIXTURE.command(f'current {next_profile}', 'DONE')
+    before = actor.profile
+    profile_wait(actor, before, -16)
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        output = PROFILE_FIXTURE.command('status', 'DONE')
+        acknowledgements = int(output.split('ack=')[1].split()[0])
+        if acknowledgements >= switch_id:
+            break
+        time.sleep(.02)
+    else:
+        raise RuntimeError('serialized barrier ACK deadline')
+    PROFILE_FIXTURE.command(f'completed {switch_id} {previous} {next_profile}', 'DONE')
+    profile_wait(actor, 'smoke.profile.' + next_profile)
+
+
+def profile_config_negatives():
+    path = AUTHORITY / 'profiles.conf'
+    original = path.read_bytes()
+    malformed = [original.replace(b'subsession=A\n', b'', 1),
+                 original.replace(b'mode=fixture\n',
+                                  b'mode=fixture\nunknown=1\n', 1),
+                 original.replace(b'subsession=A\n',
+                                  b'subsession=A\nsubsession=B\n', 1)]
+    for index, data in enumerate(malformed):
+        stop()
+        validate_fixture()
+        fd = os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(fd)
+            assert stat.S_ISREG(info.st_mode) and info.st_uid == 0
+            assert info.st_nlink == 1 and not info.st_mode & 0o022
+            os.ftruncate(fd, 0)
+            assert os.write(fd, data) == len(data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        run('systemctl', 'start', 'consentd-smoke.service', expected=1)
+        assert run('systemctl', 'show', 'consentd-smoke.service',
+                   '-p', 'MainPID', '--value') == '0'
+        print('PASS malformed profile config rejected', index, flush=True)
+    stop()
+    fd = os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
+    try:
+        os.ftruncate(fd, 0)
+        assert os.write(fd, original) == len(original)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    start()
+
+
+def profile_scenarios(args, generation):
+    profile_config_negatives()
+    prepare_mock_fixture(generation)
+    cm = MockService('cm', 'fixture', profiles=True)
+    ce = MockService('ce', 'fixture', profiles=True)
+    profile_wait(cm, 'smoke.profile.A')
+    argo = ProfilePipe('profile-argo')
+    checker = ProfilePipe('profile-cm')
+    ui = ProfilePipe('profile-ui')
+    initial_pids = (cm.process.pid, ce.process.pid)
+    counts = {cm: 0, ce: 0}
+    last_operation = {}
+    epochs = {}
+
+    def blocked(actor, operation, decision='CONSENT_REQUIRED', status=0):
+        record = 'summary' if actor.role == 'cm' else 'level0'
+        result = actor.action(record, operation, decision, api_status=status)
+        assert 'execution' not in result and result['admissions'] == counts[actor]
+        return result
+
+    def effect(actor, operation):
+        record = 'summary' if actor.role == 'cm' else 'level0'
+        result = actor.action(record, operation, 'ALLOWED')
+        assert result['admissions'] == counts[actor] + 1, result
+        assert result['execution']['state'] == 'succeeded', result
+        assert result['execution']['data']['summary'] == (
+            'synthetic capability summary' if actor.role == 'cm' else
+            'synthetic context summary level0\n')
+        counts[actor] += 1
+        last_operation[actor] = operation
+        epochs[actor] = result['epoch']
+        return result
+
+    for verb in ('check', 'check_async'):
+        checker.command(f'{verb} - missing-{verb} -22')
+        checker.command(f'{verb} spoof.profile wrong-{verb} -13')
+        checker.command(f'{verb} smoke.profile.B inactive-{verb} -13')
+    for verb in ('request', 'request_async'):
+        argo.command(f'{verb} - missing-{verb} -22')
+        argo.command(f'{verb} spoof.profile wrong-{verb} -13')
+        argo.command(f'{verb} smoke.profile.B inactive-{verb} -13')
+    argo.command('open smoke.profile.B session-wrong -13')
+    argo.command('open smoke.profile.A session-A 0')
+    blocked(cm, 'profile-before')
+    blocked(ce, 'profile-before-ce')
+    for definition in ('smoke.cm.tool.summary', 'smoke.ce.tool.level0'):
+        approve(definition, 'PERSISTENT', 'approve-A-' + definition,
+                profile='smoke.profile.A')
+    first_cm = effect(cm, 'A-original')
+    effect(ce, 'A-ce-original')
+    retry = cm.action('summary', 'A-original', 'ALLOWED')
+    assert retry['deduplicated'] and retry['execution'] == first_cm['execution']
+    assert retry['admissions'] == counts[cm]
+    for verb in ('request', 'request_async'):
+        for attempt in range(2):
+            reply = argo.command(
+                f'{verb} smoke.profile.A cached-{verb}-{attempt} 0')
+            assert 'decision=ALLOWED' in reply and 'source=DAEMON' in reply
+    # Revoke CM approval to create a genuinely pending stale UI request.
+    run(str(TOOLS / 'consent-smoke-admin'), 'smoke.cm.tool.summary',
+        '--profile', 'smoke.profile.A')
+    line = argo.command('begin smoke.profile.A stale-ui 0')
+    request = line.split('PROFILE_REQUEST_ID ')[1].split()[0]
+    ui.command(f'prompt smoke.profile.A {request} 0')
+    profile_transition(cm, 1, 'A', 'B')
+    assert 'decision=INVALIDATED' in argo.command('poll smoke.profile.A stale-ui 0')
+    blocked(cm, 'inactive-A', 'API_ERROR', -13)
+    blocked(ce, 'inactive-A-ce', 'API_ERROR', -13)
+    for verb in ('request', 'request_async'):
+        argo.command(f'{verb} smoke.profile.A inactive-{verb} -13')
+    assert 'state=CLOSED' in argo.command('state smoke.profile.A old-session 0')
+    argo.command('renew smoke.profile.A old-session -13')
+    cm.profile = ce.profile = 'smoke.profile.B'
+    blocked(cm, 'B-before')
+    blocked(ce, 'B-before-ce')
+    for definition in ('smoke.cm.tool.summary', 'smoke.ce.tool.level0'):
+        approve(definition, 'PERSISTENT', 'approve-B-' + definition,
+                profile='smoke.profile.B')
+    effect(cm, 'B-action')
+    effect(ce, 'B-ce-action')
+    profile_transition(cm, 2, 'B', 'A')
+    cm.profile = ce.profile = 'smoke.profile.A'
+    blocked(cm, 'A-original', 'API_ERROR', -116)
+    blocked(ce, 'A-ce-original', 'API_ERROR', -116)
+    ui.command(f'respond smoke.profile.A {request} -116')
+    # CE persistent survives observed switches; CM was deliberately revoked.
+    effect(ce, 'A-fresh-after-switch')
+    blocked(cm, 'A-required-after-revoke')
+    argo.command('resume smoke.profile.A old-session -116')
+    PROFILE_FIXTURE.command('loss', 'DONE')
+    profile_wait(ce, 'smoke.profile.A', -16)
+    blocked(ce, 'loss-blocked', 'API_ERROR', -16)
+    blocked(cm, 'loss-blocked-cm', 'API_ERROR', -16)
+    PROFILE_FIXTURE.command('ready', 'DONE')
+    profile_wait(ce, 'smoke.profile.A')
+    blocked(ce, 'gap-needs-fresh')
+    blocked(cm, 'gap-needs-fresh-cm')
+    for definition in ('smoke.cm.tool.summary', 'smoke.ce.tool.level0'):
+        approve(definition, 'PERSISTENT', 'approve-gap-' + definition,
+                profile='smoke.profile.A')
+    effect(cm, 'gap-fresh-effect')
+    effect(ce, 'gap-fresh-ce-effect')
+    phases = ['running-delete', 'stopped-delete', 'corrupt']
+    random.Random(args.seed).shuffle(phases)
+    print('PROFILE_SEED', args.seed, 'ORDER', phases, flush=True)
+    for phase in phases:
+        if phase != 'running-delete':
+            stop()
+        validate_fixture()
+        mutate_database(STATE / 'consent.db', corrupt=phase == 'corrupt')
+        if phase != 'running-delete':
+            start()
+            cm.reconnect()
+            ce.reconnect()
+        profile_wait(cm, 'smoke.profile.A')
+        for actor in (cm, ce):
+            required = blocked(actor, last_operation[actor])
+            assert required['epoch'] != epochs[actor], required
+            blocked(actor, phase + '-required-' + actor.role)
+        stop()
+        inspect_recovery(12)
+        start()
+        cm.reconnect()
+        ce.reconnect()
+        profile_wait(cm, 'smoke.profile.A')
+        for definition in ('smoke.cm.tool.summary', 'smoke.ce.tool.level0'):
+            approve(definition, 'PERSISTENT', phase + '-' + definition,
+                    profile='smoke.profile.A')
+        effect(cm, phase + '-fresh')
+        effect(ce, phase + '-fresh-ce')
+        assert initial_pids == (cm.process.pid, ce.process.pid)
+    stop()
+    mutate_database(STATE / 'definitions.registry')
+    mutate_database(STATE / 'consent.db')
+    failed_start = subprocess.run(
+        ['systemctl', 'start', 'consentd-smoke.service'], timeout=25)
+    assert failed_start.returncode != 0
+    for actor in (cm, ce):
+        blocked(actor, 'profile-registry-loss', 'API_ERROR', -107)
+        actor.close()
+    print('PASS profile registry loss safely blocked; no automatic reset')
+    for actor in (argo, checker, ui, PROFILE_FIXTURE):
+        actor.close()
+    print('PASS explicit requester profile and authenticated profile barrier; '
+          'same CM/CE actor PIDs', initial_pids)
+
+
+def prepare_mock_fixture(generation):
     provider = TOOLS / 'tool-package/bin/consent-smoke-tool'
     path = ROOT / 'mock-catalog.json'
     path.write_text(json.dumps(dict(id='cli:smoke-tool', owner='smoke.package',
@@ -705,6 +997,19 @@ def mock_scenarios(args, generation):
     for name, role, level, _ in definitions:
         run(str(TOOLS / 'consent-smoke-installer'), generation, name, role,
             str(level), 'register-' + name)
+    return definitions
+
+
+def mock_scenarios(args, generation):
+    mode = 'fixture'
+    if args.mock_catalog == 'actual':
+        parser = Path('/usr/libexec/capmgr/capmgr-package-tool')
+        if parser.is_file():
+            tools_catalog()  # Any actual invocation error fails, never fallback.
+            mode = 'actual'
+        else:
+            print('catalog_actual/OPTIONAL_MISSING; catalog_fixture selected')
+    definitions = prepare_mock_fixture(generation)
     cm = MockService('cm', mode)
     ce = MockService('ce', mode)
     for actor in (cm, ce):
@@ -876,21 +1181,21 @@ def main(args):
         print('PASS explicit owned fixture cleanup')
         return
     before = production_fingerprint()
-    if args.tools or args.mock_services:
+    if args.tools or args.mock_services or args.profiles:
         for binary in ('consent-smoke-tool-cm', 'consent-smoke-tool-ce',
                        'tool-package/bin/consent-smoke-tool',
                        'tool-package/cli.json'):
             if not (TOOLS / binary).is_file():
                 raise RuntimeError('--tools requires installed smoke tool mode: '
                                    + binary)
-    if args.mock_services:
+    if args.mock_services or args.profiles:
         for role in ('cm', 'ce'):
             if not (TOOLS / f'consent-smoke-mock-{role}').is_file():
                 raise RuntimeError('--mock-services requires installed mock binaries')
-    setup(args.tools, args.mock_services)
+    setup(args.tools, args.mock_services or args.profiles, args.profiles)
     validate_fixture()
-    resource = None if args.tools or args.mock_services else catalog()
-    if not args.mock_services:
+    resource = None if args.tools or args.mock_services or args.profiles else catalog()
+    if not args.mock_services and not args.profiles:
         preflight = subprocess.run([str(TOOLS / 'consent-smoke-capmgr-preflight')],
                                timeout=10)
         print('PREFLIGHT_EXIT', preflight.returncode, flush=True)
@@ -898,6 +1203,14 @@ def main(args):
     generation = authority('begin', 'smoke.package', 'begin-smoke', 'absent')
     authority('attach', 'smoke.package', 'smoke.app', 'attach-smoke', generation)
     authority('commit', 'smoke.package', 'commit-smoke', generation)
+    if args.profiles:
+        profile_scenarios(args, generation)
+        stop()
+        assert before == production_fingerprint(), 'production/PoC changed'
+        print('profile_fixture/PASS; native_product_privilege/UNVERIFIED')
+        if args.require_product:
+            raise RuntimeError('product profile provisioning/privilege unverified')
+        return
     if args.mock_services:
         mock_scenarios(args, generation)
         stop()
@@ -1048,6 +1361,7 @@ if __name__ == '__main__':
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--tools', action='store_true')
     modes.add_argument('--mock-services', action='store_true')
+    modes.add_argument('--profiles', action='store_true')
     parser.add_argument('--mock-catalog', choices=('fixture', 'actual'),
                         default='fixture')
     parser.add_argument('--cleanup', action='store_true')

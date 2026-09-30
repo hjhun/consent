@@ -16,6 +16,25 @@ TARGET_LINK_LIBRARIES(consent-smoke-capmgr-preflight PRIVATE ${CMAKE_DL_LIBS})
 INSTALL(TARGETS consent-smoke-capmgr-preflight RUNTIME DESTINATION
   "${SMOKE_DEST}")
 
+FOREACH(ROLE argo cm ui)
+  ADD_EXECUTABLE(consent-smoke-profile-${ROLE} profile-api.c)
+  TARGET_LINK_LIBRARIES(consent-smoke-profile-${ROLE} PRIVATE
+    consent-smoke-common)
+  INSTALL(TARGETS consent-smoke-profile-${ROLE} RUNTIME DESTINATION
+    "${SMOKE_DEST}")
+ENDFOREACH()
+ADD_EXECUTABLE(consent-smoke-profile-fixture profile-fixture.c)
+TARGET_LINK_LIBRARIES(consent-smoke-profile-fixture PRIVATE PkgConfig::GLIB)
+INSTALL(TARGETS consent-smoke-profile-fixture RUNTIME DESTINATION
+  "${SMOKE_DEST}")
+
+PKG_CHECK_MODULES(SMOKE_SESSIOND REQUIRED IMPORTED_TARGET libsessiond)
+ADD_EXECUTABLE(consent-smoke-sessiond-preflight sessiond-preflight.c)
+TARGET_LINK_LIBRARIES(consent-smoke-sessiond-preflight PRIVATE
+  PkgConfig::SMOKE_SESSIOND PkgConfig::GLIB)
+INSTALL(TARGETS consent-smoke-sessiond-preflight RUNTIME DESTINATION
+  "${SMOKE_DEST}")
+
 IF(CONSENT_BUILD_SMOKE_TOOLS)
   PKG_CHECK_MODULES(SMOKE_JSON REQUIRED IMPORTED_TARGET json-glib-1.0)
   ADD_LIBRARY(consent-smoke-tool-json STATIC tool-json.c)

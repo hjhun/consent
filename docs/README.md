@@ -38,6 +38,7 @@ preserved in Korean.
 | 12 | Isolated real CM parser and CM/CE consent developer examples | [Developer smoke](guides/12-developer-smoke.en.md) | [개발자 smoke](guides/12-developer-smoke.ko.md) |
 | 13 | Registered JSON-RPC fixture tool and context lookup examples | [Tool examples](guides/13-tool-examples.en.md) | [도구 예제](guides/13-tool-examples.ko.md) |
 | 14 | Persistent CM/CE mock service integration | [Mock services](guides/14-mock-services.en.md) | [Mock 서비스](guides/14-mock-services.ko.md) |
+| 15 | Explicit requester profiles and sessiond authority | [Profile authority](guides/15-profile-authority.en.md) | [프로필 authority](guides/15-profile-authority.ko.md) |
 
 ## Design documents
 

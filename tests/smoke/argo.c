@@ -33,13 +33,19 @@ static void on_result(int status, const consent_result_t* result, void* data) {
   completed = 1;
 }
 int main(int argc, char** argv) {
-  if (argc != 3 && (argc != 4 || strcmp(argv[3], "--expect-denied"))) {
-    fprintf(stderr, "Usage: %s DEFINITION REQUEST_OPERATION_ID\n", argv[0]);
+  const char* requested_profile = "smoke.profile";
+  if (argc == 4 && !strcmp(argv[3], "--expect-denied")) {
+    denied = 1;
+  } else if (argc == 5 && !strcmp(argv[3], "--profile")) {
+    requested_profile = argv[4];
+  } else if (argc != 3) {
+    fprintf(stderr, "Usage: %s DEFINITION OPERATION "
+                    "[--expect-denied|--profile PROFILE]\n", argv[0]);
     return 2;
   }
-  denied = argc == 4;
   consent_client_h client = NULL;
   consent_params_t* params = smoke_requirement(argv[1]);
+  smoke_set(params, "profile", requested_profile);
   consent_async_id_t async_id;
   smoke_set(params, "client_request_id", argv[2]);
   smoke_set(params, "operation_id", argv[2]);
@@ -49,6 +55,7 @@ int main(int argc, char** argv) {
              "argo request_async acceptance");
   returned = 1;
   consent_params_t* lookup = smoke_params();
+  smoke_set(lookup, "profile", requested_profile);
   smoke_set(lookup, "client_request_id", argv[2]);
   consent_result_t* result = NULL;
   int status = CONSENT_ERROR_NOT_FOUND;

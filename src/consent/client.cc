@@ -494,6 +494,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       if (operations_.size() >= kMaxPending)
         return CONSENT_ERROR_BUSY;
       if (Get(operation->message, "method") == "request" && synced_ &&
+          !profile_authority_ &&
           !operation->message.count("approval_version")) {
         auto it = cache_.find(CacheKey(operation->message));
         if (it != cache_.end() && it->second.expires > g_get_monotonic_time()) {
@@ -571,6 +572,8 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
 
   void Invalidate(const Message& message) {
     Lock lock(mutex_);
+    if (Get(message, "profile_authority") == "1")
+      profile_authority_ = true;
     cache_.clear();
     epoch_ = Get(message, "epoch");
     revision_ = Number(message, "revision", -1);
@@ -597,6 +600,10 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     {
       Lock lock(mutex_);
       operation->accepted = true;
+      if (Get(message, "profile_authority") == "1") {
+        profile_authority_ = true;
+        cache_.clear();
+      }
       std::string epoch = Get(message, "epoch");
       int64_t revision = Number(message, "revision", -1);
       if (epoch.empty() || revision < 0 ||
@@ -624,7 +631,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     if (!status && Get(operation->message, "method") == "request" &&
         !operation->message.count("approval_version") &&
         Get(message, "decision") == "ALLOWED" &&
-        Get(message, "cacheable") == "1" &&
+        !profile_authority_ && Get(message, "cacheable") == "1" &&
         (Get(operation->message, "session").empty() ||
          (Get(message, "session") == Get(operation->message, "session") &&
           !Get(operation->message, "generation").empty() &&
@@ -867,6 +874,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   bool closed_ = false;
   bool disconnected_ = false;
   bool synced_ = false;
+  std::atomic<bool> profile_authority_{false};
   bool approval_supported_ = false;
   uint64_t next_local_ = 1;
   uint64_t next_wire_ = 1;

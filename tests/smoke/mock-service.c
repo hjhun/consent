@@ -31,6 +31,7 @@
 /* Private stdio fixture service. No product CM/CE security contract implied. */
 static int provider = -1;
 static int is_cm;
+static int profiles_mode;
 static consent_client_h client;
 static JsonParser* metadata;
 static GHashTable* ledger;
@@ -115,12 +116,15 @@ static JsonObject* observation(int status, const char* decision) {
 }
 
 static JsonObject* check(const char* definition, const char* operation,
-                         const char* step, int execute) {
+                         const char* step, int execute,
+                         const char* requested_profile) {
   /* Terminate explicitly at the finite fixture cap before consuming a grant.
    * Existing receipt replays below the cap remain authoritatively checked. */
   smoke_expect(g_hash_table_size(ledger) < MOCK_LEDGER_LIMIT,
                "fixture ledger capacity reached; service must restart");
   consent_params_t* params = smoke_requirement(definition);
+  if (requested_profile)
+    smoke_set(params, "profile", requested_profile);
   smoke_set(params, "operation_id", operation);
   smoke_set(params, "step_id", step);
   smoke_call(
@@ -136,6 +140,14 @@ static JsonObject* check(const char* definition, const char* operation,
   const char* epoch = consent ? consent_result_get(consent, "epoch") : NULL;
   if (epoch)
     json_object_set_string_member(output, "epoch", epoch);
+  const char* profile_generation =
+      consent ? consent_result_get(consent, "profile_generation") : NULL;
+  if (profile_generation)
+    json_object_set_string_member(output, "profile_generation",
+                                  profile_generation);
+  if (requested_profile)
+    json_object_set_string_member(output, "requested_profile",
+                                  requested_profile);
   /* Current authoritative check precedes every cached result delivery. */
   if (!status && execute && !strcmp(decision, "ALLOWED")) {
     const char* receipt = consent_result_get(consent, "receipt");
@@ -289,11 +301,20 @@ static void dispatch(JsonObject* root) {
   const char* operation = tool_string(params, "operation_id");
   const char* step = tool_string(params, "step_id");
   const char* capability = is_cm ? tool_string(params, "capability") : NULL;
-  if (json_object_get_size(params) != (is_cm ? 4 : 3) ||
+  const char* requested_profile = profiles_mode
+      ? tool_string(params, "profile") : NULL;
+  if (profiles_mode && (!requested_profile ||
+      (strcmp(requested_profile, "smoke.profile.A") &&
+       strcmp(requested_profile, "smoke.profile.B") &&
+       strcmp(requested_profile, "smoke.profile.default"))))
+    goto invalid;
+  if (json_object_get_size(params) !=
+      (guint)((is_cm ? 4 : 3) + profiles_mode) ||
       !identifier(operation) || !identifier(step) ||
       (is_cm && (!capability || strcmp(capability, "cli:smoke-tool"))))
     goto invalid;
-  reply(id, check(definition, operation, step, execute), 0, NULL);
+  reply(id, check(definition, operation, step, execute, requested_profile),
+        0, NULL);
   return;
 invalid:
   reply(id, NULL, -32602, "Invalid fixture parameters");
@@ -332,10 +353,13 @@ static int read_frame(char* bytes) {
 }
 
 int main(int argc, char** argv) {
-  if (argc != 2 || (strcmp(argv[1], "fixture") && strcmp(argv[1], "actual"))) {
+  if ((argc != 2 && argc != 3) ||
+      (argc == 3 && strcmp(argv[2], "--profiles")) ||
+      (strcmp(argv[1], "fixture") && strcmp(argv[1], "actual"))) {
     fprintf(stderr, "Usage: %s fixture|actual\n", argv[0]);
     return 2;
   }
+  profiles_mode = argc == 3;
   is_cm = !strcmp(SMOKE_TOOL_ROLE, "cm");
   setvbuf(stdout, NULL, _IONBF, 0);
   tool_install_signal_handlers();

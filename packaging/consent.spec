@@ -1,7 +1,7 @@
 Name:       consent
 Summary:    Tizen user consent framework
 Version:    0.1.0
-Release:    23
+Release:    25
 Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
@@ -22,6 +22,8 @@ BuildRequires: pkgconfig(parcel)
 BuildRequires: pkgconfig(capi-base-common)
 BuildRequires: pkgconfig(gtest_main)
 BuildRequires: pkgconfig(gmock)
+BuildRequires: dbus
+BuildRequires: pkgconfig(libsessiond)
 %if %{with smoke_tools}
 BuildRequires: pkgconfig(json-glib-1.0)
 %endif
@@ -65,6 +67,7 @@ Summary:    Tizen consent executable tests
 Group:      Development/Testing
 Requires:   %{name} = %{version}-%{release}
 Requires:   python3-base
+Requires:   dbus
 
 %description tests
 C API exercisers and isolated unit tests. This package does not grant test

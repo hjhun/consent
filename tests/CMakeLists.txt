@@ -9,6 +9,10 @@ FOREACH(SOURCE ${TEST_SOURCES})
   GET_FILENAME_COMPONENT(TEST_NAME "${SOURCE}" NAME_WE)
   STRING(REPLACE "_" "-" TEST_NAME "${TEST_NAME}")
   ADD_EXECUTABLE(${TEST_NAME} "${SOURCE}")
+  IF(TEST_NAME STREQUAL "profile-transport-test")
+    TARGET_SOURCES(${TEST_NAME} PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/consentd/profile_authority.cc")
+  ENDIF()
   IF(TEST_NAME STREQUAL "endpoint-fixture")
     # Explicit emulator-only fixture: it uses the real activation socket path.
     INSTALL(TARGETS ${TEST_NAME}
@@ -81,6 +85,7 @@ FOREACH(SOURCE ${TEST_SOURCES})
     TARGET_SOURCES(
       ${TEST_NAME}
       PRIVATE "${PROJECT_SOURCE_DIR}/src/consentd/server.cc"
+              "${PROJECT_SOURCE_DIR}/src/consentd/profile_authority.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/bootstrap.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/identity.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc"

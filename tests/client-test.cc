@@ -78,6 +78,7 @@ constexpr const char* kEndpoint = "/tmp/consent-test/consent.sock";
 std::atomic<unsigned> requests{0};
 std::atomic<bool> stop{false};
 std::atomic<bool> approval_capability{true};
+std::atomic<bool> profile_authority{false};
 
 bool ReadAll(int fd, void* data, size_t size) {
   auto* bytes = static_cast<uint8_t*>(data);
@@ -144,6 +145,8 @@ void Serve(int listener) {
                            {"epoch", "test-epoch"},
                            {"revision", std::to_string(reply_revision)},
                            {"decision", "ALLOWED"}};
+    if (profile_authority)
+      reply["profile_authority"] = "1";
     if (method == "hello" && approval_capability)
       reply["approval_version"] = "1";
     if (method == "request") {
@@ -207,6 +210,35 @@ void DispatchUntil(Callback* callback) {
     g_usleep(1000);
   }
   CHECK(callback->count == 1);
+}
+
+void ProfileCacheAdmission(int listener) {
+  profile_authority = true;
+  std::thread server(Serve, listener);
+  consent_client_h client = nullptr;
+  CHECK(!consent_client_create(&client));
+  consent_params_t* params = nullptr;
+  CHECK(!consent_params_create(&params));
+  CHECK(!consent_params_set(params, "scenario", "cache"));
+  unsigned before = requests;
+  for (unsigned i = 0; i < 2; ++i) {
+    consent_result_t* result = nullptr;
+    CHECK(!consent_request(client, params, 2000, &result));
+    CHECK(!strcmp(consent_result_get(result, "source"), "DAEMON"));
+    consent_result_free(result);
+    Callback callback;
+    consent_async_id_t operation;
+    CHECK(!consent_request_async(client, params, Result, &callback,
+                                 &operation));
+    callback.returned = true;
+    DispatchUntil(&callback);
+    CHECK(!callback.status);
+  }
+  CHECK(requests == before + 4);
+  CHECK(!consent_client_destroy(client));
+  consent_params_free(params);
+  server.join();
+  profile_authority = false;
 }
 
 void ApprovalAdmission(int listener, bool capability) {
@@ -430,6 +462,7 @@ int main(int argc, char** argv) {
   CHECK(!listen(listener, 4));
   ApprovalAdmission(listener, false);
   ApprovalAdmission(listener, true);
+  ProfileCacheAdmission(listener);
   std::thread server(Serve, listener);
   consent_client_h client = nullptr;
   CHECK(!consent_client_create(&client));

@@ -15,6 +15,7 @@
  */
 #include "repository.hh"
 #include "consent.h"
+#include "profile_state.hh"
 
 #include "common/cleanup_cursor.hh"
 #include "common/resource.hh"
@@ -411,6 +412,8 @@ class Repository::Impl final {
   Message Maintain();
   void Tick();
   void Shutdown();
+  void FenceProfiles(bool retire_grants, const std::string& removed_user);
+  std::shared_ptr<ProfileState> profiles_;
   bool SetOfflineReconciliation(bool enabled) noexcept {
     return std::exchange(offline_import_, enabled);
   }
@@ -420,6 +423,12 @@ class Repository::Impl final {
       package_validator_;
 
  private:
+  void ActiveContext(const Message& request);
+  void ProfileCommit(Transaction& transaction);
+  bool profile_compensation_failed_ = false;
+  uint64_t operation_profile_generation_ = 0;
+  std::vector<std::string> new_profile_grants_;
+  std::string new_profile_request_;
   void OpenDatabase(bool recovering);
   void RetireDatabase(bool main_file);
   void Ensure();
@@ -884,6 +893,8 @@ void Repository::Impl::ResetRuntime() {
 }
 
 void Repository::Impl::Ensure() {
+  Require(!profile_compensation_failed_, kStorage,
+          "profile approval compensation requires daemon restart");
   Require(db_ != nullptr, kStorage, "database unavailable");
   SecureDirectory(Parent(path_));
   SecureDirectory(recovery_dir_);
@@ -947,6 +958,7 @@ Message Repository::Impl::Snapshot() {
           {"epoch", epoch_},
           {"revision", std::to_string(revision_)},
           {"source", "DAEMON"},
+          {"profile_authority", profiles_ && profiles_->Enabled() ? "1" : "0"},
           {"cleanup_reconciliation_required", cleanup_unknown_ ? "1" : "0"}};
 }
 
@@ -1119,6 +1131,95 @@ Message Repository::Impl::CommonRegister(const std::string& key,
   return {{"status", "0"}};
 }
 
+void Repository::Impl::ActiveContext(const Message& request) {
+  if (!profiles_)
+    return;
+  int status = profiles_->Check(Get(request, "subject"),
+                                Get(request, "profile"));
+  Require(status == 0, status, "active profile authority denied");
+}
+
+void Repository::Impl::ProfileCommit(Transaction& transaction) {
+  if (!profiles_ || !profiles_->Enabled()) {
+    transaction.Commit();
+    return;
+  }
+  Require(operation_profile_generation_ == profiles_->Generation(), -ESTALE,
+          "profile changed before transaction commit");
+  transaction.Commit();
+  if (operation_profile_generation_ == profiles_->Generation())
+    return;
+  // No main-context lock spans SQLite I/O. Retire approvals inserted in the
+  // commit race before the queued ordinary switch can preserve older grants.
+  try {
+    Transaction retire(db_);
+    for (const auto& id : new_profile_grants_) {
+      Statement grant(db_, "UPDATE grants SET revoked=1 WHERE id=?");
+      grant.Bind(1, id).Run();
+    }
+    if (!new_profile_request_.empty()) {
+      Statement request(db_, "UPDATE requests SET state='INVALIDATED',token='' "
+                             "WHERE id=?");
+      request.Bind(1, new_profile_request_).Run();
+    }
+    Bump();
+    retire.Commit();
+  } catch (...) {
+    profile_compensation_failed_ = true;
+    fenced_ = true;
+    throw Failure(kStorage, "profile approval retirement failed");
+  }
+  throw Failure(-ESTALE, "profile changed during transaction commit");
+}
+
+void Repository::Impl::FenceProfiles(bool retire_grants,
+                                     const std::string& removed_user) {
+  if (!profiles_ || !profiles_->Enabled())
+    return;
+  Ensure();
+  Transaction transaction(db_);
+  for (const auto& binding : profiles_->Bindings()) {
+    Statement sessions(
+        db_, "SELECT id FROM sessions WHERE subject=? AND profile=? "
+             "AND state IN ('ACTIVE','SUSPENDED')");
+    sessions.Bind(1, binding.subject).Bind(2, binding.profile);
+    std::vector<std::string> ids;
+    while (sessions.Row())
+      ids.push_back(sessions.Text(0));
+    for (const auto& id : ids)
+      CloseSession(id);
+    Statement pending(
+        db_, "UPDATE requests SET state='INVALIDATED',token='' "
+             "WHERE subject=? AND profile=? AND state IN ('PENDING','ALLOWED')");
+    pending.Bind(1, binding.subject).Bind(2, binding.profile).Run();
+    if (retire_grants || (!removed_user.empty() &&
+                          binding.user == removed_user)) {
+      Statement grants(db_, "UPDATE grants SET revoked=1 WHERE subject=? "
+                            "AND profile=?");
+      grants.Bind(1, binding.subject).Bind(2, binding.profile).Run();
+    }
+  }
+  Statement receipts(db_, "SELECT id,payload FROM authorizations WHERE valid=1");
+  std::vector<std::string> invalid;
+  while (receipts.Row()) {
+    const auto payload = Unpack(receipts.Text(1));
+    for (const auto& binding : profiles_->Bindings()) {
+      if (Get(payload, "subject") == binding.subject &&
+          Get(payload, "profile") == binding.profile) {
+        invalid.push_back(receipts.Text(0));
+        break;
+      }
+    }
+  }
+  for (const auto& id : invalid) {
+    Statement receipt(db_, "UPDATE authorizations SET valid=0 WHERE id=?");
+    receipt.Bind(1, id).Run();
+  }
+  FinishCleanup();
+  Bump();
+  transaction.Commit();
+}
+
 Message Repository::Impl::SessionState(const Peer& peer, const Message& request,
                                        bool active, bool owner) {
   Context(peer, request);
@@ -1276,6 +1377,9 @@ Message Repository::Impl::Session(const Peer& peer, const Message& request) {
     return state;
   }
   Require(Role(peer, "session"), -EACCES, "session controller role required");
+  if (method == "session_open" || method == "session_resume" ||
+      method == "session_heartbeat")
+    ActiveContext(request);
   Transaction transaction(db_);
   Message result;
   if (method == "session_open") {
@@ -1360,7 +1464,11 @@ Message Repository::Impl::Session(const Peer& peer, const Message& request) {
     result.insert(current.begin(), current.end());
   }
   Bump();
-  transaction.Commit();
+  if (method == "session_open" || method == "session_resume" ||
+      method == "session_heartbeat")
+    ProfileCommit(transaction);
+  else
+    transaction.Commit();
   return result;
 }
 
@@ -1477,6 +1585,9 @@ bool Repository::Impl::ReceiptValid(const std::string& receipt) {
   if (!query.Row() || !query.Int(0))
     return false;
   Message payload = Unpack(query.Text(1));
+  if (profiles_ && profiles_->Check(Get(payload, "subject"),
+                                   Get(payload, "profile")) != 0)
+    return false;
   Statement revoked(
       db_,
       "SELECT count(*) FROM authorization_grants JOIN grants ON "
@@ -1517,6 +1628,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& input,
                     Role(peer, "ce") || Role(peer, "holder")),
           -EACCES, "caller role denied");
   Context(peer, request);
+  ActiveContext(request);
   Transaction transaction(db_);
   SessionState(peer, request, true);
   std::string mode = Get(request, "mode", "QUERY");
@@ -1578,7 +1690,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& input,
               "operation payload conflict");
       Require(ReceiptValid(prior.Text(0)), -ESTALE,
               "authorization was invalidated");
-      transaction.Commit();
+      ProfileCommit(transaction);
       return {
           {"decision", "ALLOWED"}, {"receipt", prior.Text(0)}, {"retry", "1"}};
     }
@@ -1598,7 +1710,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& input,
     if (prior.Row()) {
       Require(prior.Text(2) == fingerprint, kConflict,
               "request payload conflict");
-      transaction.Commit();
+      ProfileCommit(transaction);
       return {{"request_id", prior.Text(0)}, {"decision", prior.Text(1)}};
     }
   }
@@ -1679,7 +1791,7 @@ Message Repository::Impl::Evaluate(const Peer& peer, const Message& input,
     result["request_id"] = id;
     Bump();
   }
-  transaction.Commit();
+  ProfileCommit(transaction);
   return result;
 }
 
@@ -1727,7 +1839,15 @@ Message Repository::Impl::Result(const Peer& peer, const Message& request,
     result["decision"] = "CANCELLED";
     Bump();
   }
-  transaction.Commit();
+  if (Get(result, "decision") == "ALLOWED") {
+    ActiveContext(result);
+    ProfileCommit(transaction);
+    if (profiles_ && profiles_->Enabled())
+      result["profile_generation"] =
+          std::to_string(operation_profile_generation_);
+  } else {
+    transaction.Commit();
+  }
   result.erase("prompt_token");
   result.erase("ui_owner");
   result.erase("ui_instance");
@@ -1745,6 +1865,9 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
   Require(Role(peer, "ui"), -EACCES, "approval UI role required");
   Transaction transaction(db_);
   auto pending = RequestRow(peer, request, true);
+  ActiveContext(pending);
+  if (respond)
+    new_profile_request_ = Get(pending, "request_id");
   Require(Get(pending, "decision") == "PENDING", -ESTALE,
           "request is already final");
   Require(Integer(Get(pending, "deadline"), 0, INT64_MAX) > Now(), -ETIMEDOUT,
@@ -1830,7 +1953,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
             .Bind(3, Get(pending, "request_id"))
             .Run();
         Bump();
-        transaction.Commit();
+        ProfileCommit(transaction);
         return {{"decision", decision},
                 {"request_id", Get(pending, "request_id")},
                 {"cacheable", "0"}};
@@ -1962,7 +2085,9 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
                               : 0;
         Statement grant(db_,
                         "INSERT INTO grants VALUES(?,?,?,?,?,?,?,?,?,?,0)");
-        grant.Bind(1, Id())
+        const auto grant_id = Id();
+        new_profile_grants_.push_back(grant_id);
+        grant.Bind(1, grant_id)
             .Bind(2, GrantKey(pending, i, definition))
             .Bind(3, Get(definition, "definition"))
             .Bind(4, Get(definition, "policy_version"))
@@ -2018,7 +2143,7 @@ Message Repository::Impl::Prompt(const Peer& peer, const Message& request,
     result["cacheable"] = "0";
   }
   Bump();
-  transaction.Commit();
+  ProfileCommit(transaction);
   return result;
 }
 
@@ -2239,6 +2364,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
   Require(Get(request, "reconcile") != "1", -EACCES,
           "cleanup reconciliation does not transfer data-use rights");
   Context(peer, request);
+  ActiveContext(request);
   Require(Get(request, "storage_class", "MEMORY_ONLY") == "MEMORY_ONLY",
           -EACCES, "persistent data storage is disabled");
   Require(!Get(request, "session").empty(), -EINVAL, "data requires session");
@@ -2272,7 +2398,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
               kConflict, "artifact retry payload conflict");
       Require(prior.Text(1) == "ACTIVE" && prior.Int(2) > Now(), -ESTALE,
               "artifact is no longer resident");
-      transaction.Commit();
+      ProfileCommit(transaction);
       return {{"artifact", prior.Text(0)}, {"expires", prior.Text(2)}};
     }
     int index = Number(request, "requirement", 0, 0, 15);
@@ -2318,7 +2444,7 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
                       "authorization_grants WHERE receipt=?");
     sources.Bind(1, id).Bind(2, receipt).Run();
     Bump();
-    transaction.Commit();
+    ProfileCommit(transaction);
     return {{"artifact", id},
             {"permit", id},
             {"expires", std::to_string(expires)},
@@ -2386,13 +2512,13 @@ Message Repository::Impl::Data(const Peer& peer, const Message& request) {
       link.Bind(1, id).Bind(2, parent).Run();
     }
     Bump();
-    transaction.Commit();
+    ProfileCommit(transaction);
     return {
         {"artifact", id}, {"permit", id}, {"expires", std::to_string(expires)}};
   }
   if (method == "data_check") {
     ValidateArtifactProvenance(peer, request, Get(request, "artifact"));
-    transaction.Commit();
+    ProfileCommit(transaction);
     return {{"decision", "ALLOWED"}};
   }
   throw Failure(-ENOSYS, "data method unsupported");
@@ -2594,6 +2720,11 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
   try {
     Ensure();
     const std::string operation_epoch = epoch_;
+    const uint64_t profile_generation =
+        profiles_ ? profiles_->Generation() : 0;
+    operation_profile_generation_ = profile_generation;
+    new_profile_grants_.clear();
+    new_profile_request_.clear();
     Expire();
     Require(!peer.identity.empty() && !peer.instance.empty(), -EACCES,
             "authenticated caller identity required");
@@ -2676,6 +2807,19 @@ Message Repository::Impl::Execute(const Peer& peer, const Message& request) {
     auto metadata = Snapshot();
     Require(Get(metadata, "epoch") == operation_epoch, -ESTALE,
             "database generation changed during final publication snapshot");
+    const bool sensitive =
+        method == "request" || method == "check" || method == "respond" ||
+        method == "get_prompt" || method == "session_open" ||
+        method == "session_resume" || method == "session_heartbeat" ||
+        method == "data_register" || method == "data_register_derived" ||
+        method == "data_check" ||
+        ((method == "result" || method == "get_request_result") &&
+         Get(result, "decision") == "ALLOWED");
+    if (sensitive && profiles_) {
+      Require(profile_generation == profiles_->Generation(), -ESTALE,
+              "profile generation changed before reply");
+      result["profile_generation"] = std::to_string(profile_generation);
+    }
     result.insert(metadata.begin(), metadata.end());
     result["status"] = "0";
     return result;
@@ -2852,6 +2996,13 @@ Repository::OfflineReconciliation::OfflineReconciliation(
       previous_(repository.impl_->SetOfflineReconciliation(true)) {}
 Repository::OfflineReconciliation::~OfflineReconciliation() noexcept {
   repository_.impl_->SetOfflineReconciliation(previous_);
+}
+void Repository::SetProfileState(std::shared_ptr<ProfileState> state) {
+  impl_->profiles_ = std::move(state);
+}
+void Repository::FenceProfiles(bool retire_grants,
+                               const std::string& removed_user) {
+  impl_->FenceProfiles(retire_grants, removed_user);
 }
 void Repository::SetInstallationValidator(InstallationValidator validator) {
   impl_->validator_ = std::move(validator);

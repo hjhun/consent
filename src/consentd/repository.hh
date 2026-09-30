@@ -28,6 +28,8 @@ namespace consentd {
 
 // Every method, including destruction, belongs to the serialized DB executor.
 // There are no callbacks into other daemon threads while a transaction is held.
+class ProfileState;
+
 class Repository final {
  public:
   using InstallationValidator = std::function<bool(
@@ -64,6 +66,10 @@ class Repository final {
   void SetOfflineInstallationValidator(OfflineInstallationValidator validator);
   void SetPackageGenerationValidator(
       std::function<bool(const std::string&, const std::string&)> validator);
+  void SetProfileState(std::shared_ptr<ProfileState> state);
+  // Serialized authority barrier; no public IPC dispatch or holder ACK wait.
+  void FenceProfiles(bool retire_grants,
+                     const std::string& removed_user = "");
   bool Open(std::string* error);
   consent::Message Execute(const Peer& peer, const consent::Message& request);
   // Internal startup import only: caller has verified a protected root spool.

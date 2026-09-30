@@ -20,16 +20,19 @@
 #include "consentd/key_file.hh"
 #include "consentd/repository.hh"
 #include "consentd/server.hh"
+#include "consentd/server_connection.hh"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <thread>
 #include <cstdio>
 #include <cstdlib>
@@ -150,12 +153,73 @@ class ServerTestPeer {
     server.db_thread_ = nullptr;
     EXPECT_EQ(server.db_jobs_.load(), 0u);
   }
+  static void ProfileOutput(Server& server, bool partial) {
+    ASSERT_TRUE(server.profiles_->Configure({{"agent", "A", "profile.A"}}));
+    int descriptors[2];
+    ASSERT_EQ(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC,
+                         0, descriptors), 0);
+    int capacity = 4096;
+    ASSERT_EQ(setsockopt(descriptors[0], SOL_SOCKET, SO_SNDBUF,
+                         &capacity, sizeof(capacity)), 0);
+    auto connection = std::make_shared<Server::Connection>();
+    connection->server = &server;
+    auto* socket = g_socket_new_from_fd(descriptors[0], nullptr);
+    ASSERT_NE(socket, nullptr);
+    g_socket_set_blocking(socket, FALSE);
+    connection->stream = g_socket_connection_factory_create_connection(socket);
+    connection->socket = socket;
+    g_object_unref(socket);
+    ++server.connections_;
+    consent::Message reply{{"v", "1"}, {"id", "1"},
+        {"method", "reply"}, {"status", "0"}, {"decision", "ALLOWED"}};
+    for (unsigned i = 0; i < 4; ++i)
+      reply["payload" + std::to_string(i)] = std::string(8192, 'a');
+    auto bytes = consent::Encode(reply);
+    ASSERT_FALSE(bytes.empty());
+    connection->output_bytes = bytes.size();
+    connection->output.push_back({bytes,
+        std::to_string(server.profiles_->Generation())});
+    if (!partial) {
+      char fill[4096] = {};
+      while (send(descriptors[0], fill, sizeof(fill), MSG_NOSIGNAL) > 0) {}
+      ASSERT_TRUE(errno == EAGAIN || errno == EWOULDBLOCK);
+    }
+    server.Write(connection);
+    ASSERT_FALSE(connection->closed);
+    ASSERT_FALSE(connection->output.empty());
+    if (partial) {
+      ASSERT_GT(connection->offset, 0u);
+      ASSERT_LT(connection->offset, bytes.size());
+    } else {
+      ASSERT_EQ(connection->offset, 0u);
+    }
+    const auto sent = connection->offset;
+    server.profiles_->Fence();
+    server.Write(connection);
+    EXPECT_TRUE(connection->closed);
+    size_t received = 0;
+    char buffer[4096];
+    ssize_t count;
+    while ((count = recv(descriptors[1], buffer, sizeof(buffer), 0)) > 0)
+      received += static_cast<size_t>(count);
+    if (partial) {
+      EXPECT_EQ(received, sent);  // The sensitive frame never completes.
+    }
+    close(descriptors[1]);
+  }
   static unsigned Jobs(const Server& server) { return server.db_jobs_; }
   static unsigned Parsers(const Server& server) { return server.parse_jobs_; }
 };
 }  // namespace consentd
 
 namespace {
+TEST(Ownership, ProfileFenceRejectsBlockedAndPartialSensitiveOutput) {
+  for (bool partial : {false, true}) {
+    consentd::Server server;
+    consentd::ServerTestPeer::ProfileOutput(server, partial);
+  }
+}
+
 TEST(Logging, ActualBackendPreservesLiteralPercent) {
   LOG(INFO) << "event=build31-logging-probe actor_pid=" << getpid()
             << " percent=100%";

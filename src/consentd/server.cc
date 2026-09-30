@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 #include "server.hh"
+#include "server_connection.hh"
 #include "common/logging.hh"
 #include "common/dispatch.hh"
 #include "common/resource.hh"
@@ -27,13 +28,16 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstring>
 #include <deque>
 #include <exception>
 #include <utility>
 #include <vector>
+#include <sstream>
 
 #include "repository.hh"
 #include "bootstrap.hh"
+#include "key_file.hh"
 #include "common/offline_registration.hh"
 
 #ifndef CONSENT_STATE_DIR
@@ -90,35 +94,13 @@ consent::Message Error(const consent::Message& request, int status) {
 }
 }  // namespace
 
-struct Server::Connection {
-  Server* server = nullptr;
-  uint64_t id = 0;
-  GSocketConnection* stream = nullptr;
-  GSocket* socket =
-      nullptr;  // Borrowed from stream, only I/O owner accesses it.
-  GSource* read_source = nullptr;
-  GSource* write_source = nullptr;
-  GSource* deadline = nullptr;
-  Peer peer;
-  ProcessIdentity process;
-  bool closed = false;
-  bool parsing = false;
-  bool hello = false;
-  unsigned inflight = 0;
-  gint64 last_input = 0;
-  std::vector<uint8_t> input;
-  std::deque<std::vector<uint8_t>> output;
-  size_t output_bytes = 0;
-  size_t offset = 0;
-  gint64 write_started = 0;
-  ~Connection() {
-    Destroy(read_source);
-    Destroy(write_source);
-    Destroy(deadline);
-    if (stream)
-      g_object_unref(stream);
-  }
-};
+Server::Connection::~Connection() {
+  Destroy(read_source);
+  Destroy(write_source);
+  Destroy(deadline);
+  if (stream)
+    g_object_unref(stream);
+}
 
 struct Server::ParseJob {
   Server* server;
@@ -128,6 +110,7 @@ struct Server::ParseJob {
 
 Server::Server() {
   // C++ allocations precede GLib resource acquisition. Stop never allocates.
+  profiles_ = std::make_shared<ProfileState>();
   shutdown_job_ =
       std::make_unique<std::function<void()>>([this] { ShutdownDatabase(); });
   main_context_ = g_main_context_default();
@@ -139,6 +122,8 @@ Server::Server() {
 
 Server::~Server() {
   stopping_ = true;
+  if (profile_authority_)
+    profile_authority_->Stop();
   Destroy(tick_);
   Destroy(sigterm_);
   Destroy(sigint_);
@@ -290,6 +275,154 @@ void Server::InitializeWakeSources() {
       this);
 }
 
+bool Server::LoadProfiles() {
+  const std::string path = std::string(CONSENT_AUTHORITY_DIR) +
+                           "/profiles.conf";
+  struct stat identity = {};
+  if (lstat(path.c_str(), &identity) < 0) {
+    if (errno == ENOENT) {
+      LOG(INFO) << "event=profile-authority state=legacy-static";
+      return true;
+    }
+    return false;
+  }
+  consent::Descriptor fd(OpenProtected(path));
+  if (fd.Get() < 0)
+    return false;
+  std::string data;
+  char buffer[1024];
+  for (;;) {
+    ssize_t count = read(fd.Get(), buffer, sizeof(buffer));
+    if (count < 0 && errno == EINTR)
+      continue;
+    if (count < 0 || data.size() + std::max<ssize_t>(count, 0) > 16384)
+      return false;
+    if (!count)
+      break;
+    data.append(buffer, count);
+  }
+  if (data.find('\0') != std::string::npos)
+    return false;
+  std::istringstream lines(data);
+  std::set<std::string> sections;
+  std::set<std::pair<std::string, std::string>> names;
+  std::string group;
+  std::string line;
+  while (std::getline(lines, line)) {
+    gchar* trimmed = g_strstrip(line.data());
+    if (!*trimmed || *trimmed == '#' || *trimmed == ';')
+      continue;
+    if (*trimmed == '[') {
+      const size_t size = strlen(trimmed);
+      if (size < 3 || trimmed[size - 1] != ']')
+        return false;
+      group.assign(trimmed + 1, size - 2);
+      if (!sections.insert(group).second)
+        return false;
+    } else {
+      char* equal = strchr(trimmed, '=');
+      if (!equal || group.empty())
+        return false;
+      *equal = 0;
+      if (!names.emplace(group, g_strstrip(trimmed)).second)
+        return false;
+    }
+  }
+
+  std::unique_ptr<GKeyFile, decltype(&g_key_file_unref)> file(
+      g_key_file_new(), g_key_file_unref);
+  if (!g_key_file_load_from_data(file.get(), data.data(), data.size(),
+                                 G_KEY_FILE_NONE, nullptr))
+    return false;
+  auto exact_keys = [&](const char* group,
+                        const std::set<std::string>& expected) {
+    gsize count = 0;
+    std::unique_ptr<gchar*, decltype(&g_strfreev)> keys(
+        g_key_file_get_keys(file.get(), group, &count, nullptr), g_strfreev);
+    if (count != expected.size())
+      return false;
+    std::set<std::string> actual;
+    for (gsize i = 0; i < count; ++i)
+      actual.insert(keys.get()[i]);
+    return actual == expected;
+  };
+  if (!exact_keys("authority", {"mode", "session_uid"}))
+    return false;
+  std::string mode = KeyValue(file.get(), "authority", "mode");
+  if (mode != "sessiond") {
+#ifdef CONSENT_TEST_BUILD
+    if (mode != "fixture")
+      return false;
+    profile_fixture_ = true;
+#else
+    return false;
+#endif
+  }
+  const auto uid = KeyValue(file.get(), "authority", "session_uid");
+  int64_t number = 0;
+  if (!consent::ParseNumber(uid, &number) || number <= 0 ||
+      number > INT32_MAX || uid != std::to_string(number))
+    return false;
+  profile_uid_ = static_cast<int>(number);
+  gsize count = 0;
+  std::unique_ptr<gchar*, decltype(&g_strfreev)> groups(
+      g_key_file_get_groups(file.get(), &count), g_strfreev);
+  if (count < 2 || count > 65)
+    return false;
+  std::vector<ProfileBinding> bindings;
+  for (gsize i = 0; i < count; ++i) {
+    const std::string group(groups.get()[i]);
+    if (group == "authority")
+      continue;
+    if (group.compare(0, 8, "binding ") != 0 ||
+        !exact_keys(group.c_str(), {"subject", "subsession", "profile"}))
+      return false;
+    bindings.push_back({KeyValue(file.get(), group.c_str(), "subject"),
+                        KeyValue(file.get(), group.c_str(), "subsession"),
+                        KeyValue(file.get(), group.c_str(), "profile")});
+  }
+  return profiles_->Configure(std::move(bindings));
+}
+
+void Server::StartProfiles() {
+  if (!profiles_->Enabled())
+    return;
+  ProfileAuthority::Barrier barrier =
+      [this](bool retire, const std::string& removed,
+             ProfileAuthority::Done done) {
+        if (stopping_ || !Submit([this, retire, removed, done] {
+          bool success = false;
+          consent::Message snapshot;
+          try {
+            repository_->FenceProfiles(retire, removed);
+            snapshot = repository_->Snapshot();
+            success = true;
+          } catch (...) {
+            profiles_->Fence();
+          }
+          Post(io_context_, [this, snapshot] { Publish(snapshot); });
+          Post(main_context_, [done, success] { done(success); });
+        })) {
+          profiles_->Fence();
+          done(false);
+        }
+      };
+#ifdef CONSENT_TEST_BUILD
+  if (profile_fixture_) {
+    // Test-only fixed private fixture bus. No product bus-address setting.
+    profile_authority_ = std::make_unique<ProfileAuthority>(
+        profiles_, profile_uid_, std::move(barrier),
+        "unix:path=" + std::string(CONSENT_AUTHORITY_DIR) +
+            "/profile-bus.sock");
+  } else
+#endif
+  {
+    profile_authority_ = std::make_unique<ProfileAuthority>(
+        profiles_, profile_uid_, std::move(barrier));
+  }
+  profile_authority_->Start();
+}
+
 int Server::Run(int listener_fd) {
   consent::Descriptor listener_owner(listener_fd);
   InitializeWakeSources();
@@ -298,6 +431,8 @@ int Server::Run(int listener_fd) {
     LOG(WARNING) << "event=identity-config-failed reason=" << error.c_str();
     return 1;
   }
+  if (!LoadProfiles())
+    return 1;
   lifecycle_lock_ =
       OpenProtected(std::string(CONSENT_AUTHORITY_DIR) + "/lifecycle.lock");
   if (lifecycle_lock_ < 0 || flock(lifecycle_lock_, LOCK_SH | LOCK_NB) < 0) {
@@ -442,6 +577,7 @@ int Server::Run(int listener_fd) {
     try {
       repository_ = std::make_unique<Repository>(
           std::string(CONSENT_STATE_DIR) + "/consent.db", CONSENT_STATE_DIR);
+      repository_->SetProfileState(profiles_);
       repository_->SetInstallationValidator(ValidateInstallation);
       repository_->SetOfflineInstallationValidator(ValidateOfflineInstallation);
       repository_->SetPackageGenerationValidator(ValidatePackageGeneration);
@@ -506,6 +642,7 @@ int Server::Run(int listener_fd) {
       if (stopping_)
         return;
       Post(io_context_, [this, snapshot] { Publish(snapshot); });
+      StartProfiles();
       tick_ = g_timeout_source_new(250);
       g_source_set_callback(
           tick_,
@@ -801,6 +938,21 @@ void Server::Execute(const std::shared_ptr<Connection>& connection,
             }
           }
           Publish(snapshot);
+          const auto generation = consent::Get(reply, "profile_generation");
+          if (!generation.empty() &&
+              generation != std::to_string(profiles_->Generation())) {
+            auto stale = reply;
+            stale.clear();
+            stale["v"] = "1";
+            stale["id"] = consent::Get(reply, "id");
+            stale["method"] = "reply";
+            stale["status"] = std::to_string(CONSENT_ERROR_STALE);
+            if (connection->inflight)
+              --connection->inflight;
+            if (!connection->closed)
+              Queue(connection, stale);
+            return;
+          }
           if (connection->inflight)
             --connection->inflight;
           if (!connection->closed &&
@@ -834,7 +986,8 @@ void Server::Queue(const std::shared_ptr<Connection>& connection,
   connection->output_bytes += bytes.size();
   if (connection->output.empty())
     connection->write_started = g_get_monotonic_time();
-  connection->output.push_back(std::move(bytes));
+  connection->output.push_back({std::move(bytes),
+                                consent::Get(message, "profile_generation")});
   Write(connection);
   if (connection->closed || connection->output.empty() ||
       connection->write_source)
@@ -859,7 +1012,15 @@ void Server::Queue(const std::shared_ptr<Connection>& connection,
 
 void Server::Write(const std::shared_ptr<Connection>& connection) {
   while (!connection->closed && !connection->output.empty()) {
-    auto& bytes = connection->output.front();
+    auto& frame = connection->output.front();
+    if (!frame.profile_generation.empty() &&
+        frame.profile_generation != std::to_string(profiles_->Generation())) {
+      // Closing also handles partially written frames without splicing a new
+      // envelope into the old response. Fully sent frames are nonretractable.
+      Close(connection, "profile-generation-changed-before-send");
+      return;
+    }
+    auto& bytes = frame.bytes;
     GError* error = nullptr;
     gssize n = g_socket_send(
         connection->socket,
@@ -933,6 +1094,8 @@ void Server::Stop() noexcept {
   if (listener_)
     g_socket_service_stop(listener_);
   Destroy(tick_);
+  if (profile_authority_)
+    profile_authority_->Stop();
   LOG(INFO) << "event=shutdown stage=stop-admission";
   g_source_set_ready_time(stop_io_source_, 0);
   g_main_context_wakeup(io_context_);
