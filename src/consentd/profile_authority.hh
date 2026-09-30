@@ -41,6 +41,10 @@ class ProfileAuthority final {
   ProfileAuthority(std::shared_ptr<ProfileState> state, int session_uid,
                    Barrier barrier, std::string test_address);
   ~ProfileAuthority();
+  ProfileAuthority(const ProfileAuthority&) = delete;
+  ProfileAuthority& operator=(const ProfileAuthority&) = delete;
+  ProfileAuthority(ProfileAuthority&&) = delete;
+  ProfileAuthority& operator=(ProfileAuthority&&) = delete;
   void Start();
   void Stop() noexcept;
 

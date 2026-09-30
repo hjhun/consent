@@ -27,4 +27,10 @@ void tool_install_signal_handlers(void);
 int tool_interrupted(void);
 int tool_open(const char* path, int executable);
 
+#ifdef TOOL_PROCESS_TESTING
+#include <sys/types.h>
+void tool_process_test_fail_nonblocking(void);
+pid_t tool_process_test_pid(void);
+#endif
+
 #endif  // CONSENT_TESTS_SMOKE_TOOL_PROCESS_H_

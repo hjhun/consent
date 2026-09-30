@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 #include "consent.h"
+#include "consent/client.hh"
+
 #include "consent/endpoint.hh"
 #include "common/message.hh"
 
@@ -32,6 +34,12 @@
 #include <cstdio>
 #include <cstring>
 #include <thread>
+#include <type_traits>
+
+static_assert(!std::is_copy_constructible<consent::Client>::value);
+static_assert(!std::is_copy_assignable<consent::Client>::value);
+static_assert(!std::is_move_constructible<consent::Client>::value);
+static_assert(!std::is_move_assignable<consent::Client>::value);
 
 #define CHECK(expression)                                                   \
   do {                                                                      \

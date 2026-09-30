@@ -61,13 +61,11 @@ IF(CONSENT_SOURCES)
     SET_TARGET_PROPERTIES(
       consent-poc PROPERTIES VERSION "${PROJECT_VERSION}" SOVERSION 0
     )
-    SET_PROPERTY(
-      TARGET consent-poc
-      APPEND_STRING
-      PROPERTY
-        LINK_FLAGS
-        " -Wl,--as-needed,--gc-sections,--no-undefined,--version-script=${PROJECT_SOURCE_DIR}/packaging/consent.map"
-    )
+    STRING(CONCAT POC_LINK_FLAGS
+      " -Wl,--as-needed,--gc-sections,--no-undefined,"
+      "--version-script=${PROJECT_SOURCE_DIR}/packaging/consent.map")
+    SET_PROPERTY(TARGET consent-poc APPEND_STRING PROPERTY LINK_FLAGS
+      "${POC_LINK_FLAGS}")
     SET_PROPERTY(
       TARGET consent-poc
       APPEND

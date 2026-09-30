@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 #include "consentd/profile_authority.hh"
-
 #include <gio/gio.h>
 
 #include <cerrno>
@@ -26,6 +25,12 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <type_traits>
+
+static_assert(!std::is_copy_constructible<consentd::ProfileAuthority>::value);
+static_assert(!std::is_copy_assignable<consentd::ProfileAuthority>::value);
+static_assert(!std::is_move_constructible<consentd::ProfileAuthority>::value);
+static_assert(!std::is_move_assignable<consentd::ProfileAuthority>::value);
 
 namespace {
 
@@ -168,12 +173,17 @@ void Test() {
   unsigned barriers = 0;
   std::string removed;
   bool hold_barrier = false;
+  bool throw_barrier = false;
   std::vector<consentd::ProfileAuthority::Done> pending;
   auto barrier = [&](bool gap, const std::string& user,
                      consentd::ProfileAuthority::Done done) {
     ++barriers;
     retire += gap;
     removed = user;
+    if (throw_barrier) {
+      pending.push_back(std::move(done));
+      throw std::runtime_error("fixture barrier failure");
+    }
     if (hold_barrier)
       pending.push_back(std::move(done));
     else
@@ -319,6 +329,30 @@ void Test() {
   release_held();
   authority.reset();
   fake.delay_ack = false;
+  // A real GetCurrentUser completion invokes a throwing barrier. The
+  // noexcept method adapter must Stop rather than escape across GLib.
+  fake.current = "A";
+  throw_barrier = true;
+  authority = std::make_unique<consentd::ProfileAuthority>(
+      state, 1, barrier, client, 150);
+  authority->Start();
+  Until([&] { return !pending.empty(); });
+  Check(state->Check("agent", "profile.A") == -EBUSY,
+        "adapter exception fences authority");
+  const auto failed_generation = state->Generation();
+  const auto failed_registrations = fake.registrations;
+  for (auto& done : pending)
+    done(true);
+  pending.clear();
+  authority->Start();
+  Drain(200);
+  Check(state->Generation() == failed_generation &&
+        fake.registrations == failed_registrations &&
+        state->Check("agent", "profile.A") == -EBUSY,
+        "stale callbacks cannot activate after adapter exception");
+  authority.reset();
+  throw_barrier = false;
+
   Name(server, "ReleaseName", "org.tizen.sessiond.fully_ready");
   Name(forged, "RequestName", "org.tizen.sessiond.fully_ready");
   authority = std::make_unique<consentd::ProfileAuthority>(

@@ -39,6 +39,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -243,6 +244,8 @@ class Statement final {
       throw Failure(kStorage, sqlite3_errmsg(db_), rc);
   }
   ~Statement() { sqlite3_finalize(stmt_); }
+  Statement(const Statement&) = delete;
+  Statement& operator=(const Statement&) = delete;
   Statement& Bind(int index, const std::string& value) {
     Require(sqlite3_bind_text(stmt_, index, value.data(), value.size(),
                               SQLITE_TRANSIENT) == SQLITE_OK,
@@ -282,8 +285,8 @@ class Statement final {
 void Sql(sqlite3* db, const char* sql) {
   char* error = nullptr;
   int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error);
-  std::string reason = error ? error : "SQL failed";
-  sqlite3_free(error);
+  std::unique_ptr<char, decltype(&sqlite3_free)> owned(error, sqlite3_free);
+  std::string reason = owned ? owned.get() : "SQL failed";
   if (rc != SQLITE_OK)
     throw Failure((rc & 0xff) == SQLITE_BUSY || (rc & 0xff) == SQLITE_LOCKED
                       ? -EBUSY
@@ -298,6 +301,8 @@ class Transaction final {
     if (!done_)
       sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
   }
+  Transaction(const Transaction&) = delete;
+  Transaction& operator=(const Transaction&) = delete;
   void Commit() {
     Sql(db_, "COMMIT");
     done_ = true;
@@ -307,6 +312,15 @@ class Transaction final {
   sqlite3* db_;
   bool done_ = false;
 };
+
+static_assert(!std::is_copy_constructible<Statement>::value);
+static_assert(!std::is_copy_assignable<Statement>::value);
+static_assert(!std::is_move_constructible<Statement>::value);
+static_assert(!std::is_move_assignable<Statement>::value);
+static_assert(!std::is_copy_constructible<Transaction>::value);
+static_assert(!std::is_copy_assignable<Transaction>::value);
+static_assert(!std::is_move_constructible<Transaction>::value);
+static_assert(!std::is_move_assignable<Transaction>::value);
 
 const char kSchema[] =
     "\n"
@@ -1190,7 +1204,8 @@ void Repository::Impl::FenceProfiles(bool retire_grants,
       CloseSession(id);
     Statement pending(
         db_, "UPDATE requests SET state='INVALIDATED',token='' "
-             "WHERE subject=? AND profile=? AND state IN ('PENDING','ALLOWED')");
+             "WHERE subject=? AND profile=? "
+             "AND state IN ('PENDING','ALLOWED')");
     pending.Bind(1, binding.subject).Bind(2, binding.profile).Run();
     if (retire_grants || (!removed_user.empty() &&
                           binding.user == removed_user)) {
@@ -1199,7 +1214,8 @@ void Repository::Impl::FenceProfiles(bool retire_grants,
       grants.Bind(1, binding.subject).Bind(2, binding.profile).Run();
     }
   }
-  Statement receipts(db_, "SELECT id,payload FROM authorizations WHERE valid=1");
+  Statement receipts(db_,
+                     "SELECT id,payload FROM authorizations WHERE valid=1");
   std::vector<std::string> invalid;
   while (receipts.Row()) {
     const auto payload = Unpack(receipts.Text(1));

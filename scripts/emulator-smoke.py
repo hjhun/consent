@@ -868,6 +868,15 @@ def profile_scenarios(args, generation):
     argo.command('open smoke.profile.A session-A 0')
     blocked(cm, 'profile-before')
     blocked(ce, 'profile-before-ce')
+    # Destroy detaches the old callback; Pending can accept a new operation.
+    argo.command('begin smoke.profile.A reset-pending 0')
+    argo.command('reconnect smoke.profile.A reset-handle 0')
+    argo.command('request_async smoke.profile.B reset-inactive -13')
+    argo.command('begin smoke.profile.A reset-new-pending 0')
+    argo.command('reconnect smoke.profile.A reset-new-handle 0')
+    blocked(cm, 'profile-after-pending-reset')
+    blocked(ce, 'profile-after-pending-reset-ce')
+    print('PASS pending begin/reconnect/new async and zero protected effects')
     for definition in ('smoke.cm.tool.summary', 'smoke.ce.tool.level0'):
         approve(definition, 'PERSISTENT', 'approve-A-' + definition,
                 profile='smoke.profile.A')

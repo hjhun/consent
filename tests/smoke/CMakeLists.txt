@@ -47,6 +47,20 @@ IF(CONSENT_BUILD_SMOKE_TOOLS)
     INSTALL(TARGETS consent-smoke-tool-json-test RUNTIME DESTINATION
       "${SMOKE_DEST}")
   ENDIF()
+  IF(BUILD_TESTING)
+    ADD_EXECUTABLE(consent-smoke-tool-process-test
+      tool-process-test.c tool-process.c)
+    TARGET_COMPILE_DEFINITIONS(consent-smoke-tool-process-test PRIVATE
+      TOOL_PROCESS_TESTING)
+    TARGET_LINK_LIBRARIES(consent-smoke-tool-process-test PRIVATE
+      consent-smoke-common consent-smoke-tool-json)
+    ADD_TEST(NAME smoke-tool-process-test
+      COMMAND consent-smoke-tool-process-test)
+    SET_TESTS_PROPERTIES(smoke-tool-process-test PROPERTIES TIMEOUT 10
+      ENVIRONMENT "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:consent-smoke>")
+    INSTALL(TARGETS consent-smoke-tool-process-test RUNTIME DESTINATION
+      "${SMOKE_DEST}")
+  ENDIF()
   ADD_EXECUTABLE(consent-smoke-tool tool.c)
   TARGET_LINK_LIBRARIES(consent-smoke-tool PRIVATE consent-smoke-tool-json)
   INSTALL(TARGETS consent-smoke-tool RUNTIME DESTINATION

@@ -33,6 +33,31 @@
 extern char** environ;
 static volatile sig_atomic_t interrupted;
 
+#ifdef TOOL_PROCESS_TESTING
+static int fail_nonblocking;
+static pid_t spawned_pid;
+
+void tool_process_test_fail_nonblocking(void) {
+  fail_nonblocking = 1;
+}
+
+pid_t tool_process_test_pid(void) {
+  return spawned_pid;
+}
+#endif
+
+static int nonblocking(int fd) {
+#ifdef TOOL_PROCESS_TESTING
+  if (fail_nonblocking) {
+    fail_nonblocking = 0;
+    errno = EIO;
+    return -1;
+  }
+#endif
+  return fcntl(fd, F_SETFL, O_NONBLOCK);
+}
+
+
 static void on_signal(int signal_number) {
   (void)signal_number;
   interrupted = 1;
@@ -136,13 +161,22 @@ int tool_execute_capture(int executable_fd, const char* request, const char* id,
       printf("PROVIDER spawn_failed=%d\n", status);
     return 0;
   }
-  smoke_expect(fcntl(out[0], F_SETFL, O_NONBLOCK) == 0 &&
-                   fcntl(err[0], F_SETFL, O_NONBLOCK) == 0,
-               "provider nonblocking pipes");
+#ifdef TOOL_PROCESS_TESTING
+  spawned_pid = pid;
+#endif
+  int healthy = nonblocking(out[0]) == 0;
+  // Always configure both read ends, including the failure cleanup path.
+  if (nonblocking(err[0]) < 0)
+    healthy = 0;
+  if (!healthy) {
+    // A blocking pipe cannot be drained safely after a setup failure.
+    close(out[0]);
+    close(err[0]);
+    out[0] = err[0] = -1;
+  }
   GString* stdout_data = g_string_new(NULL);
   GString* stderr_data = g_string_new(NULL);
   gint64 deadline = g_get_monotonic_time() + 1500000;
-  int healthy = 1;
   int reaped = 0;
   int child_status = 0;
   while (healthy && (!reaped || out[0] >= 0 || err[0] >= 0)) {

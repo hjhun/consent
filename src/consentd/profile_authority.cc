@@ -55,9 +55,10 @@ class ProfileAuthority::Impl final
       return;
     }
     GError* error = nullptr;
-    gchar* address = test_address_.empty()
+    std::unique_ptr<gchar, decltype(&g_free)> address(
+        test_address_.empty()
         ? g_dbus_address_get_for_bus_sync(G_BUS_TYPE_SYSTEM, nullptr, &error)
-        : g_strdup(test_address_.c_str());
+        : g_strdup(test_address_.c_str()), g_free);
     if (!address) {
       g_clear_error(&error);
       Lose();
@@ -67,38 +68,11 @@ class ProfileAuthority::Impl final
     connect_cancel_ = g_cancellable_new();
     auto* pin = new Connect{shared_from_this(), incarnation_};
     g_dbus_connection_new_for_address(
-        address, static_cast<GDBusConnectionFlags>(
+        address.get(), static_cast<GDBusConnectionFlags>(
                      G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
                      G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
         nullptr, connect_cancel_,
-        [](GObject*, GAsyncResult* result, gpointer data) {
-          std::unique_ptr<Connect> pin(static_cast<Connect*>(data));
-          auto self = pin->self;
-          GError* error = nullptr;
-          auto* connection = g_dbus_connection_new_for_address_finish(
-              result, &error);
-          g_clear_error(&error);
-          if (pin->incarnation != self->incarnation_) {
-            if (connection) {
-              g_dbus_connection_close(connection, nullptr, nullptr, nullptr);
-              g_object_unref(connection);
-            }
-            return;
-          }
-          self->connecting_ = false;
-          g_clear_object(&self->connect_cancel_);
-          self->ClearTimer();
-          if (self->stopping_) {
-            if (connection)
-              g_object_unref(connection);
-          } else if (connection) {
-            self->connection_ = connection;
-            self->Watch();
-          } else {
-            self->Lose();
-          }
-        }, pin);
-    g_free(address);
+        OnConnectFinished, pin);
     ArmTimer([self = shared_from_this()] {
       if (self->connect_cancel_)
         g_cancellable_cancel(self->connect_cancel_);
@@ -135,6 +109,75 @@ class ProfileAuthority::Impl final
     std::function<void(GVariant*)> done;
   };
 
+  static void OnConnectFinished(GObject*, GAsyncResult* result,
+                                gpointer data) noexcept {
+    std::unique_ptr<Connect> pin(static_cast<Connect*>(data));
+    auto self = pin->self;
+    GError* error = nullptr;
+    auto* raw = g_dbus_connection_new_for_address_finish(result, &error);
+    g_clear_error(&error);
+    std::unique_ptr<GDBusConnection, decltype(&g_object_unref)> connection(
+        raw, g_object_unref);
+    try {
+      if (pin->incarnation != self->incarnation_) {
+        if (connection)
+          g_dbus_connection_close(connection.get(), nullptr, nullptr, nullptr);
+        return;
+      }
+      self->connecting_ = false;
+      g_clear_object(&self->connect_cancel_);
+      self->ClearTimer();
+      if (self->stopping_)
+        return;
+      if (connection) {
+        self->connection_ = connection.release();
+        self->Watch();
+      } else {
+        self->Lose();
+      }
+    } catch (...) {
+      self->Stop();
+    }
+  }
+
+  static void OnMethodFinished(GObject* object, GAsyncResult* result,
+                               gpointer data) noexcept {
+    std::unique_ptr<Call> call(static_cast<Call*>(data));
+    auto self = call->self;
+    GError* error = nullptr;
+    std::unique_ptr<GVariant, decltype(&g_variant_unref)> reply(
+        g_dbus_connection_call_finish(G_DBUS_CONNECTION(object), result,
+                                      &error), g_variant_unref);
+    g_clear_error(&error);
+    try {
+      bool current = !self->stopping_ &&
+          call->generation == self->state_->Generation() &&
+          call->owner == self->owner_ && self->owner_ == self->ready_owner_;
+      if (!current)
+        return;
+      if (reply)
+        call->done(reply.get());
+      else
+        self->Lose();
+    } catch (...) {
+      self->Stop();
+    }
+  }
+
+  static void OnSignal(GDBusConnection*, const gchar* sender,
+                       const gchar* path, const gchar* interface,
+                       const gchar* name, GVariant* params,
+                       gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    try {
+      if (!self->stopping_ && self->owner_ == sender &&
+          !strcmp(path, kPath) && !strcmp(interface, kInterface))
+        self->Signal(name, params);
+    } catch (...) {
+      self->Stop();
+    }
+  }
+
   void ClearTimer() noexcept {
     if (timer_) {
       g_source_destroy(timer_);
@@ -143,27 +186,30 @@ class ProfileAuthority::Impl final
     }
   }
 
+  struct Timer {
+    std::shared_ptr<Impl> self;
+    std::function<void()> work;
+  };
+
+  static gboolean OnTimer(gpointer data) noexcept {
+    // Pin the envelope without allocation before reentrant ClearTimer.
+    auto timer = *static_cast<std::shared_ptr<Timer>*>(data);
+    try {
+      timer->work();
+    } catch (...) {
+      timer->self->Stop();
+    }
+    return G_SOURCE_REMOVE;
+  }
+
   void ArmTimer(std::function<void()> work, unsigned timeout) {
     ClearTimer();
-    auto self = shared_from_this();
-    auto guarded = [self, work = std::move(work)] {
-      try {
-        work();
-      } catch (...) {
-        self->Stop();
-      }
-    };
+    auto timer = std::make_shared<Timer>(
+        Timer{shared_from_this(), std::move(work)});
+    auto data = std::make_unique<std::shared_ptr<Timer>>(std::move(timer));
     timer_ = g_timeout_source_new(timeout);
-    g_source_set_callback(timer_, [](gpointer data) -> gboolean {
-      try {
-        auto work = *static_cast<std::function<void()>*>(data);
-        work();
-      } catch (...) {
-        LOG(WARNING) << "event=profile-authority callback=timer-failed";
-      }
-      return G_SOURCE_REMOVE;
-    }, new std::function<void()>(std::move(guarded)), [](gpointer data) {
-      delete static_cast<std::function<void()>*>(data);
+    g_source_set_callback(timer_, OnTimer, data.release(), [](gpointer data) {
+      delete static_cast<std::shared_ptr<Timer>*>(data);
     });
     g_source_attach(timer_, g_main_context_get_thread_default());
   }
@@ -194,46 +240,52 @@ class ProfileAuthority::Impl final
     if (stopping_ || watches_[0] || watches_[1])
       return;
     g_dbus_connection_set_exit_on_close(connection_, FALSE);
-    closed_ = g_signal_connect(connection_, "closed", G_CALLBACK(+[](
-        GDBusConnection*, gboolean, GError*, gpointer data) {
-      auto* self = static_cast<Impl*>(data);
-      try {
-        self->Lose();
-      } catch (...) {
-        self->Stop();
-      }
-    }), this);
+    closed_ = g_signal_connect(connection_, "closed",
+                               G_CALLBACK(OnClosed), this);
     for (unsigned i = 0; i < 2; ++i) {
       watches_[i] = g_bus_watch_name_on_connection(
           connection_, i ? kReady : kManager, G_BUS_NAME_WATCHER_FLAGS_NONE,
-          [](GDBusConnection*, const gchar* name, const gchar* owner,
-             gpointer data) {
-            auto* self = static_cast<Impl*>(data);
-            if (self->stopping_)
-              return;
-            auto& slot = !strcmp(name, kReady) ? self->ready_owner_
-                                               : self->owner_;
-            if (!slot.empty() && slot != owner) {
-              self->Lose();
-              return;
-            }
-            slot = owner;
-            try {
-              self->Initialize();
-            } catch (...) {
-              self->Stop();
-            }
-          },
-          [](GDBusConnection*, const gchar*, gpointer data) {
-            auto* self = static_cast<Impl*>(data);
-            if (!self->stopping_ &&
-                (!self->owner_.empty() || !self->ready_owner_.empty()))
-              try {
-                self->Lose();
-              } catch (...) {
-                self->Stop();
-              }
-          }, this, nullptr);
+          OnNameAppeared, OnNameVanished, this, nullptr);
+    }
+  }
+
+  static void OnClosed(GDBusConnection*, gboolean, GError*,
+                       gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    try {
+      self->Lose();
+    } catch (...) {
+      self->Stop();
+    }
+  }
+
+  static void OnNameAppeared(GDBusConnection*, const gchar* name,
+                             const gchar* owner, gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    try {
+      if (self->stopping_)
+        return;
+      auto& slot = !strcmp(name, kReady) ? self->ready_owner_ : self->owner_;
+      if (!slot.empty() && slot != owner) {
+        self->Lose();
+        return;
+      }
+      slot = owner;
+      self->Initialize();
+    } catch (...) {
+      self->Stop();
+    }
+  }
+
+  static void OnNameVanished(GDBusConnection*, const gchar*,
+                             gpointer data) noexcept {
+    auto* self = static_cast<Impl*>(data);
+    try {
+      if (!self->stopping_ &&
+          (!self->owner_.empty() || !self->ready_owner_.empty()))
+        self->Lose();
+    } catch (...) {
+      self->Stop();
     }
   }
 
@@ -278,35 +330,7 @@ class ProfileAuthority::Impl final
                           std::move(done)};
     g_dbus_connection_call(connection_, owner_.c_str(), kPath, kInterface,
         name, params, type, G_DBUS_CALL_FLAGS_NONE, timeout_, cancel_,
-        [](GObject* object, GAsyncResult* result, gpointer data) {
-          std::unique_ptr<Call> call(static_cast<Call*>(data));
-          GError* error = nullptr;
-          GVariant* reply = g_dbus_connection_call_finish(
-              G_DBUS_CONNECTION(object), result, &error);
-          auto self = call->self;
-          bool current = !self->stopping_ &&
-              call->generation == self->state_->Generation() &&
-              call->owner == self->owner_ &&
-              self->owner_ == self->ready_owner_;
-          if (current) {
-            if (reply)
-              try {
-                call->done(reply);
-              } catch (...) {
-                self->Stop();
-              }
-            else {
-              try {
-                self->Lose();
-              } catch (...) {
-                self->Stop();
-              }
-            }
-          }
-          if (reply)
-            g_variant_unref(reply);
-          g_clear_error(&error);
-        }, call);
+        OnMethodFinished, call);
   }
 
   bool Known(const std::string& user) const {
@@ -330,18 +354,7 @@ class ProfileAuthority::Impl final
     signal_ = g_dbus_connection_signal_subscribe(
         connection_, owner_.c_str(), kInterface, nullptr, kPath, nullptr,
         G_DBUS_SIGNAL_FLAGS_NONE,
-        [](GDBusConnection*, const gchar* sender, const gchar* path,
-           const gchar* interface, const gchar* name, GVariant* params,
-           gpointer data) {
-          auto* self = static_cast<Impl*>(data);
-          if (!self->stopping_ && self->owner_ == sender &&
-              !strcmp(path, kPath) && !strcmp(interface, kInterface))
-            try {
-              self->Signal(name, params);
-            } catch (...) {
-              self->Stop();
-            }
-        }, this, nullptr);
+        OnSignal, this, nullptr);
     auto self = shared_from_this();
     Method("SwitchUserWait", g_variant_new("(i)", uid_),
            G_VARIANT_TYPE_UNIT, [self](GVariant*) {

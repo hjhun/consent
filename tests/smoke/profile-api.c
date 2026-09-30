@@ -21,18 +21,51 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int callback_status;
-static int callback_done;
-static int api_returned;
-static consent_result_t* callback_result;
+struct Pending {
+  int active;
+  int returned;
+  int done;
+  int status;
+  consent_result_t* result;
+};
+
+static void pending_reset(struct Pending* pending) {
+  smoke_expect(!pending->active && !pending->result, "one pending operation");
+  *pending = (struct Pending){.active = 1};
+}
+
+// Call only after client destruction has detached all accepted callbacks.
+static void pending_clear(struct Pending* pending) {
+  consent_result_free(pending->result);
+  *pending = (struct Pending){0};
+}
 
 static void on_result(int status, const consent_result_t* result, void* data) {
-  (void)data;
-  smoke_expect(api_returned && !callback_done, "async callback contract");
-  callback_status = status;
+  struct Pending* pending = data;
+  smoke_expect(pending->active && pending->returned && !pending->done,
+               "async callback contract");
+  pending->status = status;
   if (result)
-    smoke_call(consent_result_clone(result, &callback_result), "clone result");
-  callback_done = 1;
+    smoke_call(consent_result_clone(result, &pending->result), "clone result");
+  pending->done = 1;
+}
+
+static consent_result_t* pending_take(struct Pending* pending, int* status) {
+  smoke_expect(pending->active && pending->done, "completed pending result");
+  *status = pending->status;
+  consent_result_t* result = pending->result;
+  pending->result = NULL;
+  pending->active = 0;
+  return result;
+}
+
+static void pending_wait(struct Pending* pending) {
+  gint64 deadline = g_get_monotonic_time() + 5000000;
+  while (!pending->done && g_get_monotonic_time() < deadline) {
+    g_main_context_iteration(NULL, FALSE);
+    g_usleep(1000);
+  }
+  smoke_expect(pending->done, "bounded profile async callback");
 }
 
 int main(int argc, char** argv) {
@@ -42,6 +75,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   setvbuf(stdout, NULL, _IONBF, 0);
+  struct Pending pending = {0};
   consent_client_h client = NULL;
   smoke_call(consent_client_create(&client), "profile actor create");
   char* session = NULL;
@@ -80,12 +114,13 @@ int main(int argc, char** argv) {
       smoke_set(params, "step_id", "probe");
       smoke_set(params, "client_request_id", operation);
       if (!strcmp(verb, "begin")) {
-        callback_done = 0;
-        api_returned = 0;
-        callback_result = NULL;
+        pending_reset(&pending);
         consent_async_id_t id = 0;
-        status = consent_request_async(client, params, on_result, NULL, &id);
-        api_returned = 1;
+        status = consent_request_async(client, params, on_result, &pending,
+                                       &id);
+        pending.returned = 1;
+        if (status)
+          pending.active = 0;
         if (!status) {
           for (unsigned i = 0; i < 100; ++i) {
             status = consent_get_request_result(client, params, &result);
@@ -100,23 +135,17 @@ int main(int argc, char** argv) {
           }
         }
       } else if (strstr(verb, "_async")) {
-        callback_done = 0;
-        api_returned = 0;
-        callback_result = NULL;
+        pending_reset(&pending);
         consent_async_id_t id = 0;
         status = request
-            ? consent_request_async(client, params, on_result, NULL, &id)
-            : consent_check_async(client, params, on_result, NULL, &id);
-        api_returned = 1;
+            ? consent_request_async(client, params, on_result, &pending, &id)
+            : consent_check_async(client, params, on_result, &pending, &id);
+        pending.returned = 1;
+        if (status)
+          pending.active = 0;
         if (!status) {
-          gint64 deadline = g_get_monotonic_time() + 5000000;
-          while (!callback_done && g_get_monotonic_time() < deadline) {
-            g_main_context_iteration(NULL, FALSE);
-            g_usleep(1000);
-          }
-          smoke_expect(callback_done, "bounded profile async callback");
-          status = callback_status;
-          result = callback_result;
+          pending_wait(&pending);
+          result = pending_take(&pending, &status);
         }
       } else {
         status = request ? consent_request(client, params, 5000, &result)
@@ -139,15 +168,8 @@ int main(int argc, char** argv) {
         status = consent_respond(client, params, &result);
       }
     } else if (!strcmp(verb, "poll")) {
-      gint64 deadline = g_get_monotonic_time() + 3000000;
-      while (!callback_done && g_get_monotonic_time() < deadline) {
-        g_main_context_iteration(NULL, FALSE);
-        g_usleep(1000);
-      }
-      smoke_expect(callback_done, "pending request completed");
-      status = callback_status;
-      result = callback_result;
-      callback_result = NULL;
+      pending_wait(&pending);
+      result = pending_take(&pending, &status);
     } else if (!strcmp(verb, "open")) {
       smoke_set(params, "lifecycle", "RESUMABLE_CONVERSATION");
       status = consent_session_open(client, params, &result);
@@ -174,6 +196,8 @@ int main(int argc, char** argv) {
       }
     } else if (!strcmp(verb, "reconnect")) {
       smoke_call(consent_client_destroy(client), "destroy old profile handle");
+      pending_clear(&pending);
+      client = NULL;
       status = consent_client_create(&client);
     } else {
       return 2;
@@ -190,7 +214,7 @@ int main(int argc, char** argv) {
            "source=%s callbacks=%d\n",
            verb, profile, status,
            decision ? decision : "-", state ? state : "-",
-           source ? source : "-", callback_done);
+           source ? source : "-", pending.done);
     consent_result_free(result);
     consent_params_free(params);
   }
@@ -200,5 +224,6 @@ int main(int argc, char** argv) {
   g_free(request_id);
   g_free(prompt_token);
   smoke_call(consent_client_destroy(client), "profile actor destroy");
+  pending_clear(&pending);
   return 0;
 }

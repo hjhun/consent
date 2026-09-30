@@ -76,15 +76,6 @@ void ReleaseClient(pid_t pid) {
   }
 }
 
-class Lock final {
- public:
-  explicit Lock(GMutex& mutex) : mutex_(mutex) { g_mutex_lock(&mutex_); }
-  ~Lock() { g_mutex_unlock(&mutex_); }
-
- private:
-  GMutex& mutex_;
-};
-
 struct EndpointSnapshot {
   dev_t device = 0;
   ino_t inode = 0;
@@ -400,7 +391,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     void* user_data = nullptr;
     GSource* source = nullptr;
     {
-      Lock lock(state->mutex_);
+      MutexLock lock(state->mutex_);
       auto it = state->delivery_.sources_.find(operation->local_id);
       if (it != state->delivery_.sources_.end()) {
         source = it->second;
@@ -430,7 +421,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
 
   void Complete(const std::shared_ptr<Operation>& operation, int status,
                 Message result = {}) {
-    Lock lock(mutex_);
+    MutexLock lock(mutex_);
     if (operation->done || operation->detached)
       return;
     operation->status = status;
@@ -482,7 +473,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     Message cached;
     bool cached_hit = false;
     {
-      Lock lock(mutex_);
+      MutexLock lock(mutex_);
       if (closed_ || disconnected_)
         return CONSENT_ERROR_DISCONNECTED;
       if (operation->message.count("approval_version")) {
@@ -542,7 +533,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
 
   void Queue(const std::shared_ptr<Operation>& operation) {
     {
-      Lock lock(mutex_);
+      MutexLock lock(mutex_);
       if (operation->done || operation->detached)
         return;
     }
@@ -571,7 +562,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
   }
 
   void Invalidate(const Message& message) {
-    Lock lock(mutex_);
+    MutexLock lock(mutex_);
     if (Get(message, "profile_authority") == "1")
       profile_authority_ = true;
     cache_.clear();
@@ -598,7 +589,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
         status < INT_MIN)
       return false;
     {
-      Lock lock(mutex_);
+      MutexLock lock(mutex_);
       operation->accepted = true;
       if (Get(message, "profile_authority") == "1") {
         profile_authority_ = true;
@@ -643,7 +634,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       // even after queueing, fragmented reads or a long user approval wait.
       gint64 expires = operation->admitted + std::max<gint64>(0, ttl) * 1000;
       if (ttl > 0 && expires > g_get_monotonic_time()) {
-        Lock lock(mutex_);
+        MutexLock lock(mutex_);
         if (synced_) {
           if (cache_.size() >= 64) {
             auto oldest = std::min_element(
@@ -667,7 +658,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
 
   void Fail(int error) {
     {
-      Lock lock(mutex_);
+      MutexLock lock(mutex_);
       disconnected_ = true;
       synced_ = false;
       cache_.clear();
@@ -677,7 +668,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       std::shared_ptr<Operation> operation;
       int status = error;
       {
-        Lock lock(mutex_);
+        MutexLock lock(mutex_);
         for (const auto& entry : operations_) {
           if (!entry.second->done && !entry.second->detached) {
             operation = entry.second;
@@ -737,7 +728,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     while (!transport_.output_.empty()) {
       auto& current = transport_.output_.front();
       {
-        Lock lock(mutex_);
+        MutexLock lock(mutex_);
         if (!current.offset &&
             (current.operation->done || current.operation->detached)) {
           transport_.output_bytes_ -= current.frame.size();
@@ -800,7 +791,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
     try {
       std::vector<std::shared_ptr<Operation>> pending;
       {
-        Lock lock(mutex_);
+        MutexLock lock(mutex_);
         if (closed_ || disconnected_) {
           io_.Stop();
           return;
@@ -829,7 +820,7 @@ struct Client::State : public std::enable_shared_from_this<Client::State> {
       for (auto it = transport_.wire_.begin(); it != transport_.wire_.end();) {
         bool done;
         {
-          Lock lock(mutex_);
+          MutexLock lock(mutex_);
           done = it->second->done || it->second->detached;
         }
         if (done)
@@ -926,7 +917,7 @@ int Client::Connect() {
   Message result;
   status = Call({{"method", "hello"}}, 2000, &result);
   if (status == 0) {
-    Lock lock(state_->mutex_);
+    MutexLock lock(state_->mutex_);
     state_->approval_supported_ = Get(result, "approval_version") == "1";
   }
   return status;
@@ -937,7 +928,7 @@ int Client::Close() {
     return CONSENT_ERROR_INVALID_PARAMETER;
   std::map<uint64_t, GSource*> sources;
   {
-    Lock lock(state_->mutex_);
+    MutexLock lock(state_->mutex_);
     if (state_->closed_)
       return 0;
     state_->closed_ = true;
@@ -973,7 +964,7 @@ int Client::Call(Message message, unsigned timeout_ms, Message* result) {
                              nullptr, &operation);
   if (status)
     return status;
-  Lock lock(state_->mutex_);
+  MutexLock lock(state_->mutex_);
   while (!operation->done) {
     if (!g_cond_wait_until(&state_->condition_, &state_->mutex_,
                            operation->deadline)) {
@@ -1009,7 +1000,7 @@ int Client::Detach(uint64_t operation_id) {
     return CONSENT_ERROR_INVALID_PARAMETER;
   GSource* source = nullptr;
   {
-    Lock lock(state_->mutex_);
+    MutexLock lock(state_->mutex_);
     auto it = state_->operations_.find(operation_id);
     if (it == state_->operations_.end() || !it->second->asynchronous)
       return CONSENT_ERROR_NOT_FOUND;

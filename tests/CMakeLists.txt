@@ -9,6 +9,10 @@ FOREACH(SOURCE ${TEST_SOURCES})
   GET_FILENAME_COMPONENT(TEST_NAME "${SOURCE}" NAME_WE)
   STRING(REPLACE "_" "-" TEST_NAME "${TEST_NAME}")
   ADD_EXECUTABLE(${TEST_NAME} "${SOURCE}")
+  IF(TEST_NAME STREQUAL "profile-config-test")
+    TARGET_SOURCES(${TEST_NAME} PRIVATE
+      "${PROJECT_SOURCE_DIR}/src/consentd/profile_config.cc")
+  ENDIF()
   IF(TEST_NAME STREQUAL "profile-transport-test")
     TARGET_SOURCES(${TEST_NAME} PRIVATE
       "${PROJECT_SOURCE_DIR}/src/consentd/profile_authority.cc")
@@ -86,6 +90,7 @@ FOREACH(SOURCE ${TEST_SOURCES})
       ${TEST_NAME}
       PRIVATE "${PROJECT_SOURCE_DIR}/src/consentd/server.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/profile_authority.cc"
+              "${PROJECT_SOURCE_DIR}/src/consentd/profile_config.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/bootstrap.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/identity.cc"
               "${PROJECT_SOURCE_DIR}/src/consentd/key_file.cc"
@@ -180,10 +185,11 @@ ENDIF()
 
 IF(CONSENT_BUILD_POC)
   ADD_EXECUTABLE(feature-endpoint-fixture endpoint-fixture.c)
+  SET(FEATURE_SOCKET "/opt/var/lib/consent-feature-runtime/argo.sock")
   TARGET_COMPILE_DEFINITIONS(
     feature-endpoint-fixture
     PRIVATE
-      CONSENT_FIXTURE_SOCKET_PATH="/opt/var/lib/consent-feature-runtime/argo.sock"
+      CONSENT_FIXTURE_SOCKET_PATH="${FEATURE_SOCKET}"
   )
   INSTALL(TARGETS feature-endpoint-fixture
           RUNTIME DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/consent/tests"
