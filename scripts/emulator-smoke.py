@@ -225,7 +225,7 @@ def setup(tools=False):
                       f'label=System\nroles={role};\n'
                       'subjects=smoke.subject;\nprofiles=smoke.profile;\n'
                       f'enforcers={role};\npackages=smoke.package;\n')
-    policy = ROOT / 'roles.conf' 
+    policy = ROOT / 'roles.conf'
     policy.write_text(roles)
     policy.chmod(0o640)
     os.chown(policy, 0, group)
@@ -454,7 +454,7 @@ def tools_scenarios(args, generation):
         assert response['id'] == request['id']
         assert response['error']['code'] == -32602 and 'result' not in response
     print('PASS actual input/level boundaries rejected before gate admission')
-    cm_definition, ce_definition = 'smoke.cm.tool.summary', 'smoke.ce.tool.level0' 
+    cm_definition, ce_definition = 'smoke.cm.tool.summary', 'smoke.ce.tool.level0'
     cm = Actor('tool-cm', cm_definition)
     ce = Actor('tool-ce', ce_definition)
     for actor in (cm, ce):
@@ -605,7 +605,7 @@ def main(args):
         if args.require_product:
             raise RuntimeError('product public API integration required but blocked')
         return
-    fixture_data = ROOT / 'context-data.txt' 
+    fixture_data = ROOT / 'context-data.txt'
     fixture_data.write_text('isolated context fixture\n')
     definitions = [('smoke.cm.read', 'cm', '1')]
     definitions += [(f'smoke.ce.level{i}', 'ce', str(i)) for i in range(4)]

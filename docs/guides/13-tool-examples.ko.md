@@ -194,9 +194,12 @@ persistent grant를 보존합니다. Old handle은 DISCONNECTED이며 actor PID/
 
 ## 검증된 Release21 snapshot (2026-09-30)
 
-CONSENT-INTEGRATION-02 구현 r4는 baseline `a569363`와 커밋하지 않은 개발자 예제
-변경입니다. `source-r4.json`의 native/build/runner21개 파일이 현재 구현과 일치합니다.
-검증 후 문서에 증거를 추가하며 문서만을 위해 native를 다시 빌드하지 않습니다.
+CONSENT-INTEGRATION-02 구현 r4는 baseline `a569363`와 개발자 예제 변경입니다.
+`source-r4.json`의 native/build/runner21개 파일은 실제 실행·설치한 Release21
+snapshot과 일치합니다. 게시 시 runner의 trailing space 세 곳만 제거했으며 Python
+AST는 동일하지만 게시된 byte hash는 설치 r4와 다릅니다. 원래 로그/RPM을 유지하고
+외부 `publication-whitespace.json`에 old/new hash를 기록했습니다. 이 mechanical
+게시 수정으로 package를 다시 빌드하지 않았습니다. 검증 후 문서에 증거를 추가합니다.
 증거는 `/var/tmp/consent-artifacts/consent-integration-02/`에 보존합니다.
 
 | 증거 | 실제 결과 |
@@ -204,7 +207,7 @@ CONSENT-INTEGRATION-02 구현 r4는 baseline `a569363`와 커밋하지 않은 �
 | `gbs-r4.log`, `gbs-r4.exit` | 위 exact build 명령; exit0, CTest27개 중23 PASS +4 root-only SKIP |
 | `rpms-r4/`, `rpm-r4-sha256.json` | Release21 RPM 보관 및 matching source manifest |
 | `install-r4.log`, `install-r4.exit` | 정상 upgrade exit0, runtime/devel/tests만 설치 |
-| `installed-r4-hash.log` | 설치 smoke payload17개 hash가 보관 RPM과 일치; runner도 source와 일치 |
+| `installed-r4-hash.log` | 설치 smoke payload17개 hash가 보관 RPM과 일치; runner도 실행한 source-r4와 일치 |
 | `installed-tools-seed20261002-r4.log` | SMOKE_EXIT0, TOOLS_OUTER_EXIT0; 모든 도구 시나리오 및3개 복구 PASS |
 | `installed-strict-seed20261003-r4.log` | 도구 시나리오 전부 PASS 후 명시적 product gate; SMOKE_EXIT1, STRICT_OUTER_EXIT1 |
 | `installed-default-seed20261004-r4.log` | 기본 smoke01 회귀 SMOKE_EXIT0, DEFAULT_OUTER_EXIT0 |

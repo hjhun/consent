@@ -200,9 +200,13 @@ No populated QUERY-cache invalidation proof is claimed.
 ## Verified Release21 snapshot (2026-09-30)
 
 CONSENT-INTEGRATION-02 implementation r4 uses baseline `a569363` plus the
-uncommitted developer-example changes. `source-r4.json` records21 native/build/
-runner files and matches the current implementation. Documentation evidence is
-updated after validation; it does not require another native build.
+developer-example changes. `source-r4.json` records21 native/build/runner files
+and matches the executed and installed Release21 snapshot. Publication removes
+only three trailing spaces from the runner; its Python AST is identical, but its
+published byte hash differs from installed r4. The original logs/RPMs remain;
+external `publication-whitespace.json` records old/new hashes. No package was
+rebuilt for this mechanical publication correction. Documentation evidence is
+updated after validation.
 All evidence below is preserved in
 `/var/tmp/consent-artifacts/consent-integration-02/`.
 
@@ -211,7 +215,7 @@ All evidence below is preserved in
 | `gbs-r4.log`, `gbs-r4.exit` | Exact build command above; exit0, CTest23 PASS +4 root-only SKIP of27 |
 | `rpms-r4/`, `rpm-r4-sha256.json` | Archived Release21 RPMs; matching source manifest |
 | `install-r4.log`, `install-r4.exit` | Normal upgrade exit0, runtime/devel/tests only |
-| `installed-r4-hash.log` | All17 installed smoke payload hashes equal archived RPM digests; runner equals source |
+| `installed-r4-hash.log` | All17 installed smoke payload hashes equal archived RPM digests; runner equals executed source-r4 |
 | `installed-tools-seed20261002-r4.log` | SMOKE_EXIT0, TOOLS_OUTER_EXIT0; all tool scenarios and3 recoveries PASS |
 | `installed-strict-seed20261003-r4.log` | All tool scenarios PASS, then explicit product gate; SMOKE_EXIT1, STRICT_OUTER_EXIT1 |
 | `installed-default-seed20261004-r4.log` | Default smoke01 regression SMOKE_EXIT0, DEFAULT_OUTER_EXIT0 |
