@@ -1,5 +1,9 @@
 # 08. Consent UI and participant PoC
 
+For the repository-owned one-command actual UI runner, see
+[Guide 17](17-native-ui-smoke.en.md). Its current verification status is
+recorded separately from the historical UI09 runs below.
+
 This development-only integration uses a .NET NUI application and five native
 mock participants against the public C API and an isolated consent daemon.
 It does not provision production roles, replace the platform approval UI, or

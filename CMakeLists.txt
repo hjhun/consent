@@ -162,8 +162,10 @@ IF(CONSENT_BUILD_POC)
   )
   LIST(FILTER CONSENT_UI_SOURCES EXCLUDE REGEX "/(obj|bin)/")
   SET(CONSENT_UI_TPK "${PROJECT_BINARY_DIR}/org.tizen.consentui-0.1.0.tpk")
+  SET(CONSENT_UI_METADATA
+      "${PROJECT_BINARY_DIR}/org.tizen.consentui-0.1.0.build.json")
   ADD_CUSTOM_COMMAND(
-    OUTPUT "${CONSENT_UI_TPK}"
+    OUTPUT "${CONSENT_UI_TPK}" "${CONSENT_UI_METADATA}"
     COMMAND
       "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
       --source-dir "${PROJECT_SOURCE_DIR}/src/consent-ui" --work-dir
@@ -175,8 +177,9 @@ IF(CONSENT_BUILD_POC)
             "${PROJECT_SOURCE_DIR}/src/tools/build_poc_tpk.py"
     VERBATIM
   )
-  ADD_CUSTOM_TARGET(consent-ui-tpk ALL DEPENDS "${CONSENT_UI_TPK}")
-  INSTALL(FILES "${CONSENT_UI_TPK}"
+  ADD_CUSTOM_TARGET(consent-ui-tpk ALL
+    DEPENDS "${CONSENT_UI_TPK}" "${CONSENT_UI_METADATA}")
+  INSTALL(FILES "${CONSENT_UI_TPK}" "${CONSENT_UI_METADATA}"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/consent/poc"
   )
   SET(CONSENT_NEGATIVE_TPK

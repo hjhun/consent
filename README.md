@@ -171,6 +171,7 @@ links each English guide to its Korean counterpart.
 | Persistent CM/CE mock services | [Guide 14](docs/guides/14-mock-services.en.md) | [가이드 14](docs/guides/14-mock-services.ko.md) |
 | Explicit requester profiles and sessiond authority | [Guide 15](docs/guides/15-profile-authority.en.md) | [가이드 15](docs/guides/15-profile-authority.ko.md) |
 | Authored-style audit and remaining development | [Guide 16](docs/guides/16-authored-style-audit.en.md) | [가이드 16](docs/guides/16-authored-style-audit.ko.md) |
+| Repeatable native UI smoke | [Guide 17](docs/guides/17-native-ui-smoke.en.md) | [가이드 17](docs/guides/17-native-ui-smoke.ko.md) |
 
 Contributors and coding agents should also read [AGENTS.md](AGENTS.md).
 

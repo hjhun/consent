@@ -1,5 +1,8 @@
 # 08. Consent UI와 참여자 PoC
 
+저장소의 one-command 실제 UI runner는 [가이드 17](17-native-ui-smoke.ko.md)을
+참조하십시오. 현재 검증 상태는 아래의 과거 UI09 실행 증거와 구분합니다.
+
 .NET NUI 앱과 별도 native mock 5개가 공개 C API와 격리 consent daemon을
 사용하는 개발용 통합입니다. 운영 역할, 실제 제품 승인 UI, Installer의
 제품 설치 트랜잭션 연동을 완료한 것으로 해석하지 않습니다.

@@ -144,7 +144,8 @@ def payload():
             'foreign fixture marker')
     manifest = json.loads(read(ROOT / 'payload.json'))
     require(manifest.get('task') == 'CONSENT-UI-NATIVE-09' and
-            manifest.get('release') == 27, 'wrong package snapshot')
+            type(manifest.get('release')) is int and
+            manifest['release'] in (27, 28), 'wrong package snapshot')
     files = manifest.get('files')
     require(isinstance(files, dict) and 1 <= len(files) <= 128,
             'invalid payload manifest')
@@ -352,20 +353,58 @@ def drain_transient(unit, path):
     wait_empty(unit)
 
 
+def cgroup_empty(group):
+    if not isinstance(group, str) or not group.startswith('/') or (
+            '..' in Path(group).parts or len(group) > 1024):
+        raise RuntimeError('invalid owned cgroup path')
+    rows = Path('/proc/self/mountinfo').read_text().splitlines()
+    systemd = []
+    unified = []
+    for row in rows:
+        left, separator, right = row.partition(' - ')
+        if not separator:
+            raise RuntimeError('invalid kernel mount record')
+        fields, filesystem = left.split(), right.split()
+        if filesystem[0] == 'cgroup' and 'name=systemd' in filesystem[2]:
+            systemd.append(Path(fields[4]))
+        elif filesystem[0] == 'cgroup2':
+            unified.append(Path(fields[4]))
+    mounts = systemd or unified
+    if len(mounts) != 1:
+        raise RuntimeError('unknown systemd cgroup hierarchy')
+    path = mounts[0] / group.lstrip('/')
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    count = 0
+    def failed_walk(error):
+        raise error
+    for directory, children, _ in os.walk(path, followlinks=False,
+                                           onerror=failed_walk):
+        count += 1
+        if count > 4096:
+            raise RuntimeError('cgroup descendants exceeded bound')
+        for child in children:
+            if (Path(directory) / child).is_symlink():
+                raise RuntimeError('foreign cgroup link')
+        name = 'tasks' if systemd else 'cgroup.procs'
+        file = Path(directory) / name
+        with file.open() as stream:
+            content = stream.read(1048577)
+        if len(content) > 1048576:
+            raise RuntimeError('cgroup task list exceeded bound')
+        if content.strip():
+            return False
+    return True
+
+
 def wait_empty(unit):
     deadline = time.monotonic() + 12
     while time.monotonic() < deadline:
         pid = show(unit, 'MainPID')
         cgroup = show(unit, 'ControlGroup')
-        live = False
-        if cgroup:
-            for root in (Path('/sys/fs/cgroup'),
-                         Path('/sys/fs/cgroup/systemd')):
-                for name in ('tasks', 'cgroup.procs'):
-                    tasks = root / cgroup.lstrip('/') / name
-                    if tasks.exists() and tasks.read_text().strip():
-                        live = True
-        if pid in ('', '0') and not live:
+        if pid in ('', '0') and (not cgroup or cgroup_empty(cgroup)):
             return
         time.sleep(0.1)
     raise RuntimeError('owned cgroup did not drain')
@@ -382,7 +421,9 @@ def setup(acquired):
         require(show(unit, 'ActiveState') in ('inactive', 'failed') and
                 show(unit, 'MainPID') in ('', '0'), 'original PoC is running')
     for path in (*SOCKETS, STATE, AUTHORITY, ROOT / 'roles.conf',
-                 ROOT / 'generation', ROOT / 'managed.json', ROOT / 'actors.json'):
+                 ROOT / 'generation', ROOT / 'managed.json',
+                 ROOT / 'actors.json',
+                 ROOT / 'acquired.json'):
         require(not os.path.lexists(path), 'fresh fixture path already exists')
     require(pwd.getpwnam('security_fw').pw_uid > 0, 'invalid daemon account')
     mounts = command('findmnt', '-rn', '-o', 'TARGET').splitlines()
@@ -449,7 +490,29 @@ def setup(acquired):
     save(ROOT / 'managed.json', json.dumps({
         'units': {unit: hashlib.sha256(text.encode()).hexdigest()
                   for unit, text in managed_units().items()},
-        'created_runtime': list(acquired['directories'])}).encode())
+        'created_runtime': {name: {
+            'dev': info.st_dev, 'inode': info.st_ino, 'uid': info.st_uid,
+            'gid': info.st_gid, 'mode': stat.S_IMODE(info.st_mode),
+            'smack': '_'}
+            for name, info in acquired['directories'].items()}}).encode())
+    manifest = json.loads(read(ROOT / 'payload.json'))
+    if 'invocation' in manifest:
+        nonce = manifest['invocation']
+        require(isinstance(nonce, str) and len(nonce) == 64 and
+                all(character in '0123456789abcdef' for character in nonce),
+                'invalid invocation nonce')
+        identity = manifest['root_identity']
+        info = protected(ROOT, directory=True)
+        require(info.st_dev == identity['dev'] and
+                info.st_ino == identity['inode'], 'invocation root changed')
+        save(ROOT / 'acquired.json', json.dumps({
+            'invocation': nonce, 'root_identity': identity,
+            'created_runtime': json.loads(read(ROOT / 'managed.json'))[
+                'created_runtime'],
+            'roles_sha256': hashlib.sha256(
+                read(ROOT / 'roles.conf')).hexdigest(),
+            'units': {unit: hashlib.sha256(text.encode()).hexdigest()
+                      for unit, text in managed_units().items()}}).encode())
     command('systemctl', 'daemon-reload')
     verify_units()
     command('systemctl', 'start', UNITS[0], UNITS[1])
@@ -468,14 +531,7 @@ def stop():
         require(show(unit, 'MainPID') == '0' and
                 show(unit, 'ActiveState') == 'inactive',
                 'owned daemon survived')
-        cgroup = show(unit, 'ControlGroup')
-        if cgroup:
-            for root in (Path('/sys/fs/cgroup'),
-                         Path('/sys/fs/cgroup/systemd')):
-                tasks = root / cgroup.lstrip('/') / 'tasks'
-                if tasks.exists():
-                    require(not tasks.read_text().strip(),
-                            'cgroup child survived')
+        wait_empty(unit)
     require(all(not os.path.lexists(path) for path in SOCKETS),
             'owned socket survived stop')
 
