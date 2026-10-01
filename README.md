@@ -1,9 +1,17 @@
-# consent / consentd
+# Consent
 
-A consent framework for Tizen system services. `libconsent` provides a public C
-API for registering consent definitions, requesting user approval, checking
-authorization, and managing the lifetime of session data. `consentd` authenticates
-callers and serializes policy decisions and durable state.
+Consent is a Tizen framework for user approval of tool execution and data
+access. An authenticated requester asks for approval of a specific capability,
+scope, purpose, recipient and profile; the approval UI displays that context.
+Capability Manager and Context Engine integrations must authorize the same
+requirements immediately before a protected action or data read.
+
+`libconsent` provides the public C API and `consentd` authenticates roles and
+serializes policy decisions and durable state. Registered definitions describe
+policy and localized disclosures; grants record approved access. Actual tool
+results and context bodies remain with their providers, outside the consent DB.
+See [approval metadata and API inputs](docs/guides/13-tool-examples.en.md)
+for concrete developer examples and their integration boundaries.
 
 ## Project status
 
@@ -11,8 +19,9 @@ The framework has executable C API scenarios, GBS packages, and emulator
 verification for the implemented workflows. The [verification record](docs/guides/07-verification.en.md)
 identifies tested snapshots, failure scenarios, and remaining limits.
 
-Product integration is still required for trusted service identities, the
-Installer's durable transaction lifecycle, and product approval UI integration.
+Product integration is still required for trusted service identities,
+plugin-owned Installer hooks, and product approval UI provisioning. Installer
+hooks must use authenticated publishers and protected package/app generations.
 Production role configuration starts empty and denies unenrolled callers. An
 isolated .NET Consent UI proof of concept is included, with GBS-built TPKs and
 separate service mocks. See the [PoC guide](docs/guides/08-consent-ui-poc.en.md)

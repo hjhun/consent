@@ -92,6 +92,158 @@ can select a known record but cannot supply a lower level or another path.
 Level0 still requires consent; unknown levels are rejected and level3 is ONCE
 only. These are demonstration levels, not verified product CE taxonomy.
 
+## Approval metadata and API inputs
+
+These inputs document the existing developer fixture, not a new JSON API.
+This documentation addition does not rerun the Release21 verification below.
+
+### Action confirmation and the separate consent binding
+
+A real Tizen Action can declare this boolean fragment:
+
+```json
+{
+  "requiresConfirmation": true
+}
+```
+The field is optional and defaults to false. The Action API
+`action_is_confirmation_required(action, &required)` reads it; CM's Action
+catalog projection preserves `requiresConfirmation`. The Action-to-consent
+mapping and final Action execution consent gate are not implemented.
+This is not a consent field in the CLI descriptor shown above.
+The boolean says whether confirmation is required; it does not select grant
+modes. False alone cannot bypass unrelated data-access permissions.
+
+The following are two exact entries from protected `tool-metadata.json`:
+
+```json
+{
+  "smoke.cm.tool.summary": {
+    "definition": "smoke.cm.tool.summary",
+    "enforcer": "cm",
+    "level": 1,
+    "record": "summary"
+  },
+  "smoke.ce.tool.level1": {
+    "definition": "smoke.ce.tool.level1",
+    "enforcer": "ce",
+    "level": 1,
+    "record": "level1"
+  }
+}
+```
+The runner supplies the remaining records and protects this mapping. CM's
+provider returns a synthetic summary; CE reads `tool-context/level1.txt`, whose
+body is `synthetic context summary level1` followed by a newline. Bodies stay
+outside consent registration and storage; the metadata identifies their gates.
+These levels are fixture policy, not product CE taxonomy. Level0 also requires
+consent; level3 registers only ONCE. Callers cannot supply or downgrade levels.
+
+### Installer registration inputs
+
+Package name `smoke.package` and app ID `smoke.app` are separate arguments to
+`consent_register()`. They are validated against trusted identity/generation;
+strings alone do not authenticate the publisher. The full parameter object for
+this CM definition is shown below. Every value is a string, including numbers.
+Localized messages use flattened `message.en.title` and `message.en.body` keys.
+Replace the generation placeholder with the Installer-provisioned value.
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "operation_id": "register-summary",
+  "expected_generation": "<trusted Installer generation>",
+  "definition": "smoke.cm.tool.summary",
+  "enforcer": "cm",
+  "policy_version": "1",
+  "text_revision": "1",
+  "level": "1",
+  "modes": "ONCE,PERSISTENT",
+  "retention_ms": "60000",
+  "default_locale": "en",
+  "message.en.title": "Developer smoke approval",
+  "message.en.body": "Allow this isolated fixture tool operation?"
+}
+```
+This JSON illustrates `consent_params_set()` inputs, not a public JSON-register
+endpoint or loader. `fields` below is a caller-owned key/value array containing
+exactly those entries; `field_count` is its length and `client` an authenticated
+Installer handle. Stop on any error and free the parameter object:
+
+```c
+/* Run only as the enrolled Installer; generation is trusted provisioning. */
+consent_params_t* params = NULL;
+int status = consent_params_create(&params);
+if (status == 0) {
+  for (size_t i = 0; i < field_count && status == 0; ++i)
+    status = consent_params_set(params, fields[i].key, fields[i].value);
+  if (status == 0)
+    status = consent_register(client, "smoke.package", "smoke.app", params);
+}
+consent_params_free(params);
+/* Propagate status; client and the borrowed fields remain caller-owned. */
+```
+For CE level1, change definition to `smoke.ce.tool.level1`, enforcer to `ce`
+and registration operation ID to a distinct value; level and modes stay the
+same. For level3, set level to `3` and modes to `ONCE`. Retention `60000` is the
+fixture's data-use limit in milliseconds, independent of access grant duration.
+This bound applies to receipt/session-bound MEMORY_ONLY artifacts registered by
+an authenticated holder through `consent_data_register()`. It does not
+automatically delete the CE fixture `.txt` file; this example demonstrates the
+access gate.
+
+### Requester and enforcer inputs
+
+Argo uses this flattened parameter object with `consent_request_async()`:
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "count": "1",
+  "r0.definition": "smoke.cm.tool.summary",
+  "r0.operation": "execute",
+  "r0.scope": "cli:smoke-tool/summary",
+  "r0.purpose": "developer-tool-smoke",
+  "r0.recipient": "fixture-provider",
+  "r0.policy_version": "1",
+  "client_request_id": "demo-approval",
+  "operation_id": "demo-approval",
+  "deadline_ms": "20000"
+}
+```
+The CM enforcer uses the same protected requirement tuple with
+`consent_check()` and these AUTHORIZE inputs:
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "count": "1",
+  "r0.definition": "smoke.cm.tool.summary",
+  "r0.operation": "execute",
+  "r0.scope": "cli:smoke-tool/summary",
+  "r0.purpose": "developer-tool-smoke",
+  "r0.recipient": "fixture-provider",
+  "r0.policy_version": "1",
+  "operation_id": "demo-authorized",
+  "mode": "AUTHORIZE",
+  "step_id": "tool-admission"
+}
+```
+For CE level1, both actors instead bind `r0.definition` to
+`smoke.ce.tool.level1`, `r0.operation` to `read`, and `r0.scope` to
+`context.fixture/level1`; purpose, recipient and policy version stay unchanged.
+The mapping is shared out of band, not inferred from provider arguments.
+These unversioned examples contain no `approval_version` or `grant_mode`.
+Argo initiates approval and hands the request ID to the authenticated UI, which
+gets the prompt and responds; CM/CE check never opens UI. QUERY uses
+`mode: "QUERY"` and performs no protected effect. Before execution/data read,
+the enforcer requires API status0, ALLOWED and a receipt, then applies the
+process-local admission ledger described below. Neither a definition nor an
+approval result alone authorizes an effect; retry/unknown outcomes remain gated.
+
 ## Protocol and concrete inputs
 
 The fixture accepts one whole JSON-RPC2 request argv after `--json`, a nonempty

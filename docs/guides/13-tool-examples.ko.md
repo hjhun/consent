@@ -90,6 +90,156 @@ admission 없이 새 승인을 요구합니다. CE 등급은 root 소유 보호�
 등급이나 다른 path를 지정할 수 없습니다. level0도 승인이 필요하며 unknown level은
 거부하고 level3은 ONCE만 허용합니다. 검증된 제품 CE taxonomy가 아닌 예제 정책입니다.
 
+## 승인 metadata와 API 입력
+
+아래는 기존 개발자 fixture의 입력이며 새로운 JSON API가 아닙니다.
+이번 문서 추가로 아래 Release21 검증을 다시 실행하지 않았습니다.
+
+### Action 확인 요구와 별도 consent binding
+
+실제 Tizen Action은 다음 boolean fragment를 지정할 수 있습니다:
+
+```json
+{
+  "requiresConfirmation": true
+}
+```
+이 필드는 선택 사항이며 기본값은 false입니다. Action API
+`action_is_confirmation_required(action, &required)`가 값을 읽고 CM Action
+catalog projection이 `requiresConfirmation`을 보존합니다. Action-to-consent
+mapping과 최종 Action 실행 consent gate는 아직 구현되지 않았습니다.
+위 CLI descriptor의 consent 필드가 아닙니다. 이 boolean은 확인 요구 여부이며
+허용 grant mode를 선택하지 않습니다. false만으로 별도 데이터 접근 권한을
+우회할 수 없습니다.
+
+보호된 `tool-metadata.json`의 정확한 두 entry는 다음과 같습니다:
+
+```json
+{
+  "smoke.cm.tool.summary": {
+    "definition": "smoke.cm.tool.summary",
+    "enforcer": "cm",
+    "level": 1,
+    "record": "summary"
+  },
+  "smoke.ce.tool.level1": {
+    "definition": "smoke.ce.tool.level1",
+    "enforcer": "ce",
+    "level": 1,
+    "record": "level1"
+  }
+}
+```
+Runner가 나머지 record와 보호된 mapping을 구성합니다. CM provider는 synthetic
+summary를 반환하고 CE는 `tool-context/level1.txt`를 읽습니다. 파일 본문은
+`synthetic context summary level1` 뒤 newline입니다. 본문은 consent 등록/저장과
+분리되고 metadata는 접근 gate만 식별합니다. 등급은 제품 CE taxonomy가 아닌
+fixture 정책입니다. level0도 승인이 필요하고 level3은 ONCE만 등록합니다.
+Caller가 등급을 지정하거나 낮출 수 없습니다.
+
+### Installer 등록 입력
+
+Package name `smoke.package`와 app ID `smoke.app`은 `consent_register()`의
+별도 인자입니다. 신뢰 identity/generation과 대조하며 문자열만으로 publisher를
+인증하지 않습니다. 아래는 CM definition의 전체 parameter object입니다.
+숫자도 문자열이며 지역화 메시지는 flattened `message.en.title` 및
+`message.en.body` key를 사용합니다. Generation placeholder는 신뢰 Installer가
+provision한 실제 값으로 교체해야 합니다.
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "operation_id": "register-summary",
+  "expected_generation": "<trusted Installer generation>",
+  "definition": "smoke.cm.tool.summary",
+  "enforcer": "cm",
+  "policy_version": "1",
+  "text_revision": "1",
+  "level": "1",
+  "modes": "ONCE,PERSISTENT",
+  "retention_ms": "60000",
+  "default_locale": "en",
+  "message.en.title": "Developer smoke approval",
+  "message.en.body": "Allow this isolated fixture tool operation?"
+}
+```
+JSON은 `consent_params_set()` 입력 설명이며 공개 JSON 등록 endpoint나 loader가
+아닙니다. 아래 `fields`는 위 entry를 담은 caller 소유 key/value array이고
+`field_count`는 길이, `client`는 인증된 Installer handle입니다. 오류가 나면
+중단하고 parameter object를 해제합니다:
+
+```c
+/* Run only as the enrolled Installer; generation is trusted provisioning. */
+consent_params_t* params = NULL;
+int status = consent_params_create(&params);
+if (status == 0) {
+  for (size_t i = 0; i < field_count && status == 0; ++i)
+    status = consent_params_set(params, fields[i].key, fields[i].value);
+  if (status == 0)
+    status = consent_register(client, "smoke.package", "smoke.app", params);
+}
+consent_params_free(params);
+/* Propagate status; client and the borrowed fields remain caller-owned. */
+```
+CE level1은 definition을 `smoke.ce.tool.level1`, enforcer를 `ce`, 등록
+operation ID를 별도 값으로 바꿉니다. level과 modes는 같습니다. level3은 level을
+`3`, modes를 `ONCE`로 설정합니다. `60000`은 millisecond 단위 fixture data-use
+보관 한도이며 접근 grant 기간과 별개입니다.
+이 한도는 인증된 holder가 `consent_data_register()`로 등록한 receipt/session에
+결합된 MEMORY_ONLY artifact에 적용됩니다. CE fixture `.txt` 파일을 자동으로
+삭제하지 않으며 이 예제는 접근 gate를 보여 줍니다.
+
+### Requester와 enforcer 입력
+
+Argo는 `consent_request_async()`에 다음 flattened parameter object를 전달합니다:
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "count": "1",
+  "r0.definition": "smoke.cm.tool.summary",
+  "r0.operation": "execute",
+  "r0.scope": "cli:smoke-tool/summary",
+  "r0.purpose": "developer-tool-smoke",
+  "r0.recipient": "fixture-provider",
+  "r0.policy_version": "1",
+  "client_request_id": "demo-approval",
+  "operation_id": "demo-approval",
+  "deadline_ms": "20000"
+}
+```
+CM enforcer는 같은 보호된 requirement tuple로 `consent_check()`를 호출하며
+AUTHORIZE 입력은 다음과 같습니다:
+
+```json
+{
+  "subject": "smoke.subject",
+  "profile": "smoke.profile",
+  "count": "1",
+  "r0.definition": "smoke.cm.tool.summary",
+  "r0.operation": "execute",
+  "r0.scope": "cli:smoke-tool/summary",
+  "r0.purpose": "developer-tool-smoke",
+  "r0.recipient": "fixture-provider",
+  "r0.policy_version": "1",
+  "operation_id": "demo-authorized",
+  "mode": "AUTHORIZE",
+  "step_id": "tool-admission"
+}
+```
+CE level1에서는 두 actor 모두 `r0.definition`을 `smoke.ce.tool.level1`,
+`r0.operation`을 `read`, `r0.scope`를 `context.fixture/level1`로 바꿉니다.
+Purpose/recipient/policy version은 같습니다. Mapping은 provider 인자에서
+추측하지 않고 별도로 공유합니다. 이 unversioned 예에는 `approval_version`이나
+`grant_mode`가 없습니다. Argo가 승인을 시작하고 request ID를 인증 UI에 전달합니다.
+UI는 prompt를 받고 응답하며 CM/CE check는 UI를 열지 않습니다. QUERY는
+`mode: "QUERY"`를 사용하며 보호된 동작을 수행하지 않습니다. 실행/데이터 읽기 전
+API status0, ALLOWED, receipt가 모두 필요하고 아래 process-local admission
+ledger도 적용합니다. Definition이나 승인 결과만으로 동작할 수 없으며 retry와
+unknown 결과에도 gate가 적용됩니다.
+
 ## 프로토콜과 입력 예
 
 Fixture는 `--json` 뒤 하나의 완전한 JSON-RPC2 argv를 받습니다. ID는 비어 있지
