@@ -1,38 +1,25 @@
-# Guide 04: Offline definition registration
+# Guide 04: Register definitions in an offline image
 
-An image-install system service can use the public `consent_register()` without
-starting consentd. It must explicitly create a registration-only handle:
+<a id="guide-04-offline-definition-registration"></a>
 
-```c
-consent_client_h client = NULL;
-int status = consent_client_create_offline_registration(image_root, &client);
-if (!status) {
-    /* params contains operation_id, expected_generation and the complete
-       definition, including policy/text versions and localized messages. */
-    status = consent_register(client, package_name, app_id, params);
-    consent_client_destroy(client);
-}
-```
+[한국어](04-offline-registration.ko.md)
 
-`image_root` is an absolute, existing, root-owned protected directory. The caller
-must be root at creation and on every write. The handle belongs to its original
-process and thread; a fork child cannot use or destroy its inherited handle.
-The initial root-only writer is an explicit provisioning authority, not a role
-inferred from a shared UID. No nonroot product system-service identity is assumed.
+Stage a complete definition while building an image without consentd. First
+provision the installation generation, then explicitly create an offline
+registration handle. This path stores definitions only; it creates no approval.
 
-Success0 means **STAGED: the protected definition installation record is durable**.
-It does not mean the definition is active or a user approved it. The ordinary
-`consent_client_create()` remains online; missing sockets, permission/peer failures,
-timeouts and uncertain replies never switch it to offline mode. Offline handles
-accept only `consent_register()` and destruction. Update, unregister, request,
-check, async/detach, UI, session, revoke and data/cleanup APIs reject them with
-`CONSENT_ERROR_INVALID_OPERATION`; outputs are null, async IDs zero and no callback
-is accepted. Independent parameter/result/format helpers remain usable.
+## Before you start
+
+Use an existing protected absolute image root and a root image installer. On a
+live target, stop/quiesce every lifecycle user before explicitly choosing image
+root "/"; a missing socket alone never authorizes offline use.
+
 
 ## Image installation generation
 
 Provision the generation before opening the offline handle: the handle holds an
-exclusive lifecycle lock until destruction. The CLI prepares installation identity
+exclusive lifecycle lock until destruction. The CLI prepares installation
+identity
 only; definitions are still registered through the C API.
 
 ```sh
@@ -60,8 +47,53 @@ spool. The production Installer transaction/hook remains a separate integration.
 `image_root="/"` denotes the caller's current filesystem root, including an
 explicit image chroot. On a real target it is usable only while the daemon and
 other lifecycle users are stopped: the same EX/SH lock prevents concurrent image
-writers and live daemon access. A busy lock returns BUSY without changing existing
+writers and live daemon access. A busy lock returns BUSY without changing
+existing
 lock metadata. This is not automatic discovery of an offline machine.
+
+## 2. Register through the offline C handle
+
+This call fragment assumes complete params from
+[API 02](api/02-registration.en.md), actual package/app arguments and the
+committed image generation. Check both register and destroy status:
+
+```c
+consent_client_h client = NULL;
+int status = consent_client_create_offline_registration(image_root, &client);
+if (!status) {
+    /* params contains operation_id, expected_generation and the complete
+       definition, including policy/text versions and localized messages. */
+    status = consent_register(client, package_name, app_id, params);
+    int destroy_status = consent_client_destroy(client);
+    if (status == 0)
+        status = destroy_status;
+}
+```
+
+An image-install system service can use the public `consent_register()` without
+starting consentd. It must explicitly create a registration-only handle:
+
+
+
+`image_root` is an absolute, existing, root-owned protected directory. The
+caller
+must be root at creation and on every write. The handle belongs to its original
+process and thread; a fork child cannot use or destroy its inherited handle.
+The initial root-only writer is an explicit provisioning authority, not a role
+inferred from a shared UID. No nonroot product system-service identity is
+assumed.
+
+Success0 means **STAGED: the protected definition installation record is
+durable**.
+It does not mean the definition is active or a user approved it. The ordinary
+`consent_client_create()` remains online; missing sockets, permission/peer
+failures,
+timeouts and uncertain replies never switch it to offline mode. Offline handles
+accept only `consent_register()` and destruction. Update, unregister, request,
+check, async/detach, UI, session, revoke and data/cleanup APIs reject them with
+`CONSENT_ERROR_INVALID_OPERATION`; outputs are null, async IDs zero and no
+callback
+is accepted. Independent parameter/result/format helpers remain usable.
 
 ## Protected storage and first boot
 
@@ -87,64 +119,88 @@ sequenceDiagram
 
 The fixed path within the selected image is
 `/opt/var/lib/consent-authority/registrations`. It contains native Parcel v1
-records with `offline_format=1`, exact package/app, expected generation, operation
-ID, complete validated definition and `payload_sha256`. The lowercase 64-hex digest
-covers the canonical native Parcel Envelope body (`v=1`, `id=1`, `method=register`),
+records with `offline_format=1`, exact package/app, expected generation,
+operation
+ID, complete validated definition and `payload_sha256`. The lowercase 64-hex
+digest
+covers the canonical native Parcel Envelope body (`v=1`, `id=1`,
+`method=register`),
 excluding the four-byte frame header and exactly the two metadata fields
-`offline_format` and `payload_sha256`. Both are verified before stripping metadata
+`offline_format` and `payload_sha256`. Both are verified before stripping
+metadata
 and importing. Missing/unsupported versions, duplicate fields and altered hashes
-are rejected; metadata counts toward the stored frame and field limits. Final names are
+are rejected; metadata counts toward the stored frame and field limits. Final
+names are
 SHA256(operation_id) plus `.parcel`; same operation/payload retries succeed and
 changed payload returns CONFLICT. Publication uses an exclusive temporary file,
-file fsync, atomic rename and directory fsync. A failure after publication returns
+file fsync, atomic rename and directory fsync. A failure after publication
+returns
 OUTCOME_UNKNOWN; retry the same ID and payload. Validated interrupted temporary
 files are removed by a later writer under the same exclusive lock. Failed image
 scaffolding is not always automatically repaired: an existing non-traversable
-canonical ancestor is rejected without chmod; the trusted builder must explicitly
+canonical ancestor is rejected without chmod; the trusted builder must
+explicitly
 repair its intended permissions and retry.
 
 Limits are64KiB per framed record,128 final records,256 directory entries and
 4MiB total, including temporary files. Unknown entries, malformed records,
-symlinks, hardlinks, FIFOs, untrusted owners and unsafe permissions are rejected.
+symlinks, hardlinks, FIFOs, untrusted owners and unsafe permissions are
+rejected.
 Traversal is anchored to directory descriptors and never follows symlinks or
 `..`; the writer cannot escape the selected image through those paths. Newly
 created canonical `opt/var/lib` ancestors are root:root0755 regardless of umask;
-authority/spool leaves are0700 and records0600. Existing canonical ancestors must permit other-read and other-execute, since
+authority/spool leaves are0700 and records0600. Existing canonical ancestors
+must permit other-read and other-execute, since
 the nonroot daemon opens directory FDs without host-side NSS assumptions. Their
 modes are not silently changed. The image-root host directory itself may remain
 0700. Use a root-protected image path, not a user-writable build tree.
 
 Image mode does not require host SMACK or target account lookup. Before target
-startup, the root helper validates bounded managed files and applies root ownership,
+startup, the root helper validates bounded managed files and applies root
+ownership,
 security_fw group read access (directory0750, records0640) and the System SMACK
 label. Label failure blocks startup. The daemon cannot rewrite the root spool;
-only it writes its own definitions registry and SQLite DB. No offline path writes
+only it writes its own definitions registry and SQLite DB. No offline path
+writes
 consent.db, grants, usage, sessions, permits or artifact metadata.
 
 All records are validated before import. With a nonempty spool, authority source
 parsing/schema checks precede opening the repository. Each offline installation
-check reads and classifies one protected authority FD: an absent authority leaf or
+check reads and classifies one protected authority FD: an absent authority
+leaf or
 missing/pending/mismatched installation is deferred; malformed/schema/protection
-and I/O errors block startup. A scoped strict reconciliation mode covers repository
+and I/O errors block startup. A scoped strict reconciliation mode covers
+repository
 Open, all imports and the final Snapshot, and restores normal online validation
-on success or failure. Commit-boundary validation preserves that distinction. Deterministic order is package/app/
+on success or failure. Commit-boundary validation preserves that distinction.
+Deterministic order is package/app/
 definition/generation, numeric policy/text revisions, then operation ID. The DB
-executor uses the common registration policy without inventing an Installer Peer.
+executor uses the common registration policy without inventing an Installer
+Peer.
 Actual pkgmgr app/package membership and protected active generation are checked
-before retry lookup and again after commit, before publication. Missing, pending,
+before retry lookup and again after commit, before publication. Missing,
+pending,
 removed or stale installations remain deferred; unrelated packages still import.
-Other malformed/protection/storage failures block startup with a diagnostic. Reconciliation runs at startup only; after correcting installation authority or provisioning deferred records, stop and restart the service. Periodic policy invalidation does not scan the spool.
+Other malformed/protection/storage failures block startup with a diagnostic.
+Reconciliation runs at startup only; after correcting installation authority
+or provisioning deferred records, stop and restart the service. Periodic
+policy invalidation does not scan the spool.
 
-The registry retains offline operation receipts outside SQLite. An applied receipt
-keeps its original result without reapplying an old definition. An unseen seed whose same-owner/generation definition has revisions at least
+The registry retains offline operation receipts outside SQLite. An applied
+receipt
+keeps its original result without reapplying an old definition. An unseen seed
+whose same-owner/generation definition has revisions at least
 as high on both axes and higher on at least one, or a seed
 for a same-generation inactive definition, is recorded as obsolete and returns
-STALE on every exact retry. An equal revision axis must retain the same associated
+STALE on every exact retry. An equal revision axis must retain the same
+associated
 policy or text meaning; crossed revisions, same-revision conflicting content and
 namespace changes remain errors. Obsolete receipts use an offline-only tagged
 value and do not change the online receipt format. New real generations remain
-eligible for normal registration. DB deletion restores valid definitions and these
-retry protections, never approvals. Record/receipt limits return explicit errors;
+eligible for normal registration. DB deletion restores valid definitions and
+these
+retry protections, never approvals. Record/receipt limits return explicit
+errors;
 automatic retention pruning is not implemented.
 
 ## Verification and limits
@@ -154,14 +210,16 @@ absent, malformed/schema authority startup rejection before DB creation, first
 valid startup, numeric revision ordering, two apps and another package,
 retry/conflict, unsupported methods, live lifecycle exclusion, repeat startup,
 DB loss, an unseen seed after unregister and same-name reinstall. It temporarily
-uses the separate test inventory adapter and preserves/restores previous isolated
+uses the separate test inventory adapter and preserves/restores previous
+isolated
 state. `offline-identity-test` distinguishes missing/pending from malformed,
 protection, FIFO and injected I/O errors using the actual protected reader.
 Root ownership/path/sync fault tests and repository generation/publication
 regressions are separate executables. The production adapter retains actual
 pkgmgr validation; isolated inventory results alone do not prove product hook
 integration. Execution results and exact snapshots belong in the paired
-[verification record](07-verification.en.md); implementation/test presence is not an
+[verification record](07-verification.en.md); implementation/test presence is
+not an
 execution claim.
 
 `scripts/emulator-offline-platform-test.sh` separately exercises the production
@@ -169,3 +227,8 @@ pkgmgr adapter using observed installed apps, mismatched membership and stale
 generation. It preserves/restores the original production stores and leaves role
 configuration unchanged. It checks the stopped DB projection and zero grants;
 protected C API authorization remains denied without deployed product roles.
+
+---
+
+[Related task](03-installation-authority.en.md) ·
+[Continue](06-installer-integration.en.md) · [Reading paths](../README.md)

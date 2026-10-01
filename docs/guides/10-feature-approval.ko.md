@@ -1,10 +1,72 @@
 # 10. 기능 선택과 작업 승인
 
+[English](10-feature-approval.en.md)
+
 opt-in 승인 계약과 격리 PoC는
 [D-16 연동 계약](../design/05-decisions.ko.md#d-16-기능-선택-부족한-승인과-대화-내-재사용)을 구현한다.
 [가이드 07](07-verification.ko.md)에 정확한 빌드 snapshot, emulator 결과와 남은 한계를
 기록하며 아래 설계 예시는 시험 근거가 아니다. 격리 .NET 앱과 mock 참여자 환경은
 [가이드 08](08-consent-ui-poc.ko.md)을 참조한다. 운영 role 등록은 별도 연동 작업이다.
+
+## 격리 Settings PoC 실행
+
+수동 Settings 절차에는 해당하는 설치 PoC 환경이 필요합니다. 원래 패키지를
+복원하는 현재 추출 방식의 실행 도구는 [가이드 17](17-native-ui-smoke.ko.md)을
+사용하세요. 두 설정 방법을 섞지 마세요.
+
+
+먼저 [가이드 08](08-consent-ui-poc.ko.md)의 패키지 설치, 실제 UI 신원 관측과
+설치 generation 구성을 완료한다. 개발 emulator를 명시적으로 선택하고, 일치하는
+소스 checkout의 호스트 터미널에서 실행한다. 새 실행마다 새 artifact 디렉터리를 쓴다.
+
+```sh
+sdb devices
+CONSENT_SERIAL='selected-development-emulator-serial'
+CONSENT_FEATURE_DIR=$(mktemp -d /var/tmp/consent-feature.XXXXXX)
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir "$CONSENT_FEATURE_DIR" start --locale en-US
+```
+
+이 명령은 격리 PoC 참여자를 준비하고 Settings를 열 뿐, 기능을 선택하거나 요청을
+승인하지 않는다. 실제 화면에서 다음을 수행한다.
+
+1. 모든 기능이 미선택인지 확인한다. 일정 읽기와 이번 대화 기간을 선택하고 Settings의
+   모든 페이지를 검토한 뒤 consent 팝업을 승인한다.
+2. 일정 요약 작업을 검토하고 두 번 실행한다. 승인 callback뿐 아니라 실제 mock 결과와
+   기존 artifact 재사용을 확인한다.
+3. 기기 제어도 선택하여 저장한다. 추가 팝업은 부족한 기기 권한만 표시하고 지정한 조명과
+   끄기 작업의 효과를 설명해야 한다.
+4. 확장된 일정 범위를 명시적인 작업 한정 ONCE로 요청하고 거부한다. ‘이번 작업만 한 번’
+   선택을 해제한 뒤 기존 일정 데이터 대안 작업을 선택한다. 이 작업은 이미 얻은 좁은
+   범위의 결과만 사용할 수 있으며, 거부한 넓은 읽기를 수행하거나 저장된 Settings를
+   바꾸면 안 된다.
+5. 선택을 모두 해제하여 저장한다. 일반 작업은 사용할 수 없어야 한다. 대화 종료를
+   선택하고 holder 정리 후 CLOSED와 미처리 정리 없음까지 확인한 뒤 참여자를 중지한다.
+
+새 한국어 실행에는 `--locale ko-KR`을 사용한다. 기존 Settings 세션을 다시 열거나
+로그를 수집하거나 같은 실행을 중지할 때는 serial과 artifact 경로를 유지한다.
+
+```sh
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir "$CONSENT_FEATURE_DIR" reopen
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir "$CONSENT_FEATURE_DIR" collect
+python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
+  --artifact-dir "$CONSENT_FEATURE_DIR" stop
+```
+
+서비스 중지는 통신 종료이며 holder cleanup ACK의 근거가 아니다. 최종 일반 PoC
+중지는 가이드 08을 따른다. 여기의 일정 데이터와 기기 동작은 별도 mock 구현이며
+사용자 일정이나 실제 조명을 조작하지 않는다. 전용 endpoint 음성 시험과 AUTHORIZE
+이후 선택 해제 fixture도 가이드 08에 설명하며, 명시적인 시험 전용 참여자를 쓴다.
+
+## 작업 결과 확인하기
+
+선택 저장이나 승인 ALLOWED는 제공자 동작 완료가 아닙니다. 같은 실행의 로그에서
+실제 작업자 결과를 확인하세요. 달력 요약 반복은 holder artifact를 재사용할 수
+있으므로 횟수 변경만으로 새 CE 조회를 증명하지 못합니다. 확장 달력 작업은 새
+취득이 필요합니다. 정리 상태를 확인한 뒤 같은 결과 디렉터리로 종료하세요.
+서비스 중지만으로 holder 삭제를 증명할 수 없습니다.
 
 ## 사용자가 선택하는 내용
 
@@ -47,6 +109,90 @@ TV 흐름은 다음과 같다.
 때까지 실행 대기를 유지한다. 그동안 새 작업 제출은 막지만 선택 해제 저장은 허용하며,
 읽기 전용 상태 갱신이 사용자의 미저장 선택을 덮어쓰면 안 된다.
 
+## 기간과 대화 내 재사용
+
+| 기간 | 승인 의미 | 구분할 경계 |
+| --- | --- | --- |
+| ONCE | 정확한 권한을 authoritative 검사에서 한 번 소비 | 대화 전체를 사전 승인하지 않는다. 안정된 실행 재시도는 receipt를 재사용하며 grant를 채우지 않는다. |
+| SESSION | 선택한 논리적 대화가 활성인 동안 접근 | 정확한 session/generation이 필요하며 통신 재연결만으로 생성·복구하지 않는다. |
+| TIMED | 승인 후 선택한 기간이 만료될 때까지 접근 | 현재 대화 밖에서도 유효할 수 있으므로 “이 대화에서만”이라고 표시하지 않는다. |
+
+PREAPPROVAL에서는 기존 승인이 선택 기간을 충족해야 한다. ONCE 하나로 SESSION
+선택을 충족하지 않는다. TIMED coverage 목표는 최초 admission 시각에 요청 기간을
+더하여 내부 저장하며 refresh·retry로 뒤로 밀지 않는다. 새 TIMED grant는 한 응답
+시각부터 시작하여 UI의 “승인 후” 기간과 맞춘다. admission·prompt refresh·응답·
+최종 AND에서 같은 coverage 규칙을 사용한다.
+
+TASK에서는 현재 유효한 exact grant가 요구조건을 충족할 수 있다. 예를 들어 아직
+유효한 30분 사전 승인은 부족한 권한을 SESSION으로 요청하는 현재 작업에도 쓸 수
+있다. mode가 다르다는 이유만으로 다시 묻지 않는다. 실행 때는 현재 선택의 만료도
+확인하여 과거 persistent grant가 만료된 기능 선택을 계속 활성화하지 못하게 한다.
+
+팝업이 아닌 session controller가 대화 heartbeat를 소유한다. heartbeat는 idle·
+최대 수명 안에서 기존 lease를 갱신하며 닫힌 session이나 과거 generation을 되살리지
+않는다. 대화가 중지·종료되거나 무효하면 SESSION 접근과 관련 재사용 경로를 막는다.
+
+일정 결과를 취득하는 작업과 이미 얻은 결과를 쓰는 작업은 다르다. 실행 receipt로
+artifact를 등록하고 재사용마다 provenance·목적·수신자·holder·session을 검사한다.
+등록된 보유 기간·철회·session 상태도 적용한다. 결과는 대화가 끝나기 전에 만료될
+수 있으며 SESSION 접근은 무제한 보유나 승인 없는 새 읽기를 뜻하지 않는다. 물리적
+정리는 holder 근거가 있어야 완료로 처리한다.
+
+## 부족한 항목 표시와 최종 검사
+
+평가에는 원래 전체 요구조건을 유지한다. prompt는 부족한 행만 표시하되 원본 index를
+내부에 보존하고 typed argument를 같은 행으로 재배치한다. display token은 정확한
+표시 집합·locale·정책·선택·기간에 결합한다. 이전 UI가 이를 legacy prompt로 처리하지
+못하게 한다.
+
+모든 조건이 충족되면 승인 요청 화면 없이 끝낸다. 팝업이 열린 동안 다른 요청이
+표시된 조건을 충족하면 ONCE를 중복 발급하지 않는다. 숨겨진 조건이 만료·철회·소비돼도
+응답의 승인 대상에 조용히 추가하지 않는다. 전체 AND를 다시 검사하므로 명시 승인한
+새 조건이 남아 있더라도 작업 요청은 INVALIDATED가 될 수 있다. 새로 부족해진 권한은
+새 요청으로 보여줘야 한다.
+
+새 계약 요청은 client cache 조회·저장을 거치지 않고 `cacheable=0`을 반환한다.
+기간 기준·불변 선택·retry 검사를 위해 daemon admission이 필요하다. client는 송신
+전에 server 지원을 확인하고 daemon은 잘못되거나 지원하지 않는 opt-in 필드를
+거부한다. legacy cache 계약과 구분하며 실제 보호 효과에는 계속 AUTHORIZE가 필요하다.
+
+## Opt-in approval-v2 기간 선택
+
+Hello는 `approval_version=1`을 유지하고 별도로 정확한
+`approval_supported_versions=1,2`와 `approval_period_choice=1`을 알립니다.
+Client는 신뢰된 협상 뒤에만 v2를 허용하며 미지원 daemon/UI는 명시적으로 실패합니다.
+C ABI·Parcel envelope·DB schema는 그대로입니다.
+
+v2는 바뀌지 않는 기본 `grant_mode`와 `duration_ms`를 유지하고 정규화된
+`period_choices=<base>,PERSISTENT`를 요구합니다. 이 필드들도 선택 digest와
+정확한 context에 묶입니다. Request/check caller는 `chosen_grant_mode`,
+`effective_period_choices`와 내부 평가 target을 전달할 수 없습니다. Daemon은
+이미 충족된 조건까지 전체 정책의 모드를 교차 검증합니다. PERSISTENT가 가능하면
+전체 조건을 prompt에 표시하고, 아니면 부족한 기본 조건만 표시하며 체크박스를
+비활성화합니다. Level3·ONCE-only·혼합 미지원 정책을 보이지 않게 확대하지 않습니다.
+
+UI는 기본 context·digest와 token에 묶인 유효 선택지를 되돌리고 별도로
+`chosen_grant_mode`를 보냅니다. Respond는 현재 전체 정책과 선택 기간의 충족을
+확인한 뒤 표시한 조건만 승인합니다. 기본 TASK가 짧은 승인을 재사용하더라도
+PERSISTENT TASK 선택은 모든 조건의 persistent 승인을 요구합니다. 보관 기간은
+독립적입니다. 최종 Respond·result·request 재시도는 기본 metadata와 선택한
+기간을 알립니다. 저장된 ALLOWED 결과와 정확한 request 재시도는 같은 authoritative
+선택 기간 검사로 소비·철회된 조건을 INVALIDATED 처리합니다. 원래 ID·fingerprint는
+유지하고 과거 승인을 부활시키지 않습니다. 실제 실행은 최신 AUTHORIZE·receipt가
+여전히 필요합니다.
+
+### UI09 검증 단계
+
+Release27 r7에서 CTest 29개가 통과하고 root 전용 4개를 건너뛰었으며 관리 코드
+선택/검토/배치 검사도 통과했습니다. 실제 UI에서 기본 ONCE, 선택한 PERSISTENT,
+새 operation 재사용, 철회와 ONCE 전용 CM 실행을 확인했습니다. 후속 실행은 정상
+재시작, DB 손실 뒤 새 승인, helper의 세대 변경 뒤 새 UI 승인과 CE 동작을
+검증했습니다. Helper 변경은 TPK 재설치가 아닙니다. 기본 `grant_mode`는 ONCE를
+유지하고 선택한 기간은 따로 표시했습니다. 운영/PoC 상태는 복원하거나 유지했습니다.
+
+[실행 상세 기록](../history/07-verification-history.ko.md#guide-10-checkpoint)에
+명령, 실패한 시도와 서명 TPK/라이브러리 출처를 보존했습니다. 합성 CM/CE 제공자가
+실제 격리 consent API를 사용한 결과이며 제품 어댑터와 배포 역할은 미검증입니다.
 ## 소유권과 경계
 
 ```mermaid
@@ -80,7 +226,8 @@ sequenceDiagram
 ```
 
 PoC 설정 bridge는 격리 앱과 argo mock 사이의 비공개 통신이다. 고정 endpoint는
-`consent-feature-poc.socket`이 소유하는 `/opt/var/lib/consent-feature-runtime/argo.sock`이며
+`consent-feature-poc.socket`이 소유하는
+`/opt/var/lib/consent-feature-runtime/argo.sock`이며
 `consent-feature-poc.service`가 접수된 작업을 처리한다. 입력은 허용된
 기능·variant ID, catalog revision, 기간 preset과 재시도·revision metadata로
 제한한다. 임의 request·scope·provider·role·shell 명령은 전달할 수 없다. client는
@@ -169,100 +316,6 @@ feature_id·feature_revision을 항상 넣으며 없는 선택 값은 빈 문자
 앞의 0이 없는 정규 10진수 문자열을 사용한다. argo와 daemon은 같은 canonical
 인코딩을 사용해야 한다. Parcel 직렬화나 JSON 표현 자체를 hash하는 것이 아니다.
 
-## 기간과 대화 내 재사용
-
-| 기간 | 승인 의미 | 구분할 경계 |
-| --- | --- | --- |
-| ONCE | 정확한 권한을 authoritative 검사에서 한 번 소비 | 대화 전체를 사전 승인하지 않는다. 안정된 실행 재시도는 receipt를 재사용하며 grant를 채우지 않는다. |
-| SESSION | 선택한 논리적 대화가 활성인 동안 접근 | 정확한 session/generation이 필요하며 통신 재연결만으로 생성·복구하지 않는다. |
-| TIMED | 승인 후 선택한 기간이 만료될 때까지 접근 | 현재 대화 밖에서도 유효할 수 있으므로 “이 대화에서만”이라고 표시하지 않는다. |
-
-PREAPPROVAL에서는 기존 승인이 선택 기간을 충족해야 한다. ONCE 하나로 SESSION
-선택을 충족하지 않는다. TIMED coverage 목표는 최초 admission 시각에 요청 기간을
-더하여 내부 저장하며 refresh·retry로 뒤로 밀지 않는다. 새 TIMED grant는 한 응답
-시각부터 시작하여 UI의 “승인 후” 기간과 맞춘다. admission·prompt refresh·응답·
-최종 AND에서 같은 coverage 규칙을 사용한다.
-
-TASK에서는 현재 유효한 exact grant가 요구조건을 충족할 수 있다. 예를 들어 아직
-유효한 30분 사전 승인은 부족한 권한을 SESSION으로 요청하는 현재 작업에도 쓸 수
-있다. mode가 다르다는 이유만으로 다시 묻지 않는다. 실행 때는 현재 선택의 만료도
-확인하여 과거 persistent grant가 만료된 기능 선택을 계속 활성화하지 못하게 한다.
-
-팝업이 아닌 session controller가 대화 heartbeat를 소유한다. heartbeat는 idle·
-최대 수명 안에서 기존 lease를 갱신하며 닫힌 session이나 과거 generation을 되살리지
-않는다. 대화가 중지·종료되거나 무효하면 SESSION 접근과 관련 재사용 경로를 막는다.
-
-일정 결과를 취득하는 작업과 이미 얻은 결과를 쓰는 작업은 다르다. 실행 receipt로
-artifact를 등록하고 재사용마다 provenance·목적·수신자·holder·session을 검사한다.
-등록된 보유 기간·철회·session 상태도 적용한다. 결과는 대화가 끝나기 전에 만료될
-수 있으며 SESSION 접근은 무제한 보유나 승인 없는 새 읽기를 뜻하지 않는다. 물리적
-정리는 holder 근거가 있어야 완료로 처리한다.
-
-## 부족한 항목 표시와 최종 검사
-
-평가에는 원래 전체 요구조건을 유지한다. prompt는 부족한 행만 표시하되 원본 index를
-내부에 보존하고 typed argument를 같은 행으로 재배치한다. display token은 정확한
-표시 집합·locale·정책·선택·기간에 결합한다. 이전 UI가 이를 legacy prompt로 처리하지
-못하게 한다.
-
-모든 조건이 충족되면 승인 요청 화면 없이 끝낸다. 팝업이 열린 동안 다른 요청이
-표시된 조건을 충족하면 ONCE를 중복 발급하지 않는다. 숨겨진 조건이 만료·철회·소비돼도
-응답의 승인 대상에 조용히 추가하지 않는다. 전체 AND를 다시 검사하므로 명시 승인한
-새 조건이 남아 있더라도 작업 요청은 INVALIDATED가 될 수 있다. 새로 부족해진 권한은
-새 요청으로 보여줘야 한다.
-
-새 계약 요청은 client cache 조회·저장을 거치지 않고 `cacheable=0`을 반환한다.
-기간 기준·불변 선택·retry 검사를 위해 daemon admission이 필요하다. client는 송신
-전에 server 지원을 확인하고 daemon은 잘못되거나 지원하지 않는 opt-in 필드를
-거부한다. legacy cache 계약과 구분하며 실제 보호 효과에는 계속 AUTHORIZE가 필요하다.
-
-## 격리 Settings PoC 실행
-
-먼저 [가이드 08](08-consent-ui-poc.ko.md)의 패키지 설치, 실제 UI 신원 관측과
-설치 generation 구성을 완료한다. 개발 emulator를 명시적으로 선택하고, 일치하는
-소스 checkout의 호스트 터미널에서 실행한다. 새 실행마다 새 artifact 디렉터리를 쓴다.
-
-```sh
-sdb devices
-CONSENT_SERIAL='selected-development-emulator-serial'
-CONSENT_FEATURE_DIR=$(mktemp -d /var/tmp/consent-feature.XXXXXX)
-python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
-  --artifact-dir "$CONSENT_FEATURE_DIR" start --locale en-US
-```
-
-이 명령은 격리 PoC 참여자를 준비하고 Settings를 열 뿐, 기능을 선택하거나 요청을
-승인하지 않는다. 실제 화면에서 다음을 수행한다.
-
-1. 모든 기능이 미선택인지 확인한다. 일정 읽기와 이번 대화 기간을 선택하고 Settings의
-   모든 페이지를 검토한 뒤 consent 팝업을 승인한다.
-2. 일정 요약 작업을 검토하고 두 번 실행한다. 승인 callback뿐 아니라 실제 mock 결과와
-   기존 artifact 재사용을 확인한다.
-3. 기기 제어도 선택하여 저장한다. 추가 팝업은 부족한 기기 권한만 표시하고 지정한 조명과
-   끄기 작업의 효과를 설명해야 한다.
-4. 확장된 일정 범위를 명시적인 작업 한정 ONCE로 요청하고 거부한다. ‘이번 작업만 한 번’
-   선택을 해제한 뒤 기존 일정 데이터 대안 작업을 선택한다. 이 작업은 이미 얻은 좁은
-   범위의 결과만 사용할 수 있으며, 거부한 넓은 읽기를 수행하거나 저장된 Settings를
-   바꾸면 안 된다.
-5. 선택을 모두 해제하여 저장한다. 일반 작업은 사용할 수 없어야 한다. 대화 종료를
-   선택하고 holder 정리 후 CLOSED와 미처리 정리 없음까지 확인한 뒤 참여자를 중지한다.
-
-새 한국어 실행에는 `--locale ko-KR`을 사용한다. 기존 Settings 세션을 다시 열거나
-로그를 수집하거나 같은 실행을 중지할 때는 serial과 artifact 경로를 유지한다.
-
-```sh
-python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
-  --artifact-dir "$CONSENT_FEATURE_DIR" reopen
-python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
-  --artifact-dir "$CONSENT_FEATURE_DIR" collect
-python3 scripts/emulator-feature-flow.py --serial "$CONSENT_SERIAL" \
-  --artifact-dir "$CONSENT_FEATURE_DIR" stop
-```
-
-서비스 중지는 통신 종료이며 holder cleanup ACK의 근거가 아니다. 최종 일반 PoC
-중지는 가이드 08을 따른다. 여기의 일정 데이터와 기기 동작은 별도 mock 구현이며
-사용자 일정이나 실제 조명을 조작하지 않는다. 전용 endpoint 음성 시험과 AUTHORIZE
-이후 선택 해제 fixture도 가이드 08에 설명하며, 명시적인 시험 전용 참여자를 쓴다.
-
 ## 검증 항목
 
 소스 snapshot·GBS 결과·정확한 TPK/RPM hash·실제 기기 결과는 가이드 07에 기록한다.
@@ -283,40 +336,7 @@ native model 시험과 실제 버튼 클릭·platform credential 근거를 구�
 - 실제 한영 화면에 전체 대상·효과·기간이 표시되며 같은 launcher를 쓰는 다른 package는
   Settings bridge를 사용할 수 없다.
 
-## Opt-in approval-v2 기간 선택
+---
 
-Hello는 `approval_version=1`을 유지하고 별도로 정확한
-`approval_supported_versions=1,2`와 `approval_period_choice=1`을 알립니다.
-Client는 신뢰된 협상 뒤에만 v2를 허용하며 미지원 daemon/UI는 명시적으로 실패합니다.
-C ABI·Parcel envelope·DB schema는 그대로입니다.
-
-v2는 바뀌지 않는 기본 `grant_mode`와 `duration_ms`를 유지하고 정규화된
-`period_choices=<base>,PERSISTENT`를 요구합니다. 이 필드들도 선택 digest와
-정확한 context에 묶입니다. Request/check caller는 `chosen_grant_mode`,
-`effective_period_choices`와 내부 평가 target을 전달할 수 없습니다. Daemon은
-이미 충족된 조건까지 전체 정책의 모드를 교차 검증합니다. PERSISTENT가 가능하면
-전체 조건을 prompt에 표시하고, 아니면 부족한 기본 조건만 표시하며 체크박스를
-비활성화합니다. Level3·ONCE-only·혼합 미지원 정책을 보이지 않게 확대하지 않습니다.
-
-UI는 기본 context·digest와 token에 묶인 유효 선택지를 되돌리고 별도로
-`chosen_grant_mode`를 보냅니다. Respond는 현재 전체 정책과 선택 기간의 충족을
-확인한 뒤 표시한 조건만 승인합니다. 기본 TASK가 짧은 승인을 재사용하더라도
-PERSISTENT TASK 선택은 모든 조건의 persistent 승인을 요구합니다. 보관 기간은
-독립적입니다. 최종 Respond·result·request 재시도는 기본 metadata와 선택한
-기간을 알립니다. 저장된 ALLOWED 결과와 정확한 request 재시도는 같은 authoritative
-선택 기간 검사로 소비·철회된 조건을 INVALIDATED 처리합니다. 원래 ID·fingerprint는
-유지하고 과거 승인을 부활시키지 않습니다. 실제 실행은 최신 AUTHORIZE·receipt가
-여전히 필요합니다.
-
-### UI09 검증 단계
-
-Release27 r7에서 CTest 29개가 통과하고 root 전용 4개를 건너뛰었으며 관리 코드
-선택/검토/배치 검사도 통과했습니다. 실제 UI에서 기본 ONCE, 선택한 PERSISTENT,
-새 operation 재사용, 철회와 ONCE 전용 CM 실행을 확인했습니다. 후속 실행은 정상
-재시작, DB 손실 뒤 새 승인, helper의 세대 변경 뒤 새 UI 승인과 CE 동작을
-검증했습니다. Helper 변경은 TPK 재설치가 아닙니다. 기본 `grant_mode`는 ONCE를
-유지하고 선택한 기간은 따로 표시했습니다. 운영/PoC 상태는 복원하거나 유지했습니다.
-
-[실행 상세 기록](../history/07-verification-history.ko.md#guide-10-checkpoint)에
-명령, 실패한 시도와 서명 TPK/라이브러리 출처를 보존했습니다. 합성 CM/CE 제공자가
-실제 격리 consent API를 사용한 결과이며 제품 어댑터와 배포 역할은 미검증입니다.
+[관련 작업](08-consent-ui-poc.ko.md) · [이어 읽기](17-native-ui-smoke.ko.md) · [역할별
+문서](../README.md)

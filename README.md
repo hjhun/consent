@@ -2,8 +2,8 @@
 
 Consent lets Tizen services ask for user approval before executing a tool or
 reading data. `libconsent` is the public C API; `consentd` authenticates
-callers,
-evaluates policy and stores decisions. Definitions describe permissions and
+callers, evaluates policy and stores decisions. Definitions describe
+permissions and
 localized messages. Grants record approved access. Tool results and context
 bodies stay with their providers, outside the consent database.
 
@@ -14,7 +14,7 @@ bodies stay with their providers, outside the consent database.
    capability, operation, scope, purpose, recipient and policy version.
 3. The approval UI displays the bound request and submits the user's choice.
 4. The CM or CE checker calls `AUTHORIZE` immediately before the protected
-   action. It requires ALLOWED and a receipt, then prevents duplicate effects.
+   action. It requires status 0, ALLOWED and a receipt, then prevents duplicate effects.
 
 `QUERY` only observes policy. It never opens UI or authorizes execution.
 Access grant duration and acquired-data retention are separate policies.
@@ -42,14 +42,15 @@ and privileges, and physical holder cleanup still need integration. Each
 plugin owns Installer hooks and must use authenticated publication and
 protected package/app generations. Production roles start empty and deny
 unenrolled callers. See [verification status](docs/guides/07-verification.en.md)
-and the [integration checklist](docs/guides/16-maintenance-and-integration.en.md).
+and the [integration
+checklist](docs/guides/16-maintenance-and-integration.en.md).
 
 ## Start here
 
 | Task | Guide |
 | --- | --- |
 | Build and deploy | [Development](docs/guides/01-development.en.md) |
-| Call the C API | [API, ownership and callbacks](docs/guides/02-c-api.en.md) |
+| Call the C API | [First C client](docs/guides/api/01-start.en.md) |
 | Register tool/data policy and request approval | [Concrete inputs](docs/guides/13-tool-examples.en.md) |
 | Connect mock CM/CE services | [Mock service examples](docs/guides/14-mock-services.en.md) |
 | Run the actual native UI smoke | [One-command UI verification](docs/guides/17-native-ui-smoke.en.md) |
@@ -74,7 +75,8 @@ The default build includes the separate PoC package and its .NET SDK inputs.
 Guide 01 explains dependencies and package installation. Destructive recovery
 checks must use isolated state on a selected development emulator.
 
-Consumers include `<consent.h>` and use installed pkg-config metadata:
+In a compatible Tizen SDK or on a target with matching development packages,
+consumers include `<consent.h>` and use installed pkg-config metadata:
 
 ```sh
 cc consumer.c -o consumer $(pkg-config --cflags --libs consent)

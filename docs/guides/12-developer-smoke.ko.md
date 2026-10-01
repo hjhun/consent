@@ -1,5 +1,7 @@
 # 가이드 12: 자원을 읽기 전 승인 검사
 
+[English](12-developer-smoke.en.md)
+
 CM과 CE 예제가 격리된 consentd에서 승인을 확인한 뒤 테스트 자원을 읽는 방법을
 설명합니다. 승인 전 읽기를 차단하고 승인 후 실제 읽기가 일어나야 테스트가
 통과합니다. Receipt는 consentd가 발급한 AUTHORIZE 판단 기록이며 전달만으로
@@ -12,7 +14,7 @@ CM과 CE 예제가 격리된 consentd에서 승인을 확인한 뒤 테스트 �
 활성화된 소켓의 PID1/root/SMACK 신원 검사는 유지합니다. 제품에 적용하기 전
 아래 연동 현황을 확인하세요.
 
-## 빌드와 실행
+## 1. 빌드·실행·정리하기
 
 개발 에뮬레이터를 선택하고 아키텍처를 먼저 확인하세요.
 
@@ -56,6 +58,64 @@ sdb -s DEVICE shell 'systemd-run --quiet --wait --pipe \
 정리는 식별 표식, 디렉터리 소유권과 기록한 unit의 hash를 먼저 검증합니다.
 다른 기존 경로나 unit이 있으면 설정을 바꾸기 전에 거부합니다.
 자동 초기화는 하지 않습니다.
+
+소스의 성공 분기는 본 실행에서 `SMOKE_EXIT 0`, --cleanup에서
+`PASS explicit owned fixture cleanup`을 출력합니다. 원격 systemd-run 종료도
+보관하세요. 호스트 SDB 반환만으로 Python 결과를 알 수 없습니다.
+--require-product는 개발 시나리오가 통과해도 제품 어댑터 부재로 실패합니다.
+정리 성공은 별도로 확인해야 합니다.
+
+## C 예제의 구체적 입력
+
+초기 설정과 설치 세대 발급은 실행 도구가 담당합니다. 등록된 root/System 역할로
+아래 순서를 확인할 수 있습니다. 세대는 실행 도구가 받은 값을 쓰고 임의로 만들지
+마세요. 초기 설정을 마친 환경이 실행 중인 해당 단계에서만 사용하는 예입니다.
+전체 실행이 끝나면 registry 손실 상태로 중지하므로 완료 뒤 붙여 넣지 마세요.
+승인 전 호출, 동시에 실행할 argo/UI, 완료 콜백 뒤 호출 순서로 진행합니다.
+
+```sh
+export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
+smoke=/usr/libexec/consent/smoke
+"$smoke/consent-smoke-installer" "$GENERATION" smoke.cm.read cm 1 register-demo
+printf 'query advisory CONSENT_REQUIRED\nauthorize demo-before CONSENT_REQUIRED\n' |
+  "$smoke/consent-smoke-cm" smoke.cm.read \
+  /tmp/consent-smoke/catalog-package/res/skills/smoke/SKILL.md
+printf 'query advisory CONSENT_REQUIRED\n' |
+  "$smoke/consent-smoke-ce" smoke.ce.level0 /tmp/consent-smoke/context-data.txt
+```
+
+Argo는 callback을 기다린다. 터미널/문맥 A에서 argo를 시작하고 기다리는 동안
+출력된 REQUEST_ID를 독립 UI 문맥 B에 전달한다. 두 문맥 모두 사전에 등록된
+root/System actor여야 한다.
+
+터미널/문맥 A:
+
+```sh
+export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
+/usr/libexec/consent/smoke/consent-smoke-argo smoke.cm.read approve-demo
+```
+
+동시에 사용하는 터미널/문맥 B:
+
+```sh
+export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
+/usr/libexec/consent/smoke/consent-smoke-ui \
+  --auto-approve-smoke "$REQUEST_ID" PERSISTENT
+```
+
+Argo callback 뒤 승인 후 CM 확인/읽기:
+
+```sh
+export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
+smoke=/usr/libexec/consent/smoke
+printf 'query advisory ALLOWED\nauthorize demo-authorized ALLOWED\n' |
+  "$smoke/consent-smoke-cm" smoke.cm.read \
+  /tmp/consent-smoke/catalog-package/res/skills/smoke/SKILL.md
+```
+
+각 CM/CE 호출은 handle 하나를 소유합니다. 실행 도구는 stdin을 열어 둔 채
+명시적 재연결과 프로세스의 실행 기록을 검사합니다. Request ID와 안내 token은
+이를 생성한 argo/UI operation에 속합니다.
 
 ## 역할별 예제
 
@@ -120,58 +180,6 @@ sequenceDiagram
   E->>E: deduplicate receipt, read protected fixture
 ```
 
-## C 예제의 구체적 입력
-
-초기 설정과 설치 세대 발급은 실행 도구가 담당합니다. 등록된 root/System 역할로
-아래 순서를 확인할 수 있습니다. 세대는 실행 도구가 받은 값을 쓰고 임의로 만들지
-마세요. 초기 설정을 마친 환경이 실행 중인 해당 단계에서만 사용하는 예입니다.
-전체 실행이 끝나면 registry 손실 상태로 중지하므로 완료 뒤 붙여 넣지 마세요.
-승인 전 호출, 동시에 실행할 argo/UI, 완료 콜백 뒤 호출 순서로 진행합니다.
-
-```sh
-export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
-smoke=/usr/libexec/consent/smoke
-"$smoke/consent-smoke-installer" "$GENERATION" smoke.cm.read cm 1 register-demo
-printf 'query advisory CONSENT_REQUIRED\nauthorize demo-before CONSENT_REQUIRED\n' |
-  "$smoke/consent-smoke-cm" smoke.cm.read \
-  /tmp/consent-smoke/catalog-package/res/skills/smoke/SKILL.md
-printf 'query advisory CONSENT_REQUIRED\n' |
-  "$smoke/consent-smoke-ce" smoke.ce.level0 /tmp/consent-smoke/context-data.txt
-```
-
-Argo는 callback을 기다린다. 터미널/문맥 A에서 argo를 시작하고 기다리는 동안
-출력된 REQUEST_ID를 독립 UI 문맥 B에 전달한다. 두 문맥 모두 사전에 등록된
-root/System actor여야 한다.
-
-터미널/문맥 A:
-
-```sh
-export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
-/usr/libexec/consent/smoke/consent-smoke-argo smoke.cm.read approve-demo
-```
-
-동시에 사용하는 터미널/문맥 B:
-
-```sh
-export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
-/usr/libexec/consent/smoke/consent-smoke-ui \
-  --auto-approve-smoke "$REQUEST_ID" PERSISTENT
-```
-
-Argo callback 뒤 승인 후 CM 확인/읽기:
-
-```sh
-export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
-smoke=/usr/libexec/consent/smoke
-printf 'query advisory ALLOWED\nauthorize demo-authorized ALLOWED\n' |
-  "$smoke/consent-smoke-cm" smoke.cm.read \
-  /tmp/consent-smoke/catalog-package/res/skills/smoke/SKILL.md
-```
-
-각 CM/CE 호출은 handle 하나를 소유합니다. 실행 도구는 stdin을 열어 둔 채
-명시적 재연결과 프로세스의 실행 기록을 검사합니다. Request ID와 안내 token은
-이를 생성한 argo/UI operation에 속합니다.
-
 ## 안전 검사와 복구
 
 변경하는 경로는 `/tmp/consent-smoke`, `/opt/var/lib/consent-smoke-runtime`,
@@ -219,3 +227,10 @@ smoke는 0, 제품 strict는 시나리오 완료 뒤 예상 코드 1, 정리는 
 증거: `/var/tmp/consent-artifacts/consent-smoke-01/`.
 
 [스냅샷 상세와 실패 이력](../history/07-verification-history.ko.md#guide-12-checkpoint)
+
+
+<a id="빌드와-실행"></a>
+---
+
+[관련 작업](01-development.ko.md) · [이어 읽기](13-tool-examples.ko.md) · [역할별
+문서](../README.md)

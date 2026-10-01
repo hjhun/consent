@@ -1,10 +1,12 @@
 # Guide 16: Maintenance and product integration
 
+[한국어](16-maintenance-and-integration.ko.md)
+
 Use this checklist when changing framework code or preparing a product
 integration. It summarizes implemented ownership safeguards and work that
 still needs a platform contract or target evidence.
 
-## Code maintenance
+## 1. Review resource and callback ownership
 
 Callbacks must keep their owner alive, contain exceptions and close uncertain
 authority state. Profile callbacks use `noexcept` adapters; timers retain their
@@ -24,7 +26,7 @@ after successful client destruction and transfers it only once. Keep ABI,
 protocol, roles, generation fences and storage semantics unchanged when
 refactoring. The version map is a link dependency, so symbol changes relink.
 
-## Product integration checklist
+## 2. Choose a product integration checkpoint
 
 | Work | Contract or evidence required |
 | --- | --- |
@@ -41,7 +43,7 @@ an arbitrary launch argument. Profile discovery found installed sessiond
 inactive, bus names unowned and mapping absent; those observations alone did
 not establish the cause. Synthetic fixtures do not close these product tasks.
 
-## Verified maintenance checkpoint
+## 3. Compare with retained verification
 
 Release26 r2 GBS returned 0: 27 tests passed and four root-only tests were
 skipped. Configuration decoding, callback exception containment and spawned
@@ -51,4 +53,16 @@ returned 0. Installed payloads matched 162 RPM file digests, and native config
 and process checks returned 0. Production daemon18 and PoC18 were unchanged.
 
 Evidence: `/var/tmp/consent-artifacts/consent-style-06/`. See the
-[detailed checkpoint record](../history/07-verification-history.en.md#guide-16-checkpoint).
+[detailed checkpoint
+record](../history/07-verification-history.en.md#guide-16-checkpoint).
+
+
+<a id="code-maintenance"></a>
+
+<a id="product-integration-checklist"></a>
+
+<a id="verified-maintenance-checkpoint"></a>
+---
+
+[Related task](07-verification.en.md) · [Continue](17-native-ui-smoke.en.md) ·
+[Reading paths](../README.md)

@@ -1,9 +1,40 @@
 # 가이드 09: 저장소 유지 관리와 복구 경계
 
+[English](09-storage-maintenance.en.md)
+
 Repository는 operation 재시도, 요청 결과, holder 정리 증거를 유지하면서
 사용할 수 없는 메타데이터를 축소합니다. retention TTL이나 완료된
 request/session/artifact 행 삭제, definitions registry 유실 복구는 구현하지
 않습니다. 아래 registry 유실 절차는 별도 증분을 위한 설계입니다.
+
+## 1. SDK 빌드에서 유지 관리 검증하기
+
+프레임워크 유지보수 작업이며 공개 유지 관리 CLI나 C API는 없습니다.
+같은 네이티브 SDK로 구성한 빌드 디렉터리에서 저장소 테스트를 실행합니다.
+
+```sh
+cd /path/to/consent-build
+ctest -R '^repository-test$' --output-on-failure
+```
+
+테스트 선택이 비어 있지 않고 해당 테스트가 통과해야 합니다. 내부 테스트 명령이며
+새 검증 결과나 두 번째 프로세스가 운영 DB를 열어도 된다는 뜻이 아닙니다.
+살아 있는 데이터베이스는 consentd만 소유합니다.
+
+## 2. 유지 관리 동작 해석하기
+
+직렬 DB 실행기에서 Tick은 최대 60초에 한 번 제한된 묶음을 처리합니다.
+무효 실행 허가의 payload, 오래된 UI token과 사용할 수 없는 재개 token을 줄일 수
+있습니다. 재시도 ID, 유효한 receipt, 요청 상태와 holder 정리 증거는 보존합니다.
+파일 크기가 줄어들 필요는 없으며 VACUUM과 TTL 삭제는 제공하지 않습니다.
+
+BUSY, FULL이나 I/O 오류이면 불확실한 실행을 중단하고 저장소 실패를 처리합니다.
+DB를 교체하거나 재시도 이력을 버리면 안 됩니다. 격리 복구 검사는
+[가이드 12](12-developer-smoke.ko.md), holder 정리는
+[API 05](api/05-sessions-and-data.ko.md)를 따릅니다.
+
+## 참조: 트랜잭션과 용량 규칙
+
 
 ## 실행과 트랜잭션 경계
 
@@ -185,3 +216,104 @@ exactly-once 보장에는 추가 durable retry 프로토콜이 필요합니다.
 기존 경계는 [저장소 설계](../design/04-storage-design.ko.md),
 [설치 authority](03-installation-authority.ko.md),
 [오프라인 등록](04-offline-registration.ko.md)을 참고합니다.
+
+## 참조: 복구 시험과 저장소 계약
+
+root 전용 installation authority는 `begin`, `attach`, `commit`, `remove`로
+`installations.conf`를 관리합니다. begin은 세대를 회전하고 과거 앱 목록의
+사용을 차단하며 attach는 패키지의 각 앱을 기록하고 commit은 완성된 목록을
+활성화합니다. 한 번도 기록되지 않은 패키지에만 `absent`를 사용합니다.
+명령마다 고유 operation ID와 기대 세대가 필요하며 결과가 불확실하면 같은
+operation으로 재시도합니다. 실제 패키지 설치와 authority commit이 성공한
+후에만 등록합니다. 삭제할 때는 authority를 먼저 removed로 바꾼 뒤 같은
+기대 세대로 consent 정의를 unregister합니다. tombstone은 패키지 전체 정리가
+진행되는 동안 새 권한 부여를 막습니다. 재설치는 새 세대를 사용합니다. 이 도구는
+Installer 연동 지점이며 플랫폼 hook 설치 완료를 뜻하지 않습니다.
+
+C API 실행 프로그램은 `METHOD [PACKAGE [APP]] key=value ...`, `--async`,
+`--timeout-ms=N`, `--repeat=N`, `--expect-status=N`,
+`--expect-decision=VALUE`를 받습니다. 결과가 다르면 0이 아닌 종료값을
+반환합니다. 일치하는 위임 문맥으로 신뢰 checker를 설정한 후 다음과 같이
+실행할 수 있습니다.
+
+```sh
+/usr/libexec/consent/tests/consent-api-test check \
+  subject=org.example.agent profile=owner count=1 \
+  r0.definition=calendar.read r0.operation=read r0.scope=today \
+  r0.purpose=answer-calendar --async --expect-decision=CONSENT_REQUIRED
+```
+
+`-isolated` 도구는 별도 정적 테스트 클라이언트를 연결합니다. `consentd-test`는
+같은 역할 검사와 `/tmp/consent-test`의 socket/config 경로,
+`/opt/var/lib/consent-test`의 영속 state 경로를 사용하며 설치 인벤토리 adapter만
+대체합니다. 운영 바이너리에는 해당 adapter를
+활성화하는 런타임 switch가 없습니다. client unit test는 모의 전송 peer를
+사용하므로 클라이언트 계약을 검증하며 데몬 정책이나 플랫폼 신원 검증을
+대신하지 않습니다.
+
+`scripts/emulator-scenario.sh`는 격리된 에뮬레이터 단계별 테스트를 제공합니다.
+`basic`은 새 테스트 설치 상태가 필요하며 이전 결과를 임의로 삭제하지 않습니다.
+후속 단계는 지속성, 실행·정지 중 DB 삭제, 손상 DB 복구, 과거 DB 교체 및
+동일 UID의 역할 거부를 확인합니다. 선택한 개발 에뮬레이터에서 root와
+`System` security label로만 실행합니다. `endpoint-fixture`는 실제
+`/run/.consentd.sock`을 사용하는 별도 수동 endpoint 인증 도구이므로 CTest에서
+제외합니다. 실행 전 [검증 증거](07-verification.ko.md)의 준비 절차를 따릅니다.
+
+미완성 IPC 입력, UI 승인을 기다리는 요청, 실제 대기 중인 DB 작업의 종료
+증거는 구분합니다. 수동 `wire-scenario --shutdown-wait`는 일부 header만 받은
+연결의 종료를 확인하며 supervisor가 서비스 정상 종료와 `database-drained`
+로그도 확인합니다. 이것만으로 대기 중이던 DB 작업의 완료를 입증하지는 않습니다.
+UI를 기다리는 요청은 DB transaction이나 worker를 점유하지 않으므로 그 요청의
+연결 단절·재시작 동작은 별도 시나리오입니다. 실제로 확인한 경계는 검증 기록을
+참조합니다.
+
+별도 실행 파일 `consentd-shutdown-test`는 DB 작업이 진행 중인 상태를 통제하는
+테스트에 사용합니다. 일반 격리 데몬 설정을 사용하며
+`repository_shutdown_interposer.cc` 테스트 helper만 추가합니다. 운영
+`consentd`와 일반 `consentd-test`에는 이 helper가 없습니다. 제어 프로그램은
+데몬 계정 소유 mode0700 `/tmp/consent-shutdown-gate`에 mode0600 FIFO
+`shutdown-db-release`를 만들고 읽기·쓰기 양쪽으로 열어 둡니다. 실제 grant를
+변경하는 revoke가 COMMIT 전에 멈추면 mode-0600 `shutdown-db-ready`에
+`pid=N state=before-commit`을 기록합니다. PID가 테스트 데몬과 일치하는지
+확인한 후 서비스 종료를 시작하고, 5초 안에 FIFO로 한 바이트 `C`를 보냅니다.
+supervisor의 정상 종료·`database-drained` 검사를 요구하고 데몬이 멈춘 뒤에만
+철회가 커밋되었는지 확인합니다. gate 오류나 timeout은 transaction을 실패시키며
+ready 파일의 생성만으로 drain 성공을 판단하지 않습니다. 이는 테스트 절차 설명이며
+실제로 통과했다는 주장은 snapshot별 검증 기록에서 확인합니다.
+
+프로세스 강제 종료, 정상 재부팅, emulator 전원 강제 중단을 별도 시나리오로
+기록합니다. 강제 DB 삭제는 격리된 테스트 상태 또는 선택한 개발 emulator의
+consent 상태만 대상으로 합니다. 다른 플랫폼 DB를 삭제하지 않습니다.
+승인 정보가 소실되면 새 승인이 필요하며 등록 정의 복원에는 별도로 신뢰할 수
+있는 원본이 필요합니다. 권한·용량 부족·I/O 오류를 DB 삭제로 숨기지 않습니다.
+
+초기 저장 구현은 직렬화한 SQLite 연결 하나와 `journal_mode=DELETE`,
+`synchronous=EXTRA`, foreign key 및 100 ms busy timeout을 사용합니다.
+rollback journal은 SQLite가 관리하므로 복구 중 따로 지우지 않습니다.
+보호된 `definitions.registry`는 DB와 독립적으로 정의와 패키지 삭제 기록을
+보존합니다. 별도 Installer 세대 registry와 플랫폼 `pkgmgr-info`로 정의를
+현재 설치 인스턴스에 결합합니다. 복원 대상은 정의이며 사용자 승인은 복원하지
+않습니다. 실행 중 DB가 없거나 교체되면 기존 handle을 닫고 새 epoch를 만듭니다.
+정상 재시작에서는 pending 요청과 세션을 무효화하며 조건을 만족하는 지속 승인을
+보존합니다. 삭제 증거가 수신될 때까지 holder 정리는 미완료로 남습니다.
+
+GBS는 GCC 14.2와 `-Werror`로 native Parcel 클라이언트·데몬·C 실행
+프로그램·installation authority를 빌드합니다. 패키지 검사는 클라이언트 계약,
+저장 정책·복구, 저장 장애 주입, 프로세스 강제 종료 경계 및 IDL 생성을 다룹니다.
+build-root 테스트와 에뮬레이터 통합 검증은 구분합니다. [검증 증거](07-verification.ko.md)에
+검사한 snapshot, 실제 결과와 남은 수용 조건을 기록합니다. mock 신원 테스트가
+제품 신원 연동을 입증하지는 않으며 실제 Installer·argo·UI 정책 연동이 필요합니다.
+
+데몬은 조건을 만족하는 PERSISTENT/SESSION 승인을 최대 500 ms 동안 cache
+가능으로 표시하며 timer 처리에서 설치 세대를 대조합니다. 각 클라이언트
+handle은 request cache를 최대 64개 유지합니다. SESSION 항목은 서버가 확인한
+session과 generation이 일치해야 하며 전달된 TTL과 session 만료를 넘지
+않습니다. handle 사이에 cache를 공유하지 않습니다. 이벤트·epoch 변경·연결
+단절은 항목을 무효화하며 QUERY와 AUTHORIZE는 항상 데몬을 확인합니다.
+실제 승인 UI·Installer 수명주기 hook·제품 정책 연동이 필요하며 프로토콜
+실행 프로그램은 운영 UI를 대체하지 않습니다.
+
+---
+
+[관련 작업](api/05-sessions-and-data.ko.md) · [이어 읽기](07-verification.ko.md) ·
+[역할별 문서](../README.md)

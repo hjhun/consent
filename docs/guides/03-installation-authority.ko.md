@@ -1,27 +1,20 @@
-# 가이드 03: Installer generation authority
+# 가이드 03: 설치 세대 발급하기
 
-운영 adapter는 두 가지 사실을 각각 검증합니다. pkgmgr-info에서 앱과 패키지
-관계가 확인되어야 하고, 보호된 installation authority에서 앱과 패키지가 예상
-설치 generation으로 active여야 합니다. 패키지명, 버전, 초 단위 설치 시각, 서명
-신원이나 inode만으로 서로 다른 설치 인스턴스가 같다고 판단하지 않습니다.
+<a id="가이드-03-installer-generation-authority"></a>
 
-파일은 `/opt/var/lib/consent-authority/installations.conf`입니다. 디렉터리는
-root 소유0750, 파일은 root 소유0640이며 데몬의 primary group에는 읽기만
-허용합니다. 데몬은 root가 보호하는 상위 경로에서 authority를 교체할 수 없습니다.
-확인한 Tizen emulator는 `/var -> opt/var`이므로 symlink를 거부하는
-보호 경로 열기에 맞춰 canonical `/opt/var` 경로를 사용합니다.
-`consent-installation-authority`는 root 전용 provisioning 도구이며 클라이언트
-역할 인증을 우회하는 API가 아닙니다.
+[English](03-installation-authority.en.md)
 
-`consent-storage-prepare`가 데몬 시작 전에 이 디렉터리를 준비합니다. 업그레이드에서는
-기존 authority를 데몬 상태 디렉터리 밖으로 옮긴 뒤 그 상태 디렉터리의 소유권을
-바꾸며 generation 내용을 보존합니다. 읽을 수 없거나 충돌하는 authority를 빈
-자료로 대체하지 않습니다. 평상시 데몬과 Installer는 `lifecycle.lock`을 공유
-잠금으로 잡고 준비 도구는 독점 잠금으로 잡습니다. Installer는 준비된 lifecycle
-파일을 읽고 잠그기만 하며 소유권이나 mode를 바꾸지 않습니다. 이행 전 socket/service를
-중지하고 기존 Installer 작업을 종료해야 합니다.
+완료된 패키지 설치마다 보호된 세대를 발급하고 그 값으로 승인 정의를 게시합니다.
+설치 세대는 이름이 같은 옛 패키지와 새 설치를 구분합니다.
 
-## Provisioning 실행 문맥
+## 준비 사항
+
+확인한 System::Privileged 문맥의 root로 실행합니다. 보호된 authority와 lifecycle
+잠금이 준비되어 있어야 합니다. 플러그인은 실제 패키지 트랜잭션 결과를 알고
+재시도 ID를 유지해야 합니다. 이 도구가 설치 결과를 알아내거나 온라인 Installer
+역할을 주지는 않습니다.
+
+## 1. Writer 실행 문맥 선택하기
 
 writer는 root로, 명시적인 `System::Privileged` SMACK 프로세스 문맥에서 실행합니다.
 root UID만으로는 충분하지 않습니다. emulator의 `System` 문맥 root shell에서는
@@ -89,6 +82,40 @@ rollback 시 실패 generation은 pending 또는 removed로 남깁니다. 패키
 수행합니다. 과거 사용자 승인은 복원하지 않습니다. 도구가 플랫폼 transaction의
 성공 여부를 자체 추정하지는 않습니다.
 
+## 3. 상태 전환 확인하기
+
+begin이 반환한 새 세대 문자열을 attach와 commit에 사용합니다. commit 전에는
+패키지가 pending이며 정의가 활성화되지 않습니다. 플랫폼 설치가 내구성 있게
+완료된 뒤에만 commit합니다. 제거는 패키지 전체 consent_unregister 전에
+tombstone을 기록합니다. 이는 소스 계약의 결과이며 새 설치 실행 보고가 아닙니다.
+
+명령 결과가 불확실하면 설치 차단을 유지하고 같은 내용과 ID로 재시도하세요.
+오래된 예상 세대나 다른 재시도 내용은 오류입니다. 패키지를 복원할 때 옛 승인을
+복원하지 마세요.
+
+## 참조: 보호된 authority 준비
+
+운영 adapter는 두 가지 사실을 각각 검증합니다. pkgmgr-info에서 앱과 패키지
+관계가 확인되어야 하고, 보호된 installation authority에서 앱과 패키지가 예상
+설치 generation으로 active여야 합니다. 패키지명, 버전, 초 단위 설치 시각, 서명
+신원이나 inode만으로 서로 다른 설치 인스턴스가 같다고 판단하지 않습니다.
+
+파일은 `/opt/var/lib/consent-authority/installations.conf`입니다. 디렉터리는
+root 소유0750, 파일은 root 소유0640이며 데몬의 primary group에는 읽기만
+허용합니다. 데몬은 root가 보호하는 상위 경로에서 authority를 교체할 수 없습니다.
+확인한 Tizen emulator는 `/var -> opt/var`이므로 symlink를 거부하는
+보호 경로 열기에 맞춰 canonical `/opt/var` 경로를 사용합니다.
+`consent-installation-authority`는 root 전용 provisioning 도구이며 클라이언트
+역할 인증을 우회하는 API가 아닙니다.
+
+`consent-storage-prepare`가 데몬 시작 전에 이 디렉터리를 준비합니다. 업그레이드에서는
+기존 authority를 데몬 상태 디렉터리 밖으로 옮긴 뒤 그 상태 디렉터리의 소유권을
+바꾸며 generation 내용을 보존합니다. 읽을 수 없거나 충돌하는 authority를 빈
+자료로 대체하지 않습니다. 평상시 데몬과 Installer는 `lifecycle.lock`을 공유
+잠금으로 잡고 준비 도구는 독점 잠금으로 잡습니다. Installer는 준비된 lifecycle
+파일을 읽고 잠그기만 하며 소유권이나 mode를 바꾸지 않습니다. 이행 전 socket/service를
+중지하고 기존 Installer 작업을 종료해야 합니다.
+
 ## 내구성 있는 파일 형식
 
 ```ini
@@ -139,3 +166,10 @@ Installer commit/rollback 순서 검증과 해당 실행 프로세스 신원 등
 상태 디렉터리는 `/opt/var/lib/consent-test`입니다. 시험 데몬은 pkgmgr-info 대신 명시적인
 시험 inventory를 조회합니다. 운영 신원 정책은 바뀌지 않으며 시험 generation은
 운영 adapter의 신뢰 원본이 아닙니다.
+
+
+<a id="provisioning-실행-문맥"></a>
+---
+
+[관련 작업](api/02-registration.ko.md) · [이어 읽기](04-offline-registration.ko.md) ·
+[역할별 문서](../README.md)

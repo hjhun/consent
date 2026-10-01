@@ -1,11 +1,89 @@
 # 가이드 06: 플랫폼 Installer 통합 인계
 
+[English](06-installer-integration.en.md)
+
 상태: 2026-09-20 로컬 소스 조사. 이 문서는 아직 필요한 외부 통합을 설명하며,
 Installer plugin 구현 완료나 emulator 설치 lifecycle 검증을 보고하지 않는다.
 기존 callback만을 근거로 production metadata plugin을 등록해서는 안 된다.
 구현된 provisioning 도구는 [installation authority](03-installation-authority.ko.md),
 설계 의도는 [CEP 14절](../design/01-consent-framework.md)을 참고한다.
 
+## 플러그인 hook 구현 전 준비
+
+플러그인이 설치·갱신·삭제 연동을 맡습니다. 인증된 게시자, 내구성 있는 패키지
+트랜잭션과 전체 앱·정의 목록을 먼저 확인하세요. 일반 콜백만으로 commit을 증명할
+수는 없습니다. 아래 값은 신뢰된 Installer에서 받아야 하며 앱 JSON을 믿으면
+안 됩니다.
+
+| 값 | 출처와 용도 |
+| --- | --- |
+| 패키지와 앱 ID | 확인한 패키지 내용과 소속 관계 |
+| 이전·새 세대 | 보호된 authority 수명 관리 |
+| 트랜잭션·세부 작업 고정 ID | 내구성 있는 commit·복구 기록 |
+| 정책·문구 버전과 번역 정의 | 신뢰된 전체 등록 대상 메타데이터 |
+| commit·rollback 결과 | 내구성 있는 플랫폼 트랜잭션 결정 |
+
+실제 authority 명령은 [가이드 03](03-installation-authority.ko.md), 등록 입력과
+C 호출은 [API 02](api/02-registration.ko.md)를 사용하세요. 아래 단계는 필요한
+연동 계약이며 설치 완료된 플러그인을 뜻하지 않습니다.
+
+
+## 필요한 외부 adapter 계약
+
+다음은 제안하는 플랫폼 통합 계약이며 구현된 adapter API가 아니다.
+authority 도구에는 `begin/attach/commit/remove`, expected-generation 검사,
+operation receipt, durable 파일 교체가 구현되어 있다. 도구 자체가 플랫폼
+transaction의 결과를 발견하거나 증명하지는 못한다.
+
+1. package 변경 전에 안정된 transaction UUID를 영속화한다. target UID, package,
+   작업, 이전/새 generation, 전체 app/definition desired set 또는 검증된 digest를
+   결합하고 package별 작업을 직렬화한다.
+2. 서로 다른 하위 작업 ID를 영속화하고 결과가 불확실할 때 같은 ID와 payload로
+   재시도한다. 정상·undo·재부팅 recovery에 같은 transaction 신원을 전달하며
+   recovery 전달을 위해 새 신원을 만들지 않는다.
+3. 교체 전에 `begin`으로 기존 generation을 차단한다. 필요한 모든 app을 `attach`로
+   준비한다. pending generation은 consent에서 사용 불가능한 상태를 유지한다.
+4. 묶음 설치라면 batch 전체를 포함한 플랫폼 최종 결과를 영속화하고 확인한다.
+   durable commit 결정만 authority `commit`을 허용하며 recovery도 같은 결정을
+   안전하게 재실행해야 한다.
+5. authority와 정의 등록이 성공할 때까지 재조정할 작업을 영속적으로 유지한다.
+   authority 활성화 후 인증된 Installer API로 등록하며, 중단된 작업을 재조정한 뒤
+   통합 성공을 보고한다.
+6. 보호된 authority 쓰기는 인증된 privileged adapter를 사용한다. 플랫폼 근거로
+   실제 UID, executable, SMACK role을 확인하여 설정한다. authority 권한을 완화하거나
+   공유 UID만으로 역할을 신뢰해서는 안 된다.
+
+플랫폼 담당자는 lifecycle/commit/recovery hook과 durable 기록, backend/process
+신원, 제한된 재시도 및 receipt 보존 정책을 제공해야 한다. root 소유 상태,
+pkgmgr-info 검증, consent 정책 저장소는 별도이므로 단일 원자적 DB transaction으로
+가정해서는 안 된다.
+
+## Package lifecycle 규칙
+
+설치·재설치·교체에는 새 generation을 사용한다. 같은 package/app 이름, version,
+인증서, 초 단위 설치 시각만으로 같은 incarnation임을 증명할 수 없다.
+metadata가 사라진 app도 포함하여 package 전체 desired set을 재조정하고,
+무관한 package는 보존하며 오래된 정의는 명시적으로 비활성화한다.
+app별 callback 순서는 전체 desired set이 완성되었다는 경계가 아니다.
+
+제거는 generation tombstone을 먼저 기록한 뒤 expected generation과 안정된
+operation ID로 package 전체 `consent_unregister()`를 재시도한다.
+지연된 제거가 이후 설치에 영향을 주어서는 안 된다. rollback 시 실패한 generation은
+pending/removed로 유지한다. 복원 package는 신뢰 검증, 새 `begin/attach/commit`,
+정의 등록이 필요하다. 복원된 package metadata에서 과거 승인, 소비된 grant,
+session을 복원해서는 안 된다.
+
+## Production 등록 전에 필요한 검증
+
+격리된 authority fixture뿐 아니라 실제 선택한 backend와 인증된 adapter로 검증한다.
+다중 app, metadata 제거, 신원 불일치, 재설치, package 제거, rollback을 실행하고
+다른 package에 영향이 없는지 확인한다. 각 durable 경계 전후와 응답 전에 중단하여
+Installer 재시작·emulator 재부팅 후 재실행을 확인한다. 앞 package의 callback 이후
+batch가 실패하는 경우도 포함한다. adapter 실패와 storage 사용 불가 상태에서
+불확실한 결과는 재조정이 끝날 때까지 차단되어야 한다.
+
+이 Installer lifecycle 검증은 외부 통합 이후 수행할 항목이다. 기존 consent build,
+authority test, DB recovery test의 성공이 이 검증의 완료를 뜻하지 않는다.
 ## 조사한 소스 snapshot
 
 참조 저장소는 `~/tizen/platform/core/appfw/` 아래에 있으며 읽기만 수행했다.
@@ -84,59 +162,7 @@ metadata callback에 전달되는 신원이 아니다.
 요구한다. 따라서 모든 metadata plugin에서 authority 도구를 직접 실행할 수 있다고
 가정할 수 없다. package 인증서 privilege는 호출 process의 역할 신원이 아니다.
 
-## 필요한 외부 adapter 계약
+---
 
-다음은 제안하는 플랫폼 통합 계약이며 구현된 adapter API가 아니다.
-authority 도구에는 `begin/attach/commit/remove`, expected-generation 검사,
-operation receipt, durable 파일 교체가 구현되어 있다. 도구 자체가 플랫폼
-transaction의 결과를 발견하거나 증명하지는 못한다.
-
-1. package 변경 전에 안정된 transaction UUID를 영속화한다. target UID, package,
-   작업, 이전/새 generation, 전체 app/definition desired set 또는 검증된 digest를
-   결합하고 package별 작업을 직렬화한다.
-2. 서로 다른 하위 작업 ID를 영속화하고 결과가 불확실할 때 같은 ID와 payload로
-   재시도한다. 정상·undo·재부팅 recovery에 같은 transaction 신원을 전달하며
-   recovery 전달을 위해 새 신원을 만들지 않는다.
-3. 교체 전에 `begin`으로 기존 generation을 차단한다. 필요한 모든 app을 `attach`로
-   준비한다. pending generation은 consent에서 사용 불가능한 상태를 유지한다.
-4. 묶음 설치라면 batch 전체를 포함한 플랫폼 최종 결과를 영속화하고 확인한다.
-   durable commit 결정만 authority `commit`을 허용하며 recovery도 같은 결정을
-   안전하게 재실행해야 한다.
-5. authority와 정의 등록이 성공할 때까지 재조정할 작업을 영속적으로 유지한다.
-   authority 활성화 후 인증된 Installer API로 등록하며, 중단된 작업을 재조정한 뒤
-   통합 성공을 보고한다.
-6. 보호된 authority 쓰기는 인증된 privileged adapter를 사용한다. 플랫폼 근거로
-   실제 UID, executable, SMACK role을 확인하여 설정한다. authority 권한을 완화하거나
-   공유 UID만으로 역할을 신뢰해서는 안 된다.
-
-플랫폼 담당자는 lifecycle/commit/recovery hook과 durable 기록, backend/process
-신원, 제한된 재시도 및 receipt 보존 정책을 제공해야 한다. root 소유 상태,
-pkgmgr-info 검증, consent 정책 저장소는 별도이므로 단일 원자적 DB transaction으로
-가정해서는 안 된다.
-
-## Package lifecycle 규칙
-
-설치·재설치·교체에는 새 generation을 사용한다. 같은 package/app 이름, version,
-인증서, 초 단위 설치 시각만으로 같은 incarnation임을 증명할 수 없다.
-metadata가 사라진 app도 포함하여 package 전체 desired set을 재조정하고,
-무관한 package는 보존하며 오래된 정의는 명시적으로 비활성화한다.
-app별 callback 순서는 전체 desired set이 완성되었다는 경계가 아니다.
-
-제거는 generation tombstone을 먼저 기록한 뒤 expected generation과 안정된
-operation ID로 package 전체 `consent_unregister()`를 재시도한다.
-지연된 제거가 이후 설치에 영향을 주어서는 안 된다. rollback 시 실패한 generation은
-pending/removed로 유지한다. 복원 package는 신뢰 검증, 새 `begin/attach/commit`,
-정의 등록이 필요하다. 복원된 package metadata에서 과거 승인, 소비된 grant,
-session을 복원해서는 안 된다.
-
-## Production 등록 전에 필요한 검증
-
-격리된 authority fixture뿐 아니라 실제 선택한 backend와 인증된 adapter로 검증한다.
-다중 app, metadata 제거, 신원 불일치, 재설치, package 제거, rollback을 실행하고
-다른 package에 영향이 없는지 확인한다. 각 durable 경계 전후와 응답 전에 중단하여
-Installer 재시작·emulator 재부팅 후 재실행을 확인한다. 앞 package의 callback 이후
-batch가 실패하는 경우도 포함한다. adapter 실패와 storage 사용 불가 상태에서
-불확실한 결과는 재조정이 끝날 때까지 차단되어야 한다.
-
-이 Installer lifecycle 검증은 외부 통합 이후 수행할 항목이다. 기존 consent build,
-authority test, DB recovery test의 성공이 이 검증의 완료를 뜻하지 않는다.
+[관련 작업](03-installation-authority.ko.md) · [이어 읽기](api/02-registration.ko.md)
+· [역할별 문서](../README.md)

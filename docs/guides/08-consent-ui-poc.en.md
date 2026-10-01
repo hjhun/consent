@@ -1,9 +1,12 @@
 # Guide 08: Consent UI example
 
+[한국어](08-consent-ui-poc.ko.md)
+
 The .NET NUI app displays a compact approval popup and reviews every page
 before allowing. An explicit approval-v2 request can offer an initially
 unchecked always-allow choice; the complete registered policy must permit it.
-See the [native layout and period contract](#ui09-compact-native-layout-and-explicit-period-choice).
+See the [native layout and period
+contract](#ui09-compact-native-layout-and-explicit-period-choice).
 
 Use [Guide 17](17-native-ui-smoke.en.md) for the current one-command emulator
 runner. The manual procedures below identify their older build snapshots.
@@ -25,6 +28,24 @@ flowchart LR
   D --> R[PoC SQLite / definitions registry]
   D --> P[Actual pkgmgr + protected generation authority]
 ```
+
+## 1. Run the current native popup example
+
+For a repeatable run with automatic restoration, follow the complete host
+command in [Guide 17](17-native-ui-smoke.en.md#prepare-and-run). It uses
+matching
+RPM/TPK artifacts, an installed but stopped Aurum bootstrap and the selected
+emulator. On screen, review all pages, keep the checkbox initially off, and
+observe the actual CE/CM effect only after authoritative authorization.
+
+Expected: a compact 580×600 maximum popup, separate access/retention disclosure,
+and an optional always-allow choice only for an explicitly eligible request.
+Deny, close or expiry never approves. Guide 17 checks worker receipts and
+counts;
+visual appearance alone is not an authorization result.
+
+## 2. Build the application and inspect its package
+
 
 ## Build and installation
 
@@ -54,13 +75,74 @@ pkgcmd -u -n org.tizen.consentui --global
 pkgcmd -u -n org.tizen.consentui.negative --global
 ```
 
+## UI09: compact native layout and explicit period choice
+
+The new native card uses a 580×600 logical layout, 26px title, 16px body,
+rounded white/grey surfaces and a blue primary action. It never scales above 1;
+24px margins bound short and landscape windows. Feature settings retain their
+separate existing geometry. Complete bound metadata remains paginated without
+ellipsis, and every page must be reviewed before approval.
+
+An initially unchecked native checkbox keeps the requester's original ONCE,
+SESSION or TIMED period. PERSISTENT is available only for explicit approval-v2
+requests whose entire registered batch permits it. The separate opt-in fixture
+commands are `feature-register-choice` and `feature-serve-choice`; default
+commands and approval-v1 remain unchanged. The checkbox cannot alter identity,
+profile, capability, scope, operation, purpose, recipient or retention. Choice,
+language or changed content resets full review; unchanged token refresh retains
+only the same reviewed binding. Deny has initial focus; timeout/close never
+approves. The original worker snapshot reference is checked before submission.
+
+The fixed `libconsent-poc.so.0` and feature library are bundled from matching
+native build targets into the signed main TPK, with SONAME/payload hash
+evidence.
+No library/socket is accepted from app launch data. Development verification
+uses an owned isolated daemon and protected fixture identities. This is a PoC;
+production UI role, endpoint/package deployment and argo launch provisioning
+remain external requirements. The actual target evidence below is distinct
+from host managed checks. The default NUI checkbox rendered orange; this is
+not a claim that a Samsung runtime theme was installed.
+
+### Verified native UI checkpoint
+
+Release27 r7 GBS returned 0 with 29 PASS and four root-only SKIP, plus managed
+UI checks. Actual emulator runs proved unchecked ONCE, checked PERSISTENT,
+fresh-operation reuse, revocation and ONCE-only CM policy. Follow-up evidence
+proved restart preservation, DB-loss fresh approval and helper generation
+retirement followed by a fresh actual UI-approved CE effect. Helper generation
+change was not a TPK reinstall test.
+
+No global RPM was installed: test helpers were extracted and signed TPK bytes
+were used for UI and namespaced worker libraries. Original TPK, services and
+protected production/PoC state were restored or unchanged. Evidence:
+`/var/tmp/consent-artifacts/consent-ui-native-09/`. Use Guide 17 for the current
+repository-owned runner rather than the archived manual controllers.
+
+[Detailed native UI
+evidence](../history/07-verification-history.en.md#guide-8-checkpoint)
+
+## Feature Settings
+
+Settings chooses features and a base period: this conversation or 30 minutes.
+The task-only option uses ONCE without changing saved selections. Argo owns
+the catalog and submits approval requests; Settings has no argo role. Users
+review a task even when existing grants avoid another consent popup. Workers
+still perform AUTHORIZE before protected effects.
+
+See [Guide 10](10-feature-approval.en.md) for feature bindings and conversation
+reuse. The [build26–29
+walkthrough](../history/07-verification-history.en.md#guide-8-settings-history)
+retains earlier Settings commands and visual failures; use Guide 17 for new
+automated runs.
+
 ## Explicit identity setup
 
 The endpoint is `/opt/var/lib/consent-poc-runtime/consent.sock`, listened on by
 PID1 through `consentd-poc.socket`. Its parent is protected root-owned 0755;
 the socket is root:users 0660. Explicit stopped-service preparation validates
 that leaf and sets only its SMACK label to `_`, then reads it back. The
-ancestor labels and production policy are unchanged. The strict client verifies PID1/UID0, the exact
+ancestor labels and production policy are unchanged. The strict client
+verifies PID1/UID0, the exact
 kernel bind address and the listener's `System::Privileged` security label.
 This listener label is distinct from the daemon's `System` label and the UI
 application's package label.
@@ -78,7 +160,8 @@ against this diagnostic is expected and is not an authorization test.
 Only after observing the actual UI socket label does `configure` provision
 its explicit PoC rule: the observed owner UID, protected exact
 `/usr/bin/dotnet-hydra-loader`, and exact
-`User::Pkg::org.tizen.consentui` label, with subject `owner` and profile `default`.
+`User::Pkg::org.tizen.consentui` label, with subject `owner` and profile
+`default`.
 The installed single-app package relation and its DLL/ancestors must remain
 unwritable by that app UID. The `tizenglobalapp` package-manager account is a
 trusted installation owner; it is not the UI caller. A common loader/UID or
@@ -133,7 +216,9 @@ RPM transaction; dependency-check bypasses are not part of this procedure.
 
 For new automated runs, use Guide 17. The following preserved host example
 selects verified build26. Confirm the matching
-snapshot and artifact hashes in [Guide 07](07-verification.en.md) before installation. Build24 exposed a text-fit failure and build25 exposed clipped popup placement;
+snapshot and artifact hashes in [Guide 07](07-verification.en.md) before
+installation. Build24 exposed a text-fit failure and build25 exposed clipped
+popup placement;
 neither is a successful complete visual baseline.
 
 ```sh
@@ -280,63 +365,6 @@ This retains PoC state, roles and installed UI packages for inspection. It does
 not reset a production database or remove package data. Use the explicit TPK
 removal commands above only when that separate cleanup is intended.
 
-## Feature Settings
-
-Settings chooses features and a base period: this conversation or 30 minutes.
-The task-only option uses ONCE without changing saved selections. Argo owns
-the catalog and submits approval requests; Settings has no argo role. Users
-review a task even when existing grants avoid another consent popup. Workers
-still perform AUTHORIZE before protected effects.
-
-See [Guide 10](10-feature-approval.en.md) for feature bindings and conversation
-reuse. The [build26–29 walkthrough](../history/07-verification-history.en.md#guide-8-settings-history)
-retains earlier Settings commands and visual failures; use Guide 17 for new
-automated runs.
-
-## UI09: compact native layout and explicit period choice
-
-The new native card uses a 580×600 logical layout, 26px title, 16px body,
-rounded white/grey surfaces and a blue primary action. It never scales above 1;
-24px margins bound short and landscape windows. Feature settings retain their
-separate existing geometry. Complete bound metadata remains paginated without
-ellipsis, and every page must be reviewed before approval.
-
-An initially unchecked native checkbox keeps the requester's original ONCE,
-SESSION or TIMED period. PERSISTENT is available only for explicit approval-v2
-requests whose entire registered batch permits it. The separate opt-in fixture
-commands are `feature-register-choice` and `feature-serve-choice`; default
-commands and approval-v1 remain unchanged. The checkbox cannot alter identity,
-profile, capability, scope, operation, purpose, recipient or retention. Choice,
-language or changed content resets full review; unchanged token refresh retains
-only the same reviewed binding. Deny has initial focus; timeout/close never
-approves. The original worker snapshot reference is checked before submission.
-
-The fixed `libconsent-poc.so.0` and feature library are bundled from matching
-native build targets into the signed main TPK, with SONAME/payload hash evidence.
-No library/socket is accepted from app launch data. Development verification
-uses an owned isolated daemon and protected fixture identities. This is a PoC;
-production UI role, endpoint/package deployment and argo launch provisioning
-remain external requirements. The actual target evidence below is distinct
-from host managed checks. The default NUI checkbox rendered orange; this is
-not a claim that a Samsung runtime theme was installed.
-
-### Verified native UI checkpoint
-
-Release27 r7 GBS returned 0 with 29 PASS and four root-only SKIP, plus managed
-UI checks. Actual emulator runs proved unchecked ONCE, checked PERSISTENT,
-fresh-operation reuse, revocation and ONCE-only CM policy. Follow-up evidence
-proved restart preservation, DB-loss fresh approval and helper generation
-retirement followed by a fresh actual UI-approved CE effect. Helper generation
-change was not a TPK reinstall test.
-
-No global RPM was installed: test helpers were extracted and signed TPK bytes
-were used for UI and namespaced worker libraries. Original TPK, services and
-protected production/PoC state were restored or unchanged. Evidence:
-`/var/tmp/consent-artifacts/consent-ui-native-09/`. Use Guide 17 for the current
-repository-owned runner rather than the archived manual controllers.
-
-[Detailed native UI evidence](../history/07-verification-history.en.md#guide-8-checkpoint)
-
 ## Browser previews
 
 A self-contained [prior-layout HTML archive](../previews/consent-popup.html)
@@ -357,12 +385,19 @@ Policy changes, reinstall or a profile-authority gap may require fresh approval.
 The repository supports PERSISTENT for eligible legacy definitions, but the
 default feature definitions omit it and approval-v1 selected modes are limited
 to ONCE, SESSION and TIMED. This proposal changes no native policy or API and
-creates no grants. See the [implemented UI09 opt-in fixture](#ui09-compact-native-layout-and-explicit-period-choice)
+creates no grants. See the [implemented UI09 opt-in
+fixture](#ui09-compact-native-layout-and-explicit-period-choice)
 for the actual native flow. The prior-layout preview above remains unchanged.
 
-The proposal follows Samsung's [dialog](https://developer.samsung.com/one-ui/comp/dialog.html)
+The proposal follows Samsung's
+[dialog](https://developer.samsung.com/one-ui/comp/dialog.html)
 and [grid](https://developer.samsung.com/one-ui/layout/grid.html) guidance with
 local fonts, a 580px desktop cap and 24px mobile margins. Browser typography
 can differ from NUI. Deny has initial focus; close, Escape and the preview's
 60-second deadline never approve. A scrollable disclosure must be reviewed
 before allowing; changing the checkbox refreshes that disclosure.
+
+---
+
+[Related task](17-native-ui-smoke.en.md) ·
+[Continue](10-feature-approval.en.md) · [Reading paths](../README.md)

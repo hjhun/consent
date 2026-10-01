@@ -1,32 +1,18 @@
-# 가이드 04: Offline 정의 등록
+# 가이드 04: 오프라인 이미지에 정의 등록하기
 
-이미지 설치 system service는 consentd를 시작하지 않고 공개 `consent_register()`를
-호출할 수 있습니다. 먼저 등록 전용 handle을 명시적으로 생성합니다.
+<a id="가이드-04-offline-정의-등록"></a>
 
-```c
-consent_client_h client = NULL;
-int status = consent_client_create_offline_registration(image_root, &client);
-if (!status) {
-    /* params: operation_id, expected_generation, 정책/문구 revision과
-       번역을 포함한 전체 정의. */
-    status = consent_register(client, package_name, app_id, params);
-    consent_client_destroy(client);
-}
-```
+[English](04-offline-registration.en.md)
 
-`image_root`는 이미 존재하는 root 소유의 보호된 절대 경로입니다. 생성·매 쓰기에서
-root 권한이 필요하고 handle은 원래 process/thread에 속합니다. Fork child는 상속된
-handle 사용·파기를 할 수 없습니다. 초기 root 전용 writer는 명시적 provisioning
-권한이며 shared UID에서 추정한 역할이 아닙니다. Nonroot 제품 system service의
-신원이 이미 등록돼 있다고 가정하지 않습니다.
+consentd 없이 이미지를 만들면서 전체 정의를 저장합니다. 먼저 설치 세대를 준비하고
+명시적으로 offline 등록 handle을 만듭니다. 정의만 저장하며 승인은 생기지 않습니다.
 
-성공0은 **STAGED: 보호된 정의 설치 기록이 내구성 있게 저장됨**을 뜻합니다.
-활성화나 사용자 승인을 뜻하지 않습니다. 기존 `consent_client_create()`는 online
-계약을 유지하며 socket 부재, 권한·peer 오류, timeout, 불확실 응답으로 offline에
-자동 전환하지 않습니다. Offline handle은 `consent_register()`와 파기만 허용합니다.
-Update/unregister/request/check/async/detach/UI/session/revoke/data/cleanup은
-`CONSENT_ERROR_INVALID_OPERATION`이며 출력 null·async ID0·callback 접수 없음입니다.
-독립 params/result/format helper는 사용할 수 있습니다.
+## 준비 사항
+
+존재하는 보호된 절대 이미지 경로와 root 이미지 Installer를 사용합니다. 실제
+타깃에서 이미지 루트 "/"를 명시하려면 모든 lifecycle 사용자를 중지해야 합니다.
+소켓 부재만으로 offline 사용을 허용하지 않습니다.
+
 
 ## 이미지 설치 generation
 
@@ -59,6 +45,44 @@ generation을 복원하지 않습니다. 운영 Installer transaction/hook은 �
 합니다. 같은 EX/SH lock이 image writer와 live daemon의 동시 접근을 막습니다.
 Busy이면 기존 lock metadata를 바꾸지 않고 BUSY를 반환합니다. Offline 시스템을
 자동 탐지하는 기능이 아닙니다.
+
+## 2. 오프라인 C handle로 등록하기
+
+아래 호출 부분에는 [API 02](api/02-registration.ko.md)의 전체 params, 실제
+package/app 인자와 이미지에서 완료한 설치 세대가 필요합니다. 등록과 종료 상태를
+모두 확인하세요.
+
+```c
+consent_client_h client = NULL;
+int status = consent_client_create_offline_registration(image_root, &client);
+if (!status) {
+    /* params: operation_id, expected_generation, 정책/문구 revision과
+       번역을 포함한 전체 정의. */
+    status = consent_register(client, package_name, app_id, params);
+    int destroy_status = consent_client_destroy(client);
+    if (status == 0)
+        status = destroy_status;
+}
+```
+
+이미지 설치 system service는 consentd를 시작하지 않고 공개 `consent_register()`를
+호출할 수 있습니다. 먼저 등록 전용 handle을 명시적으로 생성합니다.
+
+
+
+`image_root`는 이미 존재하는 root 소유의 보호된 절대 경로입니다. 생성·매 쓰기에서
+root 권한이 필요하고 handle은 원래 process/thread에 속합니다. Fork child는 상속된
+handle 사용·파기를 할 수 없습니다. 초기 root 전용 writer는 명시적 provisioning
+권한이며 shared UID에서 추정한 역할이 아닙니다. Nonroot 제품 system service의
+신원이 이미 등록돼 있다고 가정하지 않습니다.
+
+성공0은 **STAGED: 보호된 정의 설치 기록이 내구성 있게 저장됨**을 뜻합니다.
+활성화나 사용자 승인을 뜻하지 않습니다. 기존 `consent_client_create()`는 online
+계약을 유지하며 socket 부재, 권한·peer 오류, timeout, 불확실 응답으로 offline에
+자동 전환하지 않습니다. Offline handle은 `consent_register()`와 파기만 허용합니다.
+Update/unregister/request/check/async/detach/UI/session/revoke/data/cleanup은
+`CONSENT_ERROR_INVALID_OPERATION`이며 출력 null·async ID0·callback 접수 없음입니다.
+독립 params/result/format helper는 사용할 수 있습니다.
 
 ## 보호 저장소와 첫 부팅
 
@@ -143,7 +167,8 @@ offline 전용 tag를 사용하며 기존 online 형식을 바꾸지 않습니�
 
 ## 검증과 한계
 
-`scripts/emulator-offline-test.sh`는 socket 없는 실제 C API 등록, malformed/schema authority의 DB 생성 전
+`scripts/emulator-offline-test.sh`는 socket 없는 실제 C API 등록, malformed/schema
+authority의 DB 생성 전
 시작 거부, 정상 첫 시작, 숫자 revision
 순서, 복수 app·다른 package, 재시도·충돌, 지원하지 않는 메서드, live lifecycle 배제,
 재시작, DB 소실, unregister 후 미처리 seed, 같은 이름 재설치를 다룹니다. 별도 test
@@ -159,3 +184,8 @@ inventory adapter를 사용하며 기존 격리 상태를 보존·복원합니�
 stale generation으로 운영 pkgmgr adapter를 별도로 시험합니다. 원래 운영 저장소를
 보존·복원하고 역할 설정을 바꾸지 않습니다. 중지한 DB projection과 grant0을 확인하며,
 제품 역할을 배포하지 않은 protected C API 권한 판정은 계속 거부합니다.
+
+---
+
+[관련 작업](03-installation-authority.ko.md) · [이어
+읽기](06-installer-integration.ko.md) · [역할별 문서](../README.md)

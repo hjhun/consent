@@ -1,5 +1,7 @@
 # Guide 15: Request approval for an explicit profile
 
+[한국어](15-profile-authority.ko.md)
+
 Request and check calls already require `subject` and `profile`, in both sync
 and async APIs. This guide explains how the daemon can additionally verify
 that the requested profile is currently active. It never substitutes the
@@ -11,12 +13,92 @@ that state is uncertain or changes. Without a configured authority, existing
 static delegation rules remain in use.
 
 ```c
-consent_params_t *params = NULL;
-consent_params_create(&params);
-consent_params_set(params, "subject", "configured.subject");
-consent_params_set(params, "profile", "configured.profile.A");
-/* Add the registered requirement, then request as argo or check as CM/CE. */
+/* Fragment on an existing builder; propagate status before request/check. */
+int status = consent_params_set(params, "subject", "configured.subject");
+if (status == 0)
+  status = consent_params_set(params, "profile", "configured.profile.A");
+/* Add the exact requirement only when status == 0. Caller frees params. */
 ```
+
+## Commands and verified snapshot
+
+Run the installed isolated fixture under its required role label, then
+explicitly
+clean up. The runner owns fresh fixture provisioning and refuses foreign paths.
+
+```sh
+systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
+  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py \
+  --profiles --seed 20261010
+systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
+  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py --cleanup
+```
+
+Native C actor inputs illustrate an active, freshly provisioned A fixture stage;
+they are adaptations, not commands to run after completed smoke, which leaves
+stopped registry-loss state. Each executable has its separately authenticated
+role. A check is metadata only and cannot initiate approval.
+
+```sh
+printf 'check smoke.profile.A example-query 0\n' | \
+  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
+  /usr/libexec/consent/smoke/consent-smoke-profile-cm
+printf 'request_async smoke.profile.B inactive-request -13\n' | \
+  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
+  /usr/libexec/consent/smoke/consent-smoke-profile-argo
+```
+
+## 2. Read the A → B → A outcomes
+
+The installed --profiles runner drives these transitions on a private fake bus,
+not real user accounts. This table describes its tested assertions, not extra
+commands for switching sessiond:
+
+| Step | Expected protected behavior |
+| --- | --- |
+| Active A with fresh approval | CM/CE execute once under A |
+| Switch to B | A requests/checks blocked; pending UI invalidated; counts unchanged |
+| Return to A | Saved old CE operation is STALE; no old data or admission |
+| Fresh A operation | Continuously observed persistent A grant may allow a new effect |
+| Owner loss/resync | Mapped grants retired; fresh approval required |
+| Missing/unknown/spoofed profile | Exact API rejection, no admission |
+
+After the runner completes, read SMOKE_EXIT and the remote process exit, then
+run the cleanup command above. The native actor examples apply only to a freshly
+provisioned active A stage, not the stopped final fixture. Native provisioning
+and its trust checks are a separate reference below.
+
+## Isolated developer verification
+
+The same guarded installed runner accepts `--profiles`. Its private fake
+sessiond exercises the production adapter's authenticated native D-Bus methods
+and signals, mapped A/B/default profiles, owner loss and resynchronization.
+Persistent CM/CE mock services receive explicit requested profiles over private
+stdio, own their fixture mappings and check real isolated consent IPC before
+synthetic provider/context effects. Callers cannot supply a subject, level,
+path or receipt. This is not current product CM/CE integration or real account
+switching.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "transport-1",
+  "method": "capability.execute",
+  "params": {
+    "capability": "cli:smoke-tool",
+    "record": "summary",
+    "profile": "smoke.profile.A",
+    "operation_id": "example-A",
+    "step_id": "invoke"
+  }
+}
+```
+
+Adapt the method/record names from runner-owned discovery, rather than sending
+this illustrative request to a production endpoint. Profiles are an explicit
+finite fixture allowlist; caller privilege is never inferred from a profile
+string. Receipt deduplication remains process-local, with AUTHORIZE before
+cached payload delivery.
 
 ## Protected configuration and trust
 
@@ -124,65 +206,6 @@ partially sent frame closes the connection without completing the old success;
 non-sensitive cleanup/event metadata is unaffected. Final send admission is the
 linearization boundary; fully written frames cannot be retracted.
 
-## Isolated developer verification
-
-The same guarded installed runner accepts `--profiles`. Its private fake
-sessiond exercises the production adapter's authenticated native D-Bus methods
-and signals, mapped A/B/default profiles, owner loss and resynchronization.
-Persistent CM/CE mock services receive explicit requested profiles over private
-stdio, own their fixture mappings and check real isolated consent IPC before
-synthetic provider/context effects. Callers cannot supply a subject, level,
-path or receipt. This is not current product CM/CE integration or real account
-switching.
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "transport-1",
-  "method": "capability.execute",
-  "params": {
-    "capability": "cli:smoke-tool",
-    "record": "summary",
-    "profile": "smoke.profile.A",
-    "operation_id": "example-A",
-    "step_id": "invoke"
-  }
-}
-```
-
-Adapt the method/record names from runner-owned discovery, rather than sending
-this illustrative request to a production endpoint. Profiles are an explicit
-finite fixture allowlist; caller privilege is never inferred from a profile
-string. Receipt deduplication remains process-local, with AUTHORIZE before
-cached payload delivery.
-
-## Commands and verified snapshot
-
-Run the installed isolated fixture under its required role label, then explicitly
-clean up. The runner owns fresh fixture provisioning and refuses foreign paths.
-
-```sh
-systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
-  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py \
-  --profiles --seed 20261010
-systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
-  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py --cleanup
-```
-
-Native C actor inputs illustrate an active, freshly provisioned A fixture stage;
-they are adaptations, not commands to run after completed smoke, which leaves
-stopped registry-loss state. Each executable has its separately authenticated
-role. A check is metadata only and cannot initiate approval.
-
-```sh
-printf 'check smoke.profile.A example-query 0\n' | \
-  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
-  /usr/libexec/consent/smoke/consent-smoke-profile-cm
-printf 'request_async smoke.profile.B inactive-request -13\n' | \
-  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
-  /usr/libexec/consent/smoke/consent-smoke-profile-argo
-```
-
 ## Verified checkpoint and limits
 
 Release25 r8 completed GBS with 25 PASS and four root-only SKIP. Profiles,
@@ -199,4 +222,11 @@ Configured UID1 was synthetic, not a discovered product mapping. Product
 account mapping, bus privileges and real switch/provider coordination remain
 unverified. Evidence: `/var/tmp/consent-artifacts/consent-profile-05/`.
 
-[Detailed snapshot and failure history](../history/07-verification-history.en.md#guide-15-checkpoint)
+[Detailed snapshot and failure
+history](../history/07-verification-history.en.md#guide-15-checkpoint)
+
+---
+
+[Related task](api/03-request-and-check.en.md) ·
+[Continue](16-maintenance-and-integration.en.md) · [Reading
+paths](../README.md)

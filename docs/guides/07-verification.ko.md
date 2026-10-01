@@ -1,5 +1,7 @@
 # 가이드 07: 검증 상태
 
+[English](07-verification.en.md)
+
 이 가이드는 실제로 실행한 검사와 결과의 한계를 요약합니다. API 예제나 테스트
 소스만으로 기기 검증을 완료했다고 판단하지 않습니다.
 [과거 기록](../history/07-verification-history.ko.md)에 실제 명령, 실패한 시도와
@@ -56,3 +58,8 @@ UI runner r12에서는 OFF 확인 뒤 거절 완료를 관측하지 못했고 �
 
 과거 CEP 수용 기준은 [가이드 11](11-acceptance.ko.md), 남은 작업은
 [가이드 16](16-maintenance-and-integration.ko.md)을 참고하세요.
+
+---
+
+[관련 작업](01-development.ko.md) · [이어 읽기](11-acceptance.ko.md) · [역할별
+문서](../README.md)

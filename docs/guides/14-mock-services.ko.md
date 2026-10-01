@@ -1,5 +1,7 @@
 # 가이드 14: CM과 CE mock 서비스 실행
 
+[English](14-mock-services.en.md)
+
 별도 C 프로세스 두 개가 전용 JSON-RPC 파이프로 CM 도구 API와 CE 데이터 API를
 제공합니다. 각각 다른 신원으로 실제 격리 consent 라이브러리와 데몬에 인증합니다.
 한 번 실행하고 끝나는 명령과 달리 서비스는 요청 사이에 실행 기록을 유지합니다.
@@ -25,6 +27,144 @@ export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
 도구가 없으면 OPTIONAL_MISSING과 테스트 목록 선택을 명시합니다. 실행한
 parser의 실패를 대체 목록으로 숨기지 않습니다. Consent 등록 연결은 별도로
 구성합니다. 기존 `--tools`는 별도 회귀 검사 모드입니다.
+
+## 1. 승인 전에 도구 호출하기
+
+아래 전용 pipe 입력은 초기 설정을 끝낸 활성 단계에서만 사용합니다. 전체 실행은
+registry 손실 상태로 중지합니다. 실행 도구가 패키지·세대·메타데이터와 별도 CM/CE
+실행 파일 등록을 관리하며 임의 클라이언트에 consent 역할을 주지 않습니다.
+
+살아 있는 CM 프로세스에 아래 한 줄을 전달합니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "c3",
+  "method": "capability.execute",
+  "params": {
+    "capability": "cli:smoke-tool",
+    "record": "summary",
+    "operation_id": "cm-summary-1",
+    "step_id": "execute"
+  }
+}
+```
+
+실제 전송은 다음 한 줄 뒤에 줄바꿈을 붙입니다:
+
+```jsonl
+{"jsonrpc":"2.0","id":"c3","method":"capability.execute","params":{"capability":"cli:smoke-tool","record":"summary","operation_id":"cm-summary-1","step_id":"execute"}}
+```
+
+| 입력 | 타입 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `id` | 비어 있지 않은 문자열 | 예 | 이번 JSON-RPC 전송 ID |
+| `method` | 문자열 | 예 | 고정 capability.execute 메서드 |
+| `params.capability` | 문자열 | 예 | 고정 cli:smoke-tool |
+| `params.record` | 문자열 | 예 | 서버가 연결한 알려진 레코드 |
+| `params.operation_id`, `params.step_id` | 문자열 | 예 | 보호 동작 재시도 ID |
+
+승인 전 소스 분기가 만드는 응답의 발췌 예입니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "c3",
+  "result": {
+    "api_status": 0,
+    "decision": "CONSENT_REQUIRED",
+    "admissions": 0,
+    "handle_generation": 1
+  }
+}
+```
+execution과 본문은 반환하지 않고 admissions는 0입니다. 서버가
+subject/profile/definition/level/path를 관리하므로 호출자가 추가할 수 없습니다.
+
+## 2. Argo와 UI로 승인하고 실행하기
+
+아래의 별도로 인증된 Argo/UI 명령을 동시에 실행합니다. 승인 후 같은 보호
+호출을 다시 전달하면 성공 분기는 다음 형태로 응답합니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "c3",
+  "result": {
+    "api_status": 0,
+    "decision": "ALLOWED",
+    "admissions": 1,
+    "handle_generation": 1,
+    "execution": {
+      "state": "succeeded",
+      "data": {
+        "summary": "synthetic capability summary"
+      }
+    }
+  }
+}
+```
+data는 검증한 합성 제공자 결과입니다. 실제 응답에는 해당하는 현재 epoch와
+실행 대기 메타데이터도 있습니다. 새 실행 기록이 아닌 소스 스키마의 발췌 예입니다.
+ALLOWED라도 실행이 불명확하면 성공이 아닙니다. 이 레코드는
+execution.state=succeeded까지 확인해야 합니다.
+
+## 3. 전송 ID만 바꾸고 재시도하기
+
+operation_id와 step_id는 유지하고 RPC id만 바꿉니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "c4",
+  "method": "capability.execute",
+  "params": {
+    "capability": "cli:smoke-tool",
+    "record": "summary",
+    "operation_id": "cm-summary-1",
+    "step_id": "execute"
+  }
+}
+```
+
+실제 전송은 다음 한 줄 뒤에 줄바꿈을 붙입니다:
+
+```jsonl
+{"jsonrpc":"2.0","id":"c4","method":"capability.execute","params":{"capability":"cli:smoke-tool","record":"summary","operation_id":"cm-summary-1","step_id":"execute"}}
+```
+현재 id를 돌려주며 이미 완료한 동작을 사용합니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "c4",
+  "result": {
+    "api_status": 0,
+    "decision": "ALLOWED",
+    "admissions": 1,
+    "handle_generation": 1,
+    "execution": {
+      "state": "succeeded",
+      "data": {
+        "summary": "synthetic capability summary"
+      }
+    },
+    "deduplicated": true
+  }
+}
+```
+admissions는 1로 유지됩니다. 매 재시도에서 기록 조회 전 현재 AUTHORIZE를
+호출하므로 철회나 복구 후에는 옛 데이터를 반환하지 않습니다. 프로세스 내부
+기록을 시험하려면 같은 서비스 프로세스를 계속 유지하세요.
+
+CE는 아래에 정리한 context.get에 record와 두 보호 ID를 사용합니다.
+metadata/list/query는 보호 본문을 읽지 않으며 level0도 승인이 필요합니다.
+
+## 문제 해결
+
+native_error는 제공자가 이미 진입한 뒤 오류이며 API 거부가 아닙니다.
+unknown이나 blocked_unknown_receipt는 사용할 본문이 없으므로 동작을 자동 반복하면
+안 됩니다. 같은 ID를 다른 정의에 사용하면 CONFLICT입니다.
 
 ## 요청 및 응답 계약
 
@@ -161,3 +301,8 @@ grants0, cleanup_unknown1을 확인한 다음 새 승인과 동작을 검증했�
 증거: `/var/tmp/consent-artifacts/consent-mock-integration-04/`.
 
 [스냅샷 상세와 실패 이력](../history/07-verification-history.ko.md#guide-14-checkpoint)
+
+---
+
+[관련 작업](13-tool-examples.ko.md) · [이어 읽기](15-profile-authority.ko.md) · [역할별
+문서](../README.md)

@@ -1,15 +1,33 @@
 # 가이드 05: 상한이 있는 Parcel IDL과 compiler
 
+[English](05-idl.en.md)
+
 단일 원본은 `src/protocol/consent.idl.json`입니다. CMake가 Python 표준 라이브러리만
 사용하는 `src/tools/parcel_codegen.py`를 실행해 빌드 디렉터리에
 `consent_wire.hh`를 생성합니다. 양쪽 endpoint가 동일한 native Tizen Parcelable
 클래스를 포함합니다. 생성물을 직접 수정하거나 public C ABI로 설치하지 않습니다.
 Python은 빌드/테스트 의존성입니다.
 
+## 1. 공통 헤더 생성하기
+
+호스트에서 Python 3로 저장소 루트에서 실행합니다. 실제
+[스키마](../../src/protocol/consent.idl.json)를 입력으로 사용하며 생성 C++는
+직접 수정하지 않습니다.
+
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
 python3 tests/idl_codegen_test.py
 ```
+
+## 2. 생성 결과와 테스트 확인하기
+
+두 명령이 모두 성공 종료해야 합니다. 첫 명령은 consent_wire.hh를 생성하고
+둘째는 출력 결정성과 잘못된 스키마 거부를 검사합니다. 컴파일러는 스키마 오류를
+반환하며 스키마 내용을 코드로 실행하지 않습니다. 네이티브 Parcel 읽기에 실패하면
+생성한 Valid()와 전체 입력 소비를 함께 확인하세요.
+
+## 참조: 필드 타입과 상한
+
 
 최상위 JSON에는 license/namespace/records만 있습니다. license는 지원하는 전체
 Apache 고지를 유효한 JSON metadata로 저장합니다. record는 name/fields를 가지며
@@ -52,3 +70,7 @@ fields)입니다. endian/test vector/correlation/frame 상한과 도메인 param
 증대를 검증합니다. native Parcel roundtrip/truncation/oversize는 client-test와
 수동 daemon wire fixture에서 검증합니다. 저장소 registry는 별도로 버전 관리하는
 내부 codec이며 IPC envelope나 대체 wire가 아닙니다.
+
+---
+
+[관련 작업](01-development.ko.md) · [이어 읽기](02-c-api.ko.md) · [역할별 문서](../README.md)

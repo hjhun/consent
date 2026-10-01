@@ -1,5 +1,7 @@
 # 가이드 08: Consent UI 예제
 
+[English](08-consent-ui-poc.en.md)
+
 .NET NUI 앱은 작은 승인 팝업을 표시하고 허용 전에 모든 페이지를 검토하게 합니다.
 명시적인 approval-v2 요청은 기본 해제된 항상 허용 선택을 제공할 수 있으며
 등록된 전체 정책이 이를 허용해야 합니다.
@@ -24,6 +26,20 @@ flowchart LR
   D --> R[PoC SQLite / 정의 registry]
   D --> P[실제 pkgmgr + 보호된 generation authority]
 ```
+
+## 1. 현재 네이티브 팝업 예제 실행하기
+
+자동 복원을 포함한 반복 실행에는 [가이드 17](17-native-ui-smoke.ko.md#준비와-실행)의
+완전한 호스트 명령을 사용하세요. 같은 RPM/TPK 빌드, 설치되어 있으나 중지된 Aurum
+bootstrap과 선택한 에뮬레이터가 필요합니다. 화면의 모든 페이지를 검토하고
+처음에는 체크박스를 해제합니다. 실제 CE/CM 동작은 실행 허가 뒤에만 일어납니다.
+
+팝업은 최대 580×600이며 접근 기간과 보관 기간을 따로 표시합니다. 명시적으로
+허용된 요청에만 항상 허용 선택이 나타납니다. 거절·닫기·만료는 승인하지 않습니다.
+가이드 17이 작업자 receipt와 횟수를 검사하므로 모양만으로 성공을 판단하지 마세요.
+
+## 2. 앱 빌드하고 패키지 확인하기
+
 
 ## 빌드와 설치
 
@@ -51,6 +67,60 @@ RPM 제거 시 등록된 앱과 데이터는 남습니다. PoC를 중지한 뒤 
 pkgcmd -u -n org.tizen.consentui --global
 pkgcmd -u -n org.tizen.consentui.negative --global
 ```
+
+## UI09: 작은 native 배치와 명시적 승인 기간 선택
+
+새 native 카드는 논리 크기 580×600, 제목 26px·본문 16px, 둥근 흰색·회색
+표면과 파란 주 동작을 사용합니다. 배율은 1을 넘지 않으며 짧은 창과 가로 창도
+24px 여백으로 제한합니다. 기능 설정 화면은 기존의 별도 배치를 유지합니다.
+바인딩된 전체 metadata는 생략 없이 페이지로 표시하고 모두 검토해야 허용됩니다.
+
+native 체크박스는 기본 해제되어 requester의 ONCE·SESSION·TIMED 기간을
+유지합니다. 전체 등록 조건이 허용하는 명시적 approval-v2 요청만 PERSISTENT를
+선택할 수 있습니다. 별도 opt-in fixture 명령은 `feature-register-choice`와
+`feature-serve-choice`이며 기본 명령과 approval-v1은 유지됩니다. 체크박스는
+신원·프로필·기능·범위·동작·목적·수신자·보관 기간을 바꿀 수 없습니다. 선택·언어·
+내용 변경은 전체 검토를 초기화하고 같은 바인딩의 token 갱신만 검토를 유지합니다.
+거절이 기본 focus이며 시간 만료·닫기는 허용하지 않습니다. 제출 전에 원래 worker
+snapshot의 참조 일치를 확인합니다.
+
+고정 `libconsent-poc.so.0`와 feature library는 동일 native build target에서
+main TPK로 포함해 개발 서명하며 SONAME·payload hash를 기록합니다. App launch가
+라이브러리나 socket을 입력하지 않습니다. 개발 검증은 소유한 격리 daemon과 보호된
+fixture 신원을 사용합니다. 제품 UI 역할·endpoint/패키지 배포·argo launch 구성은
+남은 외부 계약입니다. 아래 실제 target 증거는 host managed 검사와 구분합니다.
+기본 NUI 체크박스는 주황색으로 표시됐으며 Samsung runtime theme 설치를 주장하지
+않습니다.
+
+### 네이티브 UI 검증 단계
+
+Release27 r7 GBS는 0으로 종료했고 29개가 통과했으며 root 전용 4개를
+건너뛰었습니다. 관리 코드 UI 검사도 통과했습니다. 실제 기기에서 기본 ONCE,
+선택한 PERSISTENT, 새 operation의 승인 재사용, 철회와 CM의 ONCE 전용 정책을
+확인했습니다. 후속 실행은 재시작 시 승인 유지, DB 손실 뒤 새 승인, helper의
+설치 세대 변경 뒤 실제 UI 승인과 새 CE 동작을 확인했습니다. Helper의 세대
+변경을 TPK 재설치 검증으로 해석하지 않습니다.
+
+전역 RPM을 설치하지 않고 추출한 테스트 도구와 서명된 TPK의 바이트를 UI 및
+전용 namespace의 작업 라이브러리에 사용했습니다. 원래 TPK, 서비스와 보호된
+운영/PoC 상태는 복원하거나 유지했습니다.
+증거: `/var/tmp/consent-artifacts/consent-ui-native-09/`. 현재 저장소 실행 도구는
+가이드 17을 사용하며 과거 수동 controller는 보관 기록으로만 참고하세요.
+
+[네이티브 UI 상세 증거](../history/07-verification-history.ko.md#guide-8-checkpoint)
+
+## Feature Settings
+
+설정 화면은 기능과 기본 기간을 고릅니다. 기간은 이번 대화 또는 30분이며
+작업 전용 선택은 저장한 설정을 바꾸지 않고 ONCE를 사용합니다. Catalog와 승인
+요청은 argo가 소유하며 설정 화면에는 argo 역할이 없습니다. 기존 승인 때문에
+팝업이 필요 없어도 사용자가 작업 내용을 검토합니다. 작업자는 보호 동작 전에
+여전히 AUTHORIZE를 호출합니다.
+
+기능 연결과 대화 재사용은 [가이드 10](10-feature-approval.ko.md)에 있습니다.
+[build26–29 실행
+기록](../history/07-verification-history.ko.md#guide-8-settings-history)에
+이전 설정 명령과 화면 실패를 보존했습니다. 새 자동 실행은 가이드 17을 사용하세요.
 
 ## 명시적 신원 준비
 
@@ -126,7 +196,8 @@ Python이 보장되지 않습니다. UI와 등록 서비스 자체는 Python을 
 RPM transaction에서 해결하며 의존성 검사를 우회하지 않습니다.
 
 아래 host 예시는 검증된 build26을 선택합니다.
-[Guide 07](07-verification.ko.md)의 대응 snapshot과 산출물 hash를 검증한 뒤 설치합니다. Build24에서는 텍스트 크기 검사 실패, build25에서는 팝업 위치 잘림이
+[Guide 07](07-verification.ko.md)의 대응 snapshot과 산출물 hash를 검증한 뒤 설치합니다.
+Build24에서는 텍스트 크기 검사 실패, build25에서는 팝업 위치 잘림이
 확인되어 전체 화면 검증의 성공 기준으로 사용할 수 없습니다.
 
 ```sh
@@ -271,59 +342,6 @@ PoC state, roles, 설치된 UI package는 검토할 수 있도록 남습니다.
 운영 DB 초기화나 package 데이터 삭제는 수행하지 않습니다. 별도 앱 제거를
 의도한 경우에만 앞 절의 명시 TPK 제거 명령을 사용합니다.
 
-## Feature Settings
-
-설정 화면은 기능과 기본 기간을 고릅니다. 기간은 이번 대화 또는 30분이며
-작업 전용 선택은 저장한 설정을 바꾸지 않고 ONCE를 사용합니다. Catalog와 승인
-요청은 argo가 소유하며 설정 화면에는 argo 역할이 없습니다. 기존 승인 때문에
-팝업이 필요 없어도 사용자가 작업 내용을 검토합니다. 작업자는 보호 동작 전에
-여전히 AUTHORIZE를 호출합니다.
-
-기능 연결과 대화 재사용은 [가이드 10](10-feature-approval.ko.md)에 있습니다.
-[build26–29 실행 기록](../history/07-verification-history.ko.md#guide-8-settings-history)에
-이전 설정 명령과 화면 실패를 보존했습니다. 새 자동 실행은 가이드 17을 사용하세요.
-
-## UI09: 작은 native 배치와 명시적 승인 기간 선택
-
-새 native 카드는 논리 크기 580×600, 제목 26px·본문 16px, 둥근 흰색·회색
-표면과 파란 주 동작을 사용합니다. 배율은 1을 넘지 않으며 짧은 창과 가로 창도
-24px 여백으로 제한합니다. 기능 설정 화면은 기존의 별도 배치를 유지합니다.
-바인딩된 전체 metadata는 생략 없이 페이지로 표시하고 모두 검토해야 허용됩니다.
-
-native 체크박스는 기본 해제되어 requester의 ONCE·SESSION·TIMED 기간을
-유지합니다. 전체 등록 조건이 허용하는 명시적 approval-v2 요청만 PERSISTENT를
-선택할 수 있습니다. 별도 opt-in fixture 명령은 `feature-register-choice`와
-`feature-serve-choice`이며 기본 명령과 approval-v1은 유지됩니다. 체크박스는
-신원·프로필·기능·범위·동작·목적·수신자·보관 기간을 바꿀 수 없습니다. 선택·언어·
-내용 변경은 전체 검토를 초기화하고 같은 바인딩의 token 갱신만 검토를 유지합니다.
-거절이 기본 focus이며 시간 만료·닫기는 허용하지 않습니다. 제출 전에 원래 worker
-snapshot의 참조 일치를 확인합니다.
-
-고정 `libconsent-poc.so.0`와 feature library는 동일 native build target에서
-main TPK로 포함해 개발 서명하며 SONAME·payload hash를 기록합니다. App launch가
-라이브러리나 socket을 입력하지 않습니다. 개발 검증은 소유한 격리 daemon과 보호된
-fixture 신원을 사용합니다. 제품 UI 역할·endpoint/패키지 배포·argo launch 구성은
-남은 외부 계약입니다. 아래 실제 target 증거는 host managed 검사와 구분합니다.
-기본 NUI 체크박스는 주황색으로 표시됐으며 Samsung runtime theme 설치를 주장하지
-않습니다.
-
-### 네이티브 UI 검증 단계
-
-Release27 r7 GBS는 0으로 종료했고 29개가 통과했으며 root 전용 4개를
-건너뛰었습니다. 관리 코드 UI 검사도 통과했습니다. 실제 기기에서 기본 ONCE,
-선택한 PERSISTENT, 새 operation의 승인 재사용, 철회와 CM의 ONCE 전용 정책을
-확인했습니다. 후속 실행은 재시작 시 승인 유지, DB 손실 뒤 새 승인, helper의
-설치 세대 변경 뒤 실제 UI 승인과 새 CE 동작을 확인했습니다. Helper의 세대
-변경을 TPK 재설치 검증으로 해석하지 않습니다.
-
-전역 RPM을 설치하지 않고 추출한 테스트 도구와 서명된 TPK의 바이트를 UI 및
-전용 namespace의 작업 라이브러리에 사용했습니다. 원래 TPK, 서비스와 보호된
-운영/PoC 상태는 복원하거나 유지했습니다.
-증거: `/var/tmp/consent-artifacts/consent-ui-native-09/`. 현재 저장소 실행 도구는
-가이드 17을 사용하며 과거 수동 controller는 보관 기록으로만 참고하세요.
-
-[네이티브 UI 상세 증거](../history/07-verification-history.ko.md#guide-8-checkpoint)
-
 ## 브라우저 미리보기
 
 [이전 배치 HTML 보관본](../previews/consent-popup.html)는 API·실제 승인 없이
@@ -350,3 +368,8 @@ font, desktop 최대 폭 580px, mobile 좌우 24px 여백을 사용합니다. Br
 NUI와 다를 수 있습니다. 거절이 기본 focus이며 닫기·Escape·미리보기의 60초 만료는
 허용하지 않습니다. 스크롤이 생기면 전체 안내를 검토해야 허용할 수 있으며,
 체크박스 변경 시 안내를 다시 표시합니다.
+
+---
+
+[관련 작업](17-native-ui-smoke.ko.md) · [이어 읽기](10-feature-approval.ko.md) · [역할별
+문서](../README.md)

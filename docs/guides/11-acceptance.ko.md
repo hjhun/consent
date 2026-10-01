@@ -1,5 +1,7 @@
 # 11. CEP 19.2 수용 기준 감사
 
+[English](11-acceptance.en.md)
+
 이 표는 [Design 01의 63개 수용 기준](../design/01-consent-framework.md)을
 Build43 Release11과 번호가 다른 Build45–49 추가 근거에 대응합니다.
 `Target`은 지정한 framework 동작을 emulator의 격리·패키지 fixture에서
@@ -82,3 +84,8 @@ Product7입니다.
 desired-definition producer가 없어 production `--begin`은 저장소 변경 없이
 실패합니다. Build43 receipt나 격리 DB-only recovery로 registry 전손 import,
 `import_complete` fence, 물리적 `cleanup_unknown` 해소를 주장하지 않습니다.
+
+---
+
+[관련 작업](07-verification.ko.md) · [이어 읽기](16-maintenance-and-integration.ko.md)
+· [역할별 문서](../README.md)

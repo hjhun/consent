@@ -1,6 +1,9 @@
 # 11. CEP 19.2 acceptance audit
 
-This audit maps every proposed [Design 01 acceptance item](../design/01-consent-framework.md)
+[한국어](11-acceptance.ko.md)
+
+This audit maps every proposed [Design 01 acceptance
+item](../design/01-consent-framework.md)
 to Build43 Release11 evidence and the numbered Build45–49 supplements.
 `Target` means the named framework behavior ran in emulator isolated/package
 fixtures, or a build-only criterion ran in GBS as identified in its row.
@@ -84,3 +87,9 @@ current desired-definition producer exists. Production `--begin` therefore
 fails without mutation. Total-registry import, `import_complete` fencing and
 physical `cleanup_unknown` resolution cannot be claimed from the Build43
 bootstrap receipt or isolated DB-only recovery tests.
+
+---
+
+[Related task](07-verification.en.md) ·
+[Continue](16-maintenance-and-integration.en.md) · [Reading
+paths](../README.md)

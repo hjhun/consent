@@ -1,15 +1,33 @@
 # Guide 05: Bounded Parcel IDL and compiler
 
+[한국어](05-idl.ko.md)
+
 The source of truth is `src/protocol/consent.idl.json`. CMake runs the Python
 standard-library-only `src/tools/parcel_codegen.py` to generate
 `consent_wire.hh` in the build directory. Both endpoints include the same
 native Tizen `Parcelable` classes. Generated files are not edited or installed
 as the public C ABI. Python is a build/test dependency only.
 
+## 1. Generate the shared header
+
+Run from the repository root on the host with Python 3. The schema is the actual
+[source file](../../src/protocol/consent.idl.json); do not edit generated C++.
+
 ```sh
 python3 src/tools/parcel_codegen.py src/protocol/consent.idl.json /tmp/consent_wire.hh
 python3 tests/idl_codegen_test.py
 ```
+
+## 2. Check generation and tests
+
+Require successful exit from both commands. The first writes consent_wire.hh;
+the second checks deterministic output and rejected schemas. The compiler
+reports invalid schema as an error rather than executing its contents. If native
+Parcel decoding fails, check both generated Valid() and full payload
+consumption.
+
+## Reference: field types and bounds
+
 
 The top-level JSON object contains exactly `license`, `namespace`, `records`.
 `license` stores the supported complete Apache notice as valid JSON metadata.
@@ -48,7 +66,8 @@ failure. Runtime frames must also consume all bytes and pass envelope semantics.
 The present schema defines Field(key,value) and Envelope(version,kind,
 correlation,method,status,fields). Integer endian, test vector, correlation,
 frame limits and domain parameter representation are specified in
-[the protocol guide](../design/03-protocol.en.md). Record generation does not infer role,
+[the protocol guide](../design/03-protocol.en.md). Record generation does not
+infer role,
 policy or domain semantics from field names; those remain validated by the
 server and repository.
 
@@ -59,3 +78,8 @@ malformed schemas, helper/type-name collisions and exponential layout growth.
 Native Parcel roundtrip/truncation/oversize tests are in client-test and the
 manual daemon wire fixture. The storage registry uses a separate explicitly
 versioned internal codec; it is not an IPC envelope or an alternative wire.
+
+---
+
+[Related task](01-development.en.md) · [Continue](02-c-api.en.md) · [Reading
+paths](../README.md)

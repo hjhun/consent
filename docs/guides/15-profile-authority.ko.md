@@ -1,5 +1,7 @@
 # 가이드 15: 요청 프로필을 명시하고 활성 상태 확인
 
+[English](15-profile-authority.en.md)
+
 동기·비동기 request/check API에는 이미 `subject`와 `profile`이 필요합니다.
 이 가이드는 데몬이 요청받은 프로필의 현재 활성 상태까지 확인하도록 설정하는
 방법을 설명합니다. 호출자가 지정한 프로필을 활성 프로필로 바꾸지 않습니다.
@@ -9,12 +11,86 @@
 차단합니다. 설정하지 않으면 기존의 고정 위임 규칙을 사용합니다.
 
 ```c
-consent_params_t *params = NULL;
-consent_params_create(&params);
-consent_params_set(params, "subject", "configured.subject");
-consent_params_set(params, "profile", "configured.profile.A");
-/* 등록된 requirement를 추가하고 argo는 request, CM/CE는 check를 호출합니다. */
+/* Fragment on an existing builder; propagate status before request/check. */
+int status = consent_params_set(params, "subject", "configured.subject");
+if (status == 0)
+  status = consent_params_set(params, "profile", "configured.profile.A");
+/* Add the exact requirement only when status == 0. Caller frees params. */
 ```
+
+## 실행 명령
+
+필수 역할 라벨로 격리 테스트를 실행한 뒤 명시적으로 정리하세요. 실행 도구가
+새 환경을 설정하며 외부 소유 경로는 거부합니다.
+
+```sh
+systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
+  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py \
+  --profiles --seed 20261010
+systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
+  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py --cleanup
+```
+
+다음 C 예제 입력은 초기 설정을 마친 활성 A 단계에서 사용합니다. 전체 실행은
+registry 손실 상태로 중지하므로 완료 후 실행하지 마세요. 각 실행 파일은 별도
+역할로 인증하며 check는 metadata만 검사하고 승인을 요청하지 않습니다.
+
+```sh
+printf 'check smoke.profile.A example-query 0\n' | \
+  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
+  /usr/libexec/consent/smoke/consent-smoke-profile-cm
+printf 'request_async smoke.profile.B inactive-request -13\n' | \
+  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
+  /usr/libexec/consent/smoke/consent-smoke-profile-argo
+```
+
+## 2. A → B → A 결과 확인하기
+
+설치한 --profiles 실행 도구가 전용 fake bus에서 전환하며 실제 계정을 바꾸지는
+않습니다. 표는 검증한 assertion을 설명하며 sessiond 전환용 명령이 아닙니다.
+
+| 단계 | 예상 보호 동작 |
+| --- | --- |
+| 활성 A에서 새 승인 | CM/CE가 A에서 한 번 실행 |
+| B로 전환 | A 요청·검사 차단, 대기 UI 무효화, 실행 횟수 유지 |
+| A로 복귀 | 저장한 옛 CE operation은 STALE, 옛 데이터·추가 진입 없음 |
+| 새 A operation | 정상 전환을 계속 관측했다면 A의 지속 승인으로 새 실행 가능 |
+| 소유자 손실·재동기화 | 연결된 승인을 철회하고 새 승인 필요 |
+| 누락·미지·위조 프로필 | 정확한 API 오류, 진입 없음 |
+
+종료 후 SMOKE_EXIT와 원격 프로세스 종료 코드를 확인하고 위 정리 명령을
+실행하세요. 네이티브 actor 예제는 초기 설정을 끝낸 활성 A 단계에만 적용되며
+최종 중지 환경에서 실행하는 명령이 아닙니다. 실제 프로비저닝과 신뢰 검사는
+아래 별도 참조에서 설명합니다.
+
+## 격리 개발자 검증
+
+`--profiles`는 전용 fake sessiond로 운영 어댑터의 인증된 D-Bus method/signal,
+A/B/default 연결, 소유자 손실과 재동기화를 검사합니다. 지속형 CM/CE mock
+서비스는 전용 stdio로 요청 프로필을 받고 자체 테스트 연결 정보를 사용합니다.
+합성 도구 실행이나 데이터 조회 전에 실제 격리 consent IPC를 확인합니다.
+호출자는 subject/level/path/receipt를 넘길 수 없습니다. 실제 제품 CM/CE 연동이나
+실제 계정 전환을 검증하는 모드는 아닙니다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "transport-1",
+  "method": "capability.execute",
+  "params": {
+    "capability": "cli:smoke-tool",
+    "record": "summary",
+    "profile": "smoke.profile.A",
+    "operation_id": "example-A",
+    "step_id": "invoke"
+  }
+}
+```
+
+테스트 검색 결과의 method와 record에 맞춰 사용하는 예이며 제품 endpoint로
+보내지 마세요. 테스트 프로필은 정해진 목록만 허용하고 문자열만으로 호출자의
+권한을 인정하지 않습니다. Receipt 중복 방지는 프로세스 내부에만 유지되며
+저장한 결과를 반환하기 전에도 AUTHORIZE를 호출합니다.
 
 ## 보호 설정과 신뢰
 
@@ -120,61 +196,6 @@ receipt까지 무효화합니다. 끊김 없이 관측한 정상 전환에서는
 않습니다. 최종 전송 접수가 순서의 기준이며 완전히 전송한 frame은 회수하지
 못합니다.
 
-## 격리 개발자 검증
-
-`--profiles`는 전용 fake sessiond로 운영 어댑터의 인증된 D-Bus method/signal,
-A/B/default 연결, 소유자 손실과 재동기화를 검사합니다. 지속형 CM/CE mock
-서비스는 전용 stdio로 요청 프로필을 받고 자체 테스트 연결 정보를 사용합니다.
-합성 도구 실행이나 데이터 조회 전에 실제 격리 consent IPC를 확인합니다.
-호출자는 subject/level/path/receipt를 넘길 수 없습니다. 실제 제품 CM/CE 연동이나
-실제 계정 전환을 검증하는 모드는 아닙니다.
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "transport-1",
-  "method": "capability.execute",
-  "params": {
-    "capability": "cli:smoke-tool",
-    "record": "summary",
-    "profile": "smoke.profile.A",
-    "operation_id": "example-A",
-    "step_id": "invoke"
-  }
-}
-```
-
-테스트 검색 결과의 method와 record에 맞춰 사용하는 예이며 제품 endpoint로
-보내지 마세요. 테스트 프로필은 정해진 목록만 허용하고 문자열만으로 호출자의
-권한을 인정하지 않습니다. Receipt 중복 방지는 프로세스 내부에만 유지되며
-저장한 결과를 반환하기 전에도 AUTHORIZE를 호출합니다.
-
-## 실행 명령
-
-필수 역할 라벨로 격리 테스트를 실행한 뒤 명시적으로 정리하세요. 실행 도구가
-새 환경을 설정하며 외부 소유 경로는 거부합니다.
-
-```sh
-systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
-  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py \
-  --profiles --seed 20261010
-systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
-  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py --cleanup
-```
-
-다음 C 예제 입력은 초기 설정을 마친 활성 A 단계에서 사용합니다. 전체 실행은
-registry 손실 상태로 중지하므로 완료 후 실행하지 마세요. 각 실행 파일은 별도
-역할로 인증하며 check는 metadata만 검사하고 승인을 요청하지 않습니다.
-
-```sh
-printf 'check smoke.profile.A example-query 0\n' | \
-  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
-  /usr/libexec/consent/smoke/consent-smoke-profile-cm
-printf 'request_async smoke.profile.B inactive-request -13\n' | \
-  LD_LIBRARY_PATH=/usr/libexec/consent/smoke \
-  /usr/libexec/consent/smoke/consent-smoke-profile-argo
-```
-
 ## 검증한 단계와 한계
 
 Release25 r8 GBS에서 25개가 통과하고 root 전용 4개를 건너뛰었습니다.
@@ -191,3 +212,8 @@ bus 권한과 실제 전환/제공자 조율은 아직 검증하지 않았습니
 증거: `/var/tmp/consent-artifacts/consent-profile-05/`.
 
 [스냅샷 상세와 실패 이력](../history/07-verification-history.ko.md#guide-15-checkpoint)
+
+---
+
+[관련 작업](api/03-request-and-check.ko.md) · [이어
+읽기](16-maintenance-and-integration.ko.md) · [역할별 문서](../README.md)

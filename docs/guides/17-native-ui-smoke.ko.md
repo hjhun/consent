@@ -1,5 +1,7 @@
 # 가이드 17: 네이티브 승인 UI 검증 실행
 
+[English](17-native-ui-smoke.en.md)
+
 호스트 명령 하나로 Aurum을 통해 실제 .NET NUI 팝업을 검사합니다. 실행 도구가
 안내 페이지를 검토하고 화면에서 선택한 뒤 격리 consentd에서 실제 작업 결과를
 확인합니다. CM/CE 제공자는 합성 예제이며 화면 대신 API로 승인을 넣지 않습니다.
@@ -13,9 +15,22 @@ PoC RPM에는 서명한 main TPK와 `.build.json`이 있습니다. CMake가 둘�
 판단하지 말고 실제 빌드 로그와 종료 코드를 보관하세요.
 
 호스트에는 Python 3, Pillow, SDB, RPM, rpm2cpio, cpio, readelf와 기존 Aurum CLI가
-필요합니다. 에뮬레이터에는 원래 PoC 패키지, 신뢰된 역할 설정과 Aurum bootstrap이
-있어야 합니다. 다운로드하거나 도구를 자동 설치하지 않습니다. 기존 Aurum cache에는
-`venv/bin/python`, `aurum_pb2.py`, `aurum_pb2_grpc.py`가 있어야 하며 hash를 기록합니다.
+필요합니다. 에뮬레이터에는 원래 PoC 패키지, 신뢰된 역할 설정과 설치된 Aurum bootstrap 앱이
+필요합니다. Bootstrap이 이미 실행 중이면 안 됩니다. 다운로드하거나 도구를 자동 설치하지 않습니다. 기존 cache는 아래의 정확한
+구조여야 하며 hash를 기록합니다.
+
+```text
+AURUM_CACHE/
+  venv/bin/python
+  generated/aurum_pb2.py
+  generated/aurum_pb2_grpc.py
+```
+
+트랜잭션 전에 선택한 타깃이 SDB root 모드인지 확인하세요. 원래 PoC와 feature의
+socket/service는 비활성이고 MainPID가 0이어야 합니다. 소유할 UI09 unit 네 개는
+not-found이며 이전 환경이 남아 있으면 안 됩니다. 실행 도구가 이를 검사하며
+남은 환경을 인수하거나 운영 서비스를 중지하지 않습니다. 기존 bootstrap이나
+forward도 충돌입니다.
 
 ```sh
 python3 scripts/consent-ui-smoke.py \
@@ -32,6 +47,78 @@ python3 scripts/consent-ui-smoke.py \
 지정하거나 실행 도구에 맡길 수 있습니다. 기존 forward나 bootstrap은 충돌입니다.
 연결 장치 하나가 실행 중인 로컬 SDK 에뮬레이터 프로세스와 동일 PID의 SDB 로그에
 일치할 때만 `--serial`을 생략합니다. 표시 이름이나 x86_64만으로 판단하지 않습니다.
+
+## 2. 결과와 복원 상태 확인하기
+
+아래는 소스가 생성하는 파일의 발췌 예입니다. 실행 결과를 새로 만든 것이 아니며
+seed로 정한 순서와 나머지 메타데이터는 실행마다 다릅니다.
+`OUTPUT/result.json`에는 전체 종료 코드, 실행 순서와 하위 실행이 있습니다.
+
+```json
+{
+  "exit": 0,
+  "scenario": "all",
+  "subruns": [
+    {
+      "scenario": "functional",
+      "exit": 0
+    },
+    {
+      "scenario": "restart",
+      "exit": 0
+    },
+    {
+      "scenario": "delete",
+      "exit": 0
+    },
+    {
+      "scenario": "generation",
+      "exit": 0
+    }
+  ]
+}
+```
+각 단계 디렉터리에는 `finally.json`이 있습니다.
+
+```json
+{
+  "errors": [],
+  "created_root": true,
+  "install_attempted": true,
+  "setup_succeeded": true
+}
+```
+전체 종료 0과 모든 단계의 errors=[]를 확인하세요. 취득 플래그는 무엇을 시도했는지
+보여 주며 복원을 단독 증명하지는 않습니다. 보관된 복원 지문과 명령 증거도
+확인합니다. 실패하면 새 실행 전에 같은 파일을 읽으세요. 남은 저장소를 무조건
+지우는 cleanup CLI는 없으며 재시도를 위해 운영 서비스를 바꿀 필요도 없습니다.
+
+| 종료 코드 | 의미 |
+| --- | --- |
+| 0 | 선택한 모든 시나리오와 복원 성공 |
+| 1 | 시나리오·수집·복원 실패 |
+| 2 | CLI 인자 오류; 출력 디렉터리가 없을 수 있음 |
+| 3 | 사전 조건 부재·사용 불가; 통과 아님 |
+
+출력한 CONSENT_UI_SMOKE_EXIT 값과 프로세스 종료 코드를 함께 확인합니다.
+호스트 SDB 상태만으로 원격 성공을 판단하지 마세요. 역사적 `proof.json`은 별도
+감사 기록이며 이 명령이 생성한다고 약속하는 파일이 아닙니다.
+
+<a id="결과와-문제-확인"></a>
+
+## 문제 해결과 호스트 테스트
+
+오류의 제한된 명령 로그, 트리·화면과 복원 기록을 확인하세요. 도구나 네이티브
+제어 요소를 사용할 수 없으면 unavailable이며 건너뛴 통과가 아닙니다. 복원에
+실패하면 불확실한 payload를 조사용으로 유지합니다. 지우거나 종료하지 못한
+프로세스 위에 재설치하지 마세요.
+
+호스트 안전성 검사는 CTest에 포함됩니다. 호스트 저장소에서 직접 실행하려면:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ui_smoke_test.py
+```
+
 
 ## 시나리오가 확인하는 동작
 
@@ -151,19 +238,6 @@ zlib/base64로 전송합니다. 원래 argv, 코드 hash/크기와 실제 전송
 복호화한 크기/hash를 확인합니다. 너무 크거나 Python이 아닌 명령은 파일 업로드로
 대체하지 않고 실패합니다. 기기 Python에 해당 표준 모듈이 필요합니다.
 
-## 결과와 문제 확인
-
-출력에는 제한된 명령, 오류, 출처, 백업, 트리/화면, 작업 로그와 복원 기록이
-있습니다. 선택한 모든 단계와 정리가 성공해야 exit0입니다. 준비 사항 부재는
-exit3, 복원 실패를 포함한 오류는 exit1, 인자 오류는 exit2입니다. Unavailable을
-통과로 표시하지 않습니다.
-
-호스트 안전성 검사는 CTest에 포함되며 직접 실행할 수도 있습니다.
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 python3 tests/ui_smoke_test.py
-```
-
 ### 검증한 Release28 단계
 
 GBS r14는 0으로 종료했고 CTest 30개가 통과했으며 root 전용 4개를
@@ -180,7 +254,8 @@ GBS r14는 0으로 종료했고 CTest 30개가 통과했으며 root 전용 4개�
 전체 실행은 `gbs build -A x86_64 --profile tizen_10_1_emulator --include-all`로
 만든 `rpms-r14/`와 고정된 `source-r14.json`을 사용했습니다. 명령, 화면, 작업
 receipt와 복원 증거는 `/var/tmp/consent-artifacts/consent-ui-smoke-10/`에 있습니다.
-단계별 파일은 `scenario.json`과 `finally.json`, 실행별 파일은 `proof.json`입니다.
+단계별 파일은 `scenario.json`과 `finally.json`입니다. 역사적 감사 기록의
+실행별 `proof.json`은 별도 파일이며 실행 도구는 `OUTPUT/result.json`을 생성합니다.
 
 r12의 OFF 확인 뒤 거절 실패는 아직 원인을 모릅니다. r13은 Next 전환을 관측하지
 못해 실패했습니다. 진단과 제한된 전환 대기로 관측을 개선했지만 네이티브 입력
@@ -189,3 +264,8 @@ r12의 OFF 확인 뒤 거절 실패는 아직 원인을 모릅니다. r13은 Nex
 받거나 입력을 반복하거나 검토 페이지를 건너뛰지 않습니다.
 
 [스냅샷 상세와 실패 이력](../history/07-verification-history.ko.md#guide-17-checkpoint)
+
+---
+
+[관련 작업](08-consent-ui-poc.ko.md) · [이어 읽기](07-verification.ko.md) · [역할별
+문서](../README.md)

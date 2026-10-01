@@ -1,5 +1,7 @@
 # Guide 17: Run the native approval UI smoke
 
+[한국어](17-native-ui-smoke.ko.md)
+
 Run one host command to test the actual .NET NUI popup through Aurum. The
 runner reviews pages, submits screen choices and checks real worker effects
 against an isolated consent daemon. It uses synthetic CM/CE providers; it
@@ -16,9 +18,22 @@ passed.
 
 The host needs Python 3, Pillow, SDB, RPM, rpm2cpio, cpio, readelf and an
 existing Aurum CLI. The emulator needs its original PoC package, trusted role
-configuration and Aurum bootstrap. Nothing is downloaded or auto-installed.
-The existing Aurum cache must contain `venv/bin/python`, `aurum_pb2.py` and
-`aurum_pb2_grpc.py`; their hashes are recorded.
+configuration and installed Aurum bootstrap app; bootstrap must not already be
+running. Nothing is downloaded or auto-installed.
+The existing cache must have this exact layout; hashes are recorded:
+
+```text
+AURUM_CACHE/
+  venv/bin/python
+  generated/aurum_pb2.py
+  generated/aurum_pb2_grpc.py
+```
+
+Before any transaction, verify the selected target is in SDB root mode. Original
+PoC and feature socket/service units must be inactive with MainPID 0. The four
+owned UI09 units must be not-found and no previous fixture may remain. The
+runner checks those conditions; it never adopts a retained fixture or stops
+production to satisfy them. An existing bootstrap/forward is a conflict.
 
 ```sh
 python3 scripts/consent-ui-smoke.py \
@@ -36,6 +51,79 @@ host port, or the runner selects one. An existing forward or bootstrap is a
 conflict. Omit `--serial` only when exactly one connected target matches a live
 local SDK emulator process and its same-PID SDB serial log. Display name or
 x86_64 architecture alone does not identify an emulator.
+
+## 2. Read results and restoration status
+
+The following are illustrative excerpts of the files written by the source;
+seeded lifecycle order and other metadata depend on the invocation.
+`OUTPUT/result.json` contains the overall exit, selected order and subruns:
+
+```json
+{
+  "exit": 0,
+  "scenario": "all",
+  "subruns": [
+    {
+      "scenario": "functional",
+      "exit": 0
+    },
+    {
+      "scenario": "restart",
+      "exit": 0
+    },
+    {
+      "scenario": "delete",
+      "exit": 0
+    },
+    {
+      "scenario": "generation",
+      "exit": 0
+    }
+  ]
+}
+```
+Each phase directory has `finally.json`:
+
+```json
+{
+  "errors": [],
+  "created_root": true,
+  "install_attempted": true,
+  "setup_succeeded": true
+}
+```
+Require overall exit 0 and errors=[] for every phase. Acquisition flags show
+what was attempted; they do not alone prove restoration. Read the retained
+restoration fingerprints and command evidence. On failure, inspect the same
+files before a new run. There is no cleanup CLI that blindly erases retained
+state, and no need to stop or change production services to retry.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Every selected scenario and restoration succeeded |
+| 1 | Scenario, collector or restoration failed |
+| 2 | CLI argument error; output may not have been created |
+| 3 | Missing/unavailable prerequisite; never a pass |
+
+The printed CONSENT_UI_SMOKE_EXIT value must agree with process exit. Host SDB
+status alone is not remote success. Historical `proof.json` is a separately
+retained audit, not a file this command promises to generate.
+
+<a id="results-and-troubleshooting"></a>
+
+## Troubleshooting and host tests
+
+Use each failure's bounded command log, tree/frame and restoration records.
+Missing tools or unusable native controls mean unavailable, not a skipped pass.
+A restoration failure retains uncertain payload for inspection; do not erase it
+or retry installation over an undrained process.
+
+Host safety tests are part of CTest. To run them directly from the host repository:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tests/ui_smoke_test.py
+```
+
 
 ## What the scenarios prove
 
@@ -167,20 +255,6 @@ wire service are retained; decoded size/hash must match. Oversized or non-Python
 commands fail without upload fallback. Target Python needs those standard
 library modules.
 
-## Results and troubleshooting
-
-The output holds bounded commands, failures, provenance, backup records,
-trees/screenshots, worker journals and restoration proofs. Exit 0 requires all
-selected phases and cleanup to pass. Exit 3 means an unavailable prerequisite,
-1 is failure including restoration, and 2 is an argument error. Unavailable
-is never PASS.
-
-Host safety tests are part of CTest, or run them directly:
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 python3 tests/ui_smoke_test.py
-```
-
 ### Verified Release28 checkpoint
 
 GBS r14 returned 0: 30 CTest cases passed and four root-only cases were skipped.
@@ -198,7 +272,8 @@ The full run used `gbs build -A x86_64 --profile tizen_10_1_emulator
 --include-all`, matching `rpms-r14/` and the frozen `source-r14.json`.
 Command logs, screenshots, worker receipts and restoration proofs are under
 `/var/tmp/consent-artifacts/consent-ui-smoke-10/`. Each phase has
-`scenario.json` and `finally.json`; each attempt has `proof.json`.
+`scenario.json` and `finally.json`. The retained historical audit also has an
+attempt-level `proof.json`; the runner itself writes `OUTPUT/result.json`.
 
 The r12 OFF-probe denial failure remains unexplained. R13 failed on an
 unobserved Next transition. Diagnostics and bounded transition waits improved
@@ -207,4 +282,10 @@ successful full run and repeat do not erase those failures. Unknown UI or
 collector results still fail; the runner never substitutes PENDING, repeated
 clicks or skipped review for success.
 
-[Detailed snapshot and failure history](../history/07-verification-history.en.md#guide-17-checkpoint)
+[Detailed snapshot and failure
+history](../history/07-verification-history.en.md#guide-17-checkpoint)
+
+---
+
+[Related task](08-consent-ui-poc.en.md) · [Continue](07-verification.en.md) ·
+[Reading paths](../README.md)

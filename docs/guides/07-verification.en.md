@@ -1,5 +1,7 @@
 # Guide 07: Verification status
 
+[한국어](07-verification.ko.md)
+
 This guide summarizes executed checks and the limits of those results. API
 examples and test source alone do not prove target execution. The detailed
 [historical record](../history/07-verification-history.en.md) retains commands,
@@ -61,3 +63,8 @@ establish abrupt power-loss safety or representative sustained-load behavior.
 
 Use [Guide 11](11-acceptance.en.md) for the historical CEP acceptance mapping
 and [Guide 16](16-maintenance-and-integration.en.md) for remaining work.
+
+---
+
+[Related task](01-development.en.md) · [Continue](11-acceptance.en.md) ·
+[Reading paths](../README.md)

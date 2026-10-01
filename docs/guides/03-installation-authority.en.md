@@ -1,35 +1,29 @@
-# Guide 03: Installer generation authority
+# Guide 03: Provision an installation generation
 
-The production adapter requires two independent facts: pkgmgr-info must confirm
-the app belongs to the package, and the protected installation authority must
-mark that app and package active at the expected generation. Package name,
-version, second-resolution install time, signature identity or inode alone is
-not a unique installation incarnation.
+<a id="guide-03-installer-generation-authority"></a>
 
-The authority is `/opt/var/lib/consent-authority/installations.conf`. Its directory
-is root-owned mode0750 and the file is root-owned mode0640, with the daemon's
-primary group permitted to read. The daemon cannot replace the authority in its
-root-protected directory chain. The canonical `/opt/var` path is
-intentional: the inspected Tizen emulator has `/var -> opt/var`, while protected
-file opens reject symlink components. `consent-installation-authority` is a
-root-only provisioning utility, not a client authorization bypass.
+[한국어](03-installation-authority.ko.md)
 
-`consent-storage-prepare` prepares this directory before the daemon starts. During
-an upgrade it moves the legacy authority from the daemon state directory before
-changing that directory's ownership; it preserves generation contents. It does
-not create an empty replacement for an unreadable or conflicting authority.
-Normal daemon and Installer operations hold a shared `lifecycle.lock`; preparation
-takes that lock exclusively. The Installer only reads and locks the prepared
-lifecycle file and never changes its ownership or mode. Stop the socket/service
-and quiesce legacy Installer operations before migration.
+Give each committed package installation a protected generation, then use that
+value when publishing definitions. An installation generation distinguishes a
+new install from an older package with the same name.
 
-## Provisioning execution context
+## Before you start
 
-Run the writer as root in an explicit `System::Privileged` SMACK process context.
+Run as root with the verified System::Privileged context. The prepared protected
+authority and lifecycle lock must be available. The plugin must know the real
+package transaction outcome and keep stable retry IDs. This utility cannot
+discover the outcome or grant an online Installer role.
+
+## 1. Select the writer context
+
+Run the writer as root in an explicit `System::Privileged` SMACK process
+context.
 Root UID alone is insufficient: the emulator's root shell in the `System`
 context could not set the required file label. The production preparation helper
 succeeded through the service's root `ExecStartPre=+` invocation. An isolated
-writer `begin` command also succeeded and returned a generation UUID when run as:
+writer `begin` command also succeeded and returned a generation UUID when run
+as:
 
 ```sh
 systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
@@ -38,7 +32,8 @@ systemd-run --quiet --wait --pipe -p SmackProcessLabel=System::Privileged \
 ```
 
 For production provisioning, use the same explicit context with the production
-executable. The lifecycle examples below use this shell function, invoked by root:
+executable. The lifecycle examples below use this shell function, invoked by
+root:
 
 ```sh
 consent_authority() {
@@ -48,15 +43,18 @@ consent_authority() {
 ```
 
 This is an explicit privileged Installer operation. It does not grant a client
-role or relax the daemon's package and generation checks. The successful isolated
-command verifies the execution context; it does not establish production Installer
+role or relax the daemon's package and generation checks. The successful
+isolated
+command verifies the execution context; it does not establish production
+Installer
 hook integration.
 
-## Lifecycle contract
+## 2. Begin, attach and commit
 
 Installer owns stable transaction IDs and serializes lifecycle operations for a
 package. Every newly installed incarnation begins with a fresh generation.
-Each sub-operation has a different stable ID, reused unchanged after an uncertain
+Each sub-operation has a different stable ID, reused unchanged after an
+uncertain
 result. Run the following only for the package being installed:
 
 ```sh
@@ -94,6 +92,46 @@ requires a new begin/attach/commit cycle after trusted package verification and
 new definition registration. This conservative policy does not restore old
 approvals. The tool does not infer a platform transaction's success by itself.
 
+## 3. Verify the transition
+
+The begin result is the new generation string used by attach and commit. Before
+commit, the package is pending and definitions cannot activate. Commit may be
+called only after durable platform installation success. Removal creates a
+tombstone before package-wide consent_unregister. These are source-backed
+outcomes, not a new installation report.
+
+If a command is uncertain, keep the install fenced and retry the same ID with
+identical content. A stale expected generation or different retry content is an
+error. Do not restore old approvals when restoring a package.
+
+## Reference: protected authority preparation
+
+The production adapter requires two independent facts: pkgmgr-info must confirm
+the app belongs to the package, and the protected installation authority must
+mark that app and package active at the expected generation. Package name,
+version, second-resolution install time, signature identity or inode alone is
+not a unique installation incarnation.
+
+The authority is `/opt/var/lib/consent-authority/installations.conf`. Its
+directory
+is root-owned mode0750 and the file is root-owned mode0640, with the daemon's
+primary group permitted to read. The daemon cannot replace the authority in its
+root-protected directory chain. The canonical `/opt/var` path is
+intentional: the inspected Tizen emulator has `/var -> opt/var`, while protected
+file opens reject symlink components. `consent-installation-authority` is a
+root-only provisioning utility, not a client authorization bypass.
+
+`consent-storage-prepare` prepares this directory before the daemon starts.
+During
+an upgrade it moves the legacy authority from the daemon state directory before
+changing that directory's ownership; it preserves generation contents. It does
+not create an empty replacement for an unreadable or conflicting authority.
+Normal daemon and Installer operations hold a shared `lifecycle.lock`;
+preparation
+takes that lock exclusively. The Installer only reads and locks the prepared
+lifecycle file and never changes its ownership or mode. Stop the socket/service
+and quiesce legacy Installer operations before migration.
+
 ## Durable file format
 
 ```ini
@@ -121,12 +159,14 @@ implemented. A full authority returns an error rather than discarding replay
 protection. Writes hold a nonblocking advisory lock and use an exclusive
 same-directory temporary file, file fsync, atomic rename, then directory fsync.
 Published files retain root ownership, the daemon's primary group, mode0640 and
-the `System` SMACK label. Permission or label-setting failures prevent publication.
+the `System` SMACK label. Permission or label-setting failures prevent
+publication.
 Any failure is an unsuccessful or uncertain outcome: keep the install fenced,
 retry the same transaction ID and reconcile before returning success upstream.
 
 The authority is separate from `definitions.registry` (the daemon's definitions
-source) and `consent.db` (the policy projection, approvals and transient metadata).
+source) and `consent.db` (the policy projection, approvals and transient
+metadata).
 They do not form one atomic distributed transaction. The daemon validates the
 authority during replay and access checks and periodically invalidates affected
 state. The authority never contains grants, user decisions, sessions or usage.
@@ -136,13 +176,26 @@ state. The authority never contains grants, user decisions, sessions or usage.
 The repository provides the adapter, provisioning executable and isolated test
 authority. Production pkgmgr-info validation remains enabled. No actual platform
 Installer hook or production role is assumed configured. The tizen-watcher
-metadata plugin provides a candidate install/upgrade/uninstall/rollback extension
-point, but its callbacks do not by themselves provide a durable install generation
-or stable cross-callback transaction ID. Wiring that hook requires validating the
+metadata plugin provides a candidate install/upgrade/uninstall/rollback
+extension
+point, but its callbacks do not by themselves provide a durable install
+generation
+or stable cross-callback transaction ID. Wiring that hook requires validating
+the
 Installer commit/rollback order and registering its real process identity.
 
 The separate `consent-installation-authority-isolated` binary targets
 `/opt/var/lib/consent-test-authority/installations.conf`; the isolated daemon's
-state remains in `/opt/var/lib/consent-test`. The test daemon accepts this explicit inventory
+state remains in `/opt/var/lib/consent-test`. The test daemon accepts this
+explicit inventory
 instead of querying pkgmgr-info. Neither binary changes production identity
 policy, and test generation values are not accepted by the production adapter.
+
+
+<a id="provisioning-execution-context"></a>
+
+<a id="lifecycle-contract"></a>
+---
+
+[Related task](api/02-registration.en.md) ·
+[Continue](04-offline-registration.en.md) · [Reading paths](../README.md)
