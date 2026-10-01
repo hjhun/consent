@@ -1,27 +1,8 @@
 # 설계 05: 구현 결정 기록
 
-날짜: 2026-09-22. 이 문서는 PO·아키텍트의 구현 지침이며 코드 완성이나 검증
-완료를 뜻하지 않는다. `01-consent-framework.md`는 설계 제안으로 유지한다.
-실제 구현 상태와 검증 근거는 한·영 개발 및 아키텍처 가이드에 기록한다.
-
-## 협업과 산출물
-
-- Herdr `w1:pA` 패널은 제품 범위, 설계 결정, 검토, 사용자 소통을 담당한다.
-  기존 Codex `w1:pJ` 패널은 구현·통합을 담당한다. 이 패널 ID는 현재 개발
-  세션에만 해당한다.
-- 구현 담당은 결정 사항의 근거·선택지·추천을 PO 패널로 전달하고, 답변을
-  기다리는 동안 독립 작업을 계속한다. 일상 기술 결정은 사용자 재승인 없이
-  처리한다.
-- CEP와 `AGENTS.md`를 보존한다. 사용자의 후속 지시로 완료·검증한 단위마다
-  commit/push한다. PO 패널만 Git index·commit·push를 변경하고 구현 에이전트는
-  준비된 파일 목록을 보고한다. 참고 appfw 저장소는 계속 읽기 전용이다.
-- 모든 소스에 기존 appfw 형식의 Samsung copyright와 Apache-2.0 전체 고지를
-  표기한다. 헤더·테스트·도구와 빌드·스크립트 파일의 언어에 맞는 고지도 포함하며
-  이 작업에서는 SPDX만 있는 임시 표기로 대체하지 않는다.
-- 기반, 승인·세션 흐름, 캐시, 데이터 수명을 검토 가능한 단위로 통합한다.
-  일부 단계 완료를 전체 프레임워크 완성으로 보고하지 않는다.
-- 운영 코드, 테스트 어댑터, 호스트 검사, 실제 플랫폼 통합 검증을 구별하고
-  제품 연동의 미완료 사항을 명시한다.
+채택한 결정과 이유를 기록합니다. [원래 제안](01-consent-framework.md)은 제안으로
+유지하며 구현 상태와 실행 결과는 개발자 가이드에서 설명합니다. 결정 번호는
+유지하고 결정만으로 검증 완료를 뜻하지 않습니다.
 
 ## D-01: 역할 인증과 패키지 소유권
 
@@ -134,7 +115,7 @@ QUERY는 승인 소비나 UI 생성을 하지 않는다. AUTHORIZE는 모든 조
 
 ## D-05: 초기 대상과 wire 선택
 
-구현 패널은 x86_64, kernel 4.4.35, SMACK을 지원하는 systemd 244, GLib 2.80.5,
+대상 조사에서는 x86_64, kernel 4.4.35, SMACK을 지원하는 systemd 244, GLib 2.80.5,
 SQLite 3.50.2를 보고했다. 검증 기록에는 실제 명령을 남겨야 한다. 이 커널에서는
 제안한 pidfd 경로를 사용할 수 없다. 엄격한 소켓 라벨·credential·실행파일 검증과
 신원 조회 전후 및 요청 시 프로세스 시작 시각 확인을 사용한다. connect부터 최초
@@ -146,7 +127,7 @@ SQLite 3.50.2를 보고했다. 검증 기록에는 실제 명령을 남겨야 �
 후속 비-root 배포 요구는 D-12에 명세한다. 이 문단은 앞선 검증 build가 사용한
 계정의 기록이다.
 
-사용자의 후속 요구에 따라 초기 GVariant 선택을 `platform/core/base/bundle`의
+채택한 요구에 따라 초기 GVariant 선택을 `platform/core/base/bundle`의
 실제 `parcel` library로 대체한다. 4바이트 big-endian 길이 frame 안에 생성한 C++
 `tizen_base::Parcelable` 메시지를 넣는다. 양측에서 `SetByteOrder(true)`로 고정 폭
 정수와 길이의 byte order를 지정한다. 공개 C ABI는 wire 표현과 분리한다. 이전
@@ -196,7 +177,7 @@ listener를 consent endpoint에 결합한다. 직접 bind한 위장 서버는 li
 `SO_PEERSEC`는 대상 관측과 socket unit 정책으로 확정한 값을 요구한다. service
 프로세스 라벨이나 socket 파일 라벨로 listener의 outgoing label을 추정하지 않는다.
 실제 credential/name/label과 다른 서비스 socket rename·직접 listener 거부를
-대상에서 검증한다. 구현 패널의 실제 probe 결과는 UID/GID 0, PID 1, credential
+대상에서 검증한다. 대상의 실제 probe 결과는 UID/GID 0, PID 1, credential
 길이 12, peer label `System::Privileged`(NUL 포함 19바이트), peer address
 길이 22(`/run/.consentd.sock`과 NUL 포함)다. 이 대상에는 관측한 label을 사용하고
 daemon의 `System` 프로세스 라벨로 대체하지 않는다.
@@ -337,7 +318,7 @@ Storage API의 `TIZEN_ERROR_STORAGE`를 가져오지 않는다. daemon·시험�
 숫자를 보존한다. Parcelable framing은 바꾸지 않는다. C/C++ 소비자·export ABI,
 module 범위·표준값 assert, GBS와 실제 IPC 오류 반환을 검증한다.
 
-사용자 지시에 따라 RPM spec의 라이선스 주석은 없애고 패키지 metadata인
+패키징 규칙에 따라 RPM spec의 라이선스 주석은 없애고 패키지 metadata인
 `License: Apache-2.0`은 유지한다. CMake 설정 파일의 라이선스 주석도 제외한다.
 소스 코드의 라이선스 표기는 계속 필수다. 후속 헤더 구성 요구에 따라 공개 선언을
 `inc` 아래에서 기능별로 나누고 `consent.h`는 통합 헤더로 유지한다. private 구현
@@ -659,8 +640,8 @@ GBS로 빌드한 TPK·실제 공개 C API·격리 mock service로 전체 흐름�
   작성·송신 패턴을 보여준다. Bundle `5ef6073`(2026-01-14)에 제한된 codec에 필요한
   정수·byte order·reader 위치 API가 있다. 새로운 capacity 생성자·UInt8 메서드는
   대상 확인 없이 사용하지 않는다.
-- 확인 가능한 tizen-watcher 이력은 2026-02-02의 `a1de9f6`부터다. 요청한 레이아웃과
-  현재 패키징의 근거로 사용하고 1월까지의 수작업 스타일은 AMD/AUL을 참고한다.
+- 확인 가능한 tizen-watcher 이력은 2026-02-02의 `a1de9f6`부터다. 레이아웃과 현재 패키징의 근거로 사용하고 이전
+  코드 관례는 AMD/AUL을 참고한다.
 - 대상 architecture·의존성 버전, 역할 신원, 설치 세대 확인 수단, 자원·시간 상한,
   서비스 계정·라벨, 외부 holder/UI 연동은 실제 구현 근거로 확정해야 한다.
 - GBS RPM 생성, emulator 설치·API 실행, 장애 주입, 재부팅은 각각 다른 검증이다.

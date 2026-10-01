@@ -1,12 +1,12 @@
-# Guide 14: Persistent CM and CE mock services
+# Guide 14: Run mock CM and CE services
 
-This extends [Guide 13](13-tool-examples.en.md) with `--mock-services` in the
-same isolated runner. Two persistent C executables expose private newline
-JSON-RPC requests over runner-owned stdin/stdout pipes. CM discovery/execute
-and CE metadata/get are synthetic APIs, not product capmgr_client_execute or
-current CE taxonomy. They authenticate to the actual isolated consent library
-and daemon as distinct cm-only/ce-only identities. Production roles/services
-and the existing PoC are unchanged. No personal context RPC is called.
+Two persistent C processes offer a small CM tool API and CE data API over
+private JSON-RPC pipes. They authenticate separately and use the real isolated
+consent library and daemon. Unlike one-shot commands, the services retain an
+execution ledger across requests, so retries can return a saved result without
+repeating the effect. Run `emulator-smoke.py --mock-services` after building
+[Guide 13](13-tool-examples.en.md). These are synthetic developer services;
+product integration status is listed below.
 
 ## Build and runner
 
@@ -55,7 +55,7 @@ requesters. Only the service executable identity authenticates to consent.
 Callers never submit subject/profile/package/app/generation/level/path/receipt
 or requirement tuples. Those come from trusted server fixture metadata.
 
-```json
+```jsonl
 {"jsonrpc":"2.0","id":"c1","method":"catalog.discover","params":{}}
 {"jsonrpc":"2.0","id":"e1","method":"context.list","params":{}}
 {"jsonrpc":"2.0","id":"e2","method":"context.metadata","params":{"record":"level3"}}
@@ -97,18 +97,22 @@ export LD_LIBRARY_PATH=/usr/libexec/consent/smoke
 /usr/libexec/consent/smoke/consent-smoke-ui --auto-deny-smoke REQUEST_ID ONCE
 ```
 
+## Safety and retries
+
 CE records level0..3 map to their registered definitions. Level0 requires a
 grant; level3 allows ONCE only. QUERY/list/metadata never spawn a provider or
 open protected record data. A capability/record change with the same operation
 and step is an immutable-tuple conflict. Every retry calls authoritative
 AUTHORIZE before reading the receipt ledger or serving cached data, so revocation
 and recovery block old results. The ledger stores payload, never a serialized
-old RPC envelope. It is process-local, capped at128; reaching the cap terminates
+old RPC envelope. It is process-local and capped at 128; reaching the cap
+terminates
 explicitly before the next authorization/ONCE consumption. No durable product
 side-effect deduplication is claimed.
 
-Frames are complete, bounded16KiB and reject embedded NUL, oversize/truncation;
-a partial frame expires in12s and closes with exit2. Invalid-envelope errors return
+Frames are read completely with a 16KiB bound. Embedded NUL, oversized and
+truncated input is rejected. A partial frame expires after 12 seconds with
+exit2. Invalid-envelope errors return
 -32600, invalid parameters -32602, unknown method -32601, parse/frame -32700.
 The JSON-GLib fixture parser is not a comprehensive production protocol validator.
 Provider stdout/stderr are independently bounded/drained and every provider is
@@ -145,83 +149,22 @@ sequenceDiagram
   M-->>R: current id + cached payload, no new effect
 ```
 
-## Verified Release23 snapshot (2026-09-30)
+## Product integration status
 
-CONSENT-MOCK-INTEGRATION-04 final implementation r5 uses baseline8f0c441 plus
-these reviewed changes. Evidence root:
-`/var/tmp/consent-artifacts/consent-mock-integration-04/`.
-source-r5.json records15 executed/packaged source paths. All11 implementation
-hashes matched before publication (implementation-r5-postcheck.json). Publication
-wraps one CMake line only: native/runner10 hashes remain equal, and the CMake
-command-argument tokens are identical while its byte hash changes. External
-publication-format.json records old/new hashes; no RPM rebuild or target replay
-is claimed for that formatting delta. This paired guide receives
-final evidence and concurrent-input prose after the build; the archived RPMs
-contain the earlier guide draft, not this later verification prose.
+These private APIs use synthetic tools and records. They are not product CM
+execution or a verified CE taxonomy. The default mock catalog works without a
+successful product CM create. Optional actual parser publication remains
+separate from consent mapping; a parser invocation failure is not hidden by
+fallback. `--require-product` reports the absent product integration.
 
-Exact build from the consent repository:
+## Verified checkpoint
 
-```sh
-gbs build -A x86_64 --profile tizen_10_1_emulator --include-all \
-  --define '_without_poc 1'
-```
+Release23 r5 completed GBS with 23 PASS and four root-only SKIP. Installed
+mock, legacy tools and default modes returned 0; all cleanups returned 0.
+Discovery advertised CM8/CE4 callable records. CM/CE processes retained their
+ledgers across recovery and recreated disconnected handles explicitly. Each
+loss readback had schema2, definitions12, grants0 and cleanup_unknown1 before
+fresh approval and effects. Production daemon18 and PoC18 were unchanged.
+Evidence: `/var/tmp/consent-artifacts/consent-mock-integration-04/`.
 
-gbs-r5.log/.exit0; CTest27 =23 PASS +4 root-only SKIP, no failures,73.41s.
-rpms-r5/ and rpms-r5.json preserve Release23 RPMs/hashes, including the produced
-production daemon RPM which was not installed. On discovered emulator-26101
-x86_64, normal RPM upgrade installed only consent/consent-devel/consent-tests23
-under the verified System::Privileged transaction context (install-r5.log
-INSTALL_EXIT0). ldconfig permission diagnostics are retained, not suppressed.
-installed-hash-r5.log confirms all19 installed smoke payload hashes match the
-archived tests RPM, including current runner and both service executables.
-
-The exact target command shape (commands.jsonl records the individual commands):
-
-```sh
-systemd-run --quiet --wait --pipe -p User=root -p SmackProcessLabel=System \
-  /usr/bin/python3 /usr/libexec/consent/smoke/emulator-smoke.py \
-  --mock-services --seed 20261005
-```
-
-| Installed scenario/log | Actual remote result |
-| --- | --- |
-| installed-mock-seed20261005-r5.log | SMOKE_EXIT0, MOCK_OUTER_EXIT0 |
-| installed-tools-seed20261006-r5.log | SMOKE_EXIT0, OUTER_EXIT0 |
-| installed-default-seed20261007-r5.log | SMOKE_EXIT0, OUTER_EXIT0 |
-| cleanup-after-mock-r5.log | SMOKE_EXIT0, CLEANUP_EXIT0 |
-| cleanup-after-tools-r5.log | SMOKE_EXIT0, CLEANUP_EXIT0 |
-| cleanup-final-r5.log | SMOKE_EXIT0, CLEANUP_EXIT0 |
-
-SDB hostexit0 alone is not remote success; both runner and outer markers are
-checked. Mock mode used fixture catalog (no product create/parser dependency).
-The required legacy tools regression exercised actual installed parser/catalog
-and expected blocked public preflight. No optional actual mock-catalog run or
-strict-product target run is claimed for this checkpoint.
-
-Mock evidence includes role-specific CM8/CE4 discovery, actual permission errors,
-invalid inputs/byte frames, no-effect QUERY, approved CM payload and CE0..3,
-different RPC-id dedup, immutable tuple conflict, unknown prior receipt block,
-revoked prior receipt STALE(-116), new operation CONSENT_REQUIRED, real argo/UI
-DENIED callback followed by CONSENT_REQUIRED with unchanged admissions1,
-and native_error/timeout cached outcomes with no repeated admission.
-Recovery order running-delete/corrupt/stopped-delete retains mock PIDs113749 and
-113753; each readback reports integrity=ok/schema2/definitions12/grants0/
-cleanup_unknown1 before fresh approval and new actual fixture effects. Old
-handles are explicitly rejected/recreated after daemon stop; running-delete uses
-the original handles. Registry loss startup fails and both services reject actions.
-
-Initial gbs-r1/r2 success history is retained. gbs-r3.exit1 was an owner sequencing
-error: a new build started during prior GBS teardown and safely rejected the
-in-use mounted root. No unmount workaround was applied; final builds were
-sequential. gbs-r4.exit0 and installed-mock-seed20261005-r4 remote1 are retained:
-the actual denied callback was correct; the runner incorrectly expected a durable
-DENIED check. cleanup-failed-r4.log is0. The final narrow assertion fix and normal
-Release23 upgrade preserve the daemon contract.
-
-device-before-r5.log/device-after.log confirm full service/package and protected
-state inode/size/mtime/uid/mode equality. Production consentd18 PID31569 remains
-active; PoC18 PID0 remains inactive; installed product CM15 unchanged. Final
-smoke units are both not-found and all four fixture directories absent. Prior
-smoke01 r6, Integration02 r4 and CM prerequisite archives remain unchanged.
-results-r5.json summarizes the outcomes. Product CM principal/provisioning/
-transport/consent enforcement and latest CE server/taxonomy remain external gates.
+[Detailed snapshot and failure history](../history/07-verification-history.en.md#guide-14-checkpoint)

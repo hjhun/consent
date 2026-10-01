@@ -1,7 +1,8 @@
 # Design 04: Storage, policy and recovery implementation
 
 This guide describes `src/consentd/repository.{hh,cc}` and its executable tests.
-The original CEP remains a proposal. PO decisions are recorded separately in
+The original CEP remains a proposal. Adopted decisions are recorded separately
+in
 `05-decisions.en.md`. This implementation does not store conversation bodies.
 
 ## Ownership and durable state

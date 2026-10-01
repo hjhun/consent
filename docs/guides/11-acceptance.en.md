@@ -9,7 +9,8 @@ behavior ran or a failure mode remains untested. `Product` means the required
 real participant or trusted producer is absent. The numbered logs are under
 `/var/tmp/consent-artifacts/gbs-build-{43,45,46,48,49}`. Each row names the
 later build when it changes the evidence; prior results are not a Build49
-rerun. A proposed criterion is not itself a test. Current counts are
+rerun. A proposed criterion is not itself a test. Counts for this historical
+audit are
 Target23, Partial33 and Product7.
 
 | ID | Scope | Evidence or remaining boundary |

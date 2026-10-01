@@ -308,37 +308,15 @@ PERSISTENT TASK 선택은 모든 조건의 persistent 승인을 요구합니다.
 유지하고 과거 승인을 부활시키지 않습니다. 실제 실행은 최신 AUTHORIZE·receipt가
 여전히 필요합니다.
 
-### 실행한 UI09 검증
+### UI09 검증 단계
 
-동일 Release27/r7 native build의 CTest33개(29 PASS, root 전용4 SKIP)가
-통과했습니다. Managed 선택·검토·geometry 검사도 build에 포함됩니다. 실제 선택한
-x86_64 emulator에서 UI와 private namespace의 CM/CE worker 모두 서명 TPK의
-정확한 전체 library byte를 사용했습니다. 전역 RPM upgrade 대신 소유 tests helper를
-추출했습니다. RPM-packaged byte hash/build ID는 별도로 기록하며 TPK와 같다고
-주장하지 않습니다.
+Release27 r7에서 CTest 29개가 통과하고 root 전용 4개를 건너뛰었으며 관리 코드
+선택/검토/배치 검사도 통과했습니다. 실제 UI에서 기본 ONCE, 선택한 PERSISTENT,
+새 operation 재사용, 철회와 ONCE 전용 CM 실행을 확인했습니다. 후속 실행은 정상
+재시작, DB 손실 뒤 새 승인, helper의 세대 변경 뒤 새 UI 승인과 CE 동작을
+검증했습니다. Helper 변경은 TPK 재설치가 아닙니다. 기본 `grant_mode`는 ONCE를
+유지하고 선택한 기간은 따로 표시했습니다. 운영/PoC 상태는 복원하거나 유지했습니다.
 
-`/var/tmp/consent-artifacts/consent-ui-native-09/attempt-r7-02/`는 실제 기본 해제
-ONCE, 거절·무효과, 체크·전체 검토 PERSISTENT, fresh CE receipt를 갖는 새 operation
-재사용, 철회·거절, ONCE-only CM 실행을 기록합니다. 선택 승인이 PERSISTENT여도
-base `grant_mode`는 ONCE로 유지됩니다. 실제 기본 NUI checkbox는 주황색이며
-작은 배치 구현이 Samsung runtime theme 설치를 의미하지 않습니다.
-
-일부 `attempt-r7-06/`은 정상 restart의 승인 유지와 소유 DB 손실
-(grants0, cleanup_unknown1) 이후 실제 새 승인·효과를 증명합니다. 최종 generation
-후 새 UI는 timeout으로 성공에 포함하지 않습니다. 별도 `attempt-r7-09/`가 해당
-성공을 완료했습니다: 실제 소유 helper generation 변경, 새 REQUIRED/이전
-STALE(-116), 기본 해제 새 팝업, 체크·전체 페이지 검토, 새 coordinator epoch의
-fresh CE action/receipt와 authoritative ALLOWED gate입니다. 실제 TPK 재설치
-lifecycle 증거가 아닙니다. Gate-only receipt와 실제 효과 receipt는 구분합니다.
-
-성공02/09 host exit0/finally errors[]와 일부06 복원은 기존 전역 package/state/
-config/unit의 정확한 일치를 보존하며 예상 package inode/time과 runtime parent
-timestamp 변경은 별도 기록합니다. 소유 fixture와 Aurum을 정리했습니다.
-Production18 PID31569와 기존 inactive PoC는 유지됐고 이전 build/capture/controller
-실패도 보관했습니다.
-
-[Guide08 UI09 증거](08-consent-ui-poc.ko.md#ui09-실행-r7-증거-2026-09-30)에
-정확한 명령·파일·한계가 있습니다. `source-r7.json`은 실행한34개 snapshot이며
-이후 최종 Guide08/10 한·영 문장만 변경하고 나머지30개 byte는 동일합니다.
-실제 consent API를 쓰는 synthetic CM/CE 참여자이며 제품 CM/CE adapter나 배포된
-제품 UI를 의미하지 않습니다.
+[실행 상세 기록](../history/07-verification-history.ko.md#guide-10-checkpoint)에
+명령, 실패한 시도와 서명 TPK/라이브러리 출처를 보존했습니다. 합성 CM/CE 제공자가
+실제 격리 consent API를 사용한 결과이며 제품 어댑터와 배포 역할은 미검증입니다.

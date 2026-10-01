@@ -15,19 +15,29 @@
 | IPC 직렬화 | bundle의 `parcel` library와 C++ `Parcelable`, 공통 IDL 기반 생성 코드 |
 | 기동 | `basic.target.wants` service 기동 및 `consentd.socket`의 listening FD 상속 |
 | CEP 식별자 | 미배정 |
-| 근거 | 본 대화에서 논의한 요구와 설계안 |
+| 근거 | 프레임워크 요구와 설계안 |
 
-> 이 문서는 대화 내용을 통합한 설계 제안서이다. 사내 CEP 양식이나 CEP의 공식 약어 정의는 제공되지 않았으므로 일반적인 기술 제안서 구조를 사용한다. 사용자 명시 요구, 대화 중 제안한 설계, 구현 전 결정 사항을 구분한다. 코드·스키마·필드 이름은 별도 표시가 없으면 검토용 초안이며 구현 완료를 의미하지 않는다.
+> 이 문서는 프레임워크 설계 제안서이다. 사내 CEP 양식이나 CEP의 공식 약어 정의는 제공되지 않았으므로 일반적인 기술 제안서 구조를
+> 사용한다. 확정 요구, 제안한 설계, 구현 전 결정 사항을 구분한다. 코드·스키마·필드 이름은 별도 표시가 없으면 검토용 초안이며 구현
+> 완료를 의미하지 않는다.
 
 **읽기 안내:** 요구·책임은 1~5절, 승인·세션 수명은 6절, C API는 7절, 시나리오는 8~10절, 다국어는 11절, 캐시·대화 데이터·삭제는 12절, DB는 13절, 운영·검증·미결정 사항은 14~22절에 정리한다. v0.2의 주요 추가 내용은 6.1~6.8, 7.7, 9.6~9.10, 12.5~12.11 및 세션·데이터 관련 SQL이다.
 
-v0.3은 4.2~4.10의 GLib 실행·스레드·잠금·소켓 프로토콜, 14.5~14.8의 systemd unit·FD 수명·종료, 15.1~15.4의 ucred·로그·인증에 대한 구현 지침을 추가한다. GMainLoop, 서브스레드 연결 처리, endpoint, socket activation과 peer credential 사용은 사용자 확정 요구다. 구체적인 스레드 개수·unit의 계정·큐 상한은 제품 환경에 맞춰 확정할 제안값이다.
+v0.3은 4.2~4.10의 GLib 실행·스레드·잠금·소켓 프로토콜, 14.5~14.8의 systemd unit·FD 수명·종료,
+15.1~15.4의 ucred·로그·인증에 대한 구현 지침을 추가한다. GMainLoop, 서브스레드 연결 처리, endpoint, socket
+activation과 peer credential 사용은 확정 요구다. 구체적인 스레드 개수·unit의 계정·큐 상한은 제품 환경에 맞춰 확정할
+제안값이다.
 
-v0.4는 사용자 지시에 따라 client–consentd 통신에 `~/tizen/platform/core/base/bundle`의 parcel library를 사용하도록 확정한다. 기존 JSON wire 제안과 구현 중 검토한 GVariant wire 선택을 대체한다. 사용자가 허용한 통신 IDL과 간단한 compiler는 PO가 공통 메시지 규격을 유지하는 방법으로 채택했다. 4.8절의 parcel·IDL 계약은 구현 지침이며, 생성기·새 wire·GBS·emulator 검증 완료를 뜻하지 않는다. 상세 결정과 실제 검증 상태는 별도 결정 기록과 개발 가이드에서 구분한다.
+v0.4는 확정 요구에 따라 client–consentd 통신에 `~/tizen/platform/core/base/bundle`의 parcel
+library를 사용하도록 확정한다. 기존 JSON wire 제안과 구현 중 검토한 GVariant wire 선택을 대체한다. 작은 통신
+IDL과 compiler를 공통 메시지 규격을 유지하는 방법으로 채택했다. 4.8절의 parcel·IDL 계약은 구현 지침이며, 생성기·새
+wire·GBS·emulator 검증 완료를 뜻하지 않는다. 상세 결정과 실제 검증 상태는 별도 결정 기록과 개발 가이드에서 구분한다.
 
-v0.5는 11.5절에 기존 승인 필드와 결합한 typed template v1의 구현 계약을 추가한다. 일반적인 복합 scope 언어나 전체 국제화 formatter의 구현 완료를 의미하지 않는다. PO 결정은 `05-decisions.ko.md`의 D-10, 실제 검증은 `../guides/07-verification.ko.md`에서 구분한다.
+v0.5는 11.5절에 기존 승인 필드와 결합한 typed template v1의 구현 계약을 추가한다. 일반적인 복합 scope 언어나 전체
+국제화 formatter의 구현 완료를 의미하지 않는다. 관련 결정은 `05-decisions.ko.md`의 D-10, 실제 검증은
+`../guides/07-verification.ko.md`에서 구분한다.
 
-v0.6은 사용자 지시에 따라 공개 C 헤더의 `src/consent/inc/` 배치, Tizen 오류 상수 사용,
+v0.6은 확정 요구에 따라 공개 C 헤더의 `src/consent/inc/` 배치, Tizen 오류 상수 사용,
 실제 계정 확인에 근거한 비-root service 및 AMD 방식 `basic.target.wants` 설치를
 명세한다. 계정·권한·상태 이전의 구현과 실제 검증은 결정 기록 및 검증 문서로 구분한다.
 
@@ -39,7 +49,7 @@ v0.8은 번호가 있는 설계·가이드 디렉터리와 Tizen 형식 공개 C
 빌드하는 .NET 승인 팝업 TPK 및 격리된 서비스 mock PoC를 추가 요구로 기록한다.
 D-14가 신원·UI·패키징 경계를 정하며 실제 구현·검증은 가이드 07/08에서 구별한다.
 
-v0.9는 사용자가 선택한 기능의 사전 승인, 현재 작업의 부족한 권한만 일괄 승인,
+v0.9는 선택한 기능의 사전 승인, 현재 작업의 부족한 권한만 일괄 승인,
 같은 대화에서의 재사용을 추가 요구로 기록한다. 제공 앱·목적·수신자·범위가 바뀌면
 추가 확인하며, 선택 뒤 추가된 권한은 이전 선택에 포함하지 않는다. 설정은 선택만
 전달하고 실제 요청은 argo가 수행한다. D-16과 가이드 10이 정확한 조건·선택 snapshot·
@@ -61,7 +71,7 @@ v0.2부터 사용자와 agent의 논리적 대화 세션, 실제 connection, 세
 
 ## 2. 결정 상태와 범위
 
-### 2.1 사용자 명시 요구
+### 2.1 확정 요구
 
 | ID | 요구 |
 |---|---|
@@ -102,7 +112,8 @@ v0.2부터 사용자와 agent의 논리적 대화 세션, 실제 connection, 세
 - 세션 종료 시 접근·생성을 먼저 차단하고 데이터 삭제 완료는 보유자별 ACK로 추적한다.
 - 장기 client 연결은 고정 I/O 서브스레드의 GMainContext에서 multiplex하고, 짧은 작업만 GThreadPool에 배정한다.
 - 공유 상태는 GMutex와 소유 스레드 원칙으로 보호하며 GRecMutex는 필요한 재진입 구간에 제한한다.
-- U-19를 구현하는 공유 메시지는 작은 IDL을 원본으로 두고 C++ Parcelable 코드를 결정적으로 생성한다. 이는 U-20에 따라 PO가 채택한 구현 결정이며 범용 RPC compiler 도입을 뜻하지 않는다.
+- U-19를 구현하는 공유 메시지는 작은 IDL을 원본으로 두고 C++ Parcelable 코드를 결정적으로 생성한다. 이는 U-20에 따라
+  채택한 구현 결정이며 범용 RPC compiler 도입을 뜻하지 않는다.
 
 ### 2.3 목표
 
@@ -1496,7 +1507,7 @@ WantedBy=basic.target
 
 service는 foreground에서 실행하고 별도 daemonize/fork를 하지 않는다. Type=notify이므로 초기화 완료 후 main thread에서 `sd_notify(0, "READY=1")`을 보내고 실패를 검사한다. READY는 DB 복구·필수 policy·I/O worker·listener·signal source가 사용 가능한 뒤에만 보낸다. [systemd.service](https://man7.org/linux/man-pages/man5/systemd.service.5.html), [sd_notify](https://man7.org/linux/man-pages/man3/sd_notify.3.html)
 
-사용자 지시에 따라 AMD 패키징처럼 `basic.target.wants/consentd.service` 상대 심볼릭
+확정 요구에 따라 AMD 패키징처럼 `basic.target.wants/consentd.service` 상대 심볼릭
 링크를 패키지 install 단계에서 설치하고 socket unit도 함께 활성화한다. service의
 `Requires/After/Sockets=consentd.socket`은 유지하여 systemd 소유 listener를 상속한다.
 이 링크는 부팅 시 시작 요구이며 basic target 이전 초기화 완료 보장을 뜻하지 않는다.
@@ -1623,7 +1634,9 @@ SIGTERM·SIGINT는 glib-unix의 signal source를 main context에 attach해 받�
 
 accepted client socket에서 `getsockopt(fd, SOL_SOCKET, SO_PEERCRED, ...)`를 호출해 Linux `struct ucred`의 pid·uid·gid를 얻는다. listener FD가 아니라 각각의 accepted connection FD에 수행한다. `g_socket_get_credentials()`도 Linux에서 SO_PEERCRED를 사용하는 GLib 경로이므로 wrapper로 선택할 수 있다. [GIO Socket.get_credentials](https://docs.gtk.org/gio/method.Socket.get_credentials.html)
 
-본 초안의 예시는 사용자 요구의 ucred 구조를 직접 보여주기 위해 native getsockopt를 사용한다. 소켓·연결 수명은 GIO가 관리하며 borrowed FD를 임의로 close하지 않는다. credential 취득 실패·잘못된 반환 길이는 해당 연결을 승인 처리 경로에 넣지 않고 오류 로그 후 종료한다.
+본 초안의 예시는 요구된 ucred 구조를 직접 보여주기 위해 native getsockopt를 사용한다. 소켓·연결 수명은 GIO가 관리하며
+borrowed FD를 임의로 close하지 않는다. credential 취득 실패·잘못된 반환 길이는 해당 연결을 승인 처리 경로에 넣지 않고
+오류 로그 후 종료한다.
 
 ```cpp
 #ifndef _GNU_SOURCE
@@ -1951,10 +1964,10 @@ Tizen의 메모리 제약을 고려해 세션별 실제 데이터 bytes, 전체 
 
 | 버전 | 변경 |
 |---|---|
-| 0.1 | 대화 내용을 통합. 사용자 요구와 제안을 구분하고 API·상태·다국어·캐시·복수 승인·DB·복구·검증 계획을 작성 |
+| 0.1 | 확정 요구와 제안을 구분하고 API·상태·다국어·캐시·복수 승인·DB·복구·검증 계획을 작성 |
 | 0.2 | 논리적 대화 세션·connection 수명·재연결·SESSION 캐시를 기본 범위로 추가. 접근 승인과 결과 보관·reuse를 분리하고 취득 receipt·data-use permit·provenance·holder cleanup 계약, API·DB·수용 기준을 통합 개정 |
 | 0.3 | GMainLoop·고정 I/O 서브스레드·bounded GThreadPool·GMutex/GRecMutex 규칙을 추가. `/run/.consentd.sock` UDS와 systemd socket/service unit, 상속 FD·ucred 로그 C++ 예시, GLib dispatch·framing·backpressure·종료 계약 및 추가 수용 기준 반영 |
-| 0.4 | 사용자 요구로 JSON/GVariant wire 선택을 bundle parcel·Parcelable로 대체. 작은 IDL/compiler, 제한된 reader, 생성·호환성·라이선스·빌드 의존성과 검증 기준을 추가. 구현 완료와 설계 결정을 구별 |
+| 0.4 | 확정 요구로 JSON/GVariant wire 선택을 bundle parcel·Parcelable로 대체. 작은 IDL/compiler, 제한된 reader, 생성·호환성·라이선스·빌드 의존성과 검증 기준을 추가. 구현 완료와 설계 결정을 구별 |
 | 0.5 | 승인 필드 원본에 결합하는 typed template v1, 제한된 source/type/schema, UI 지원 명시와 locale/token 결합, 단일 평문 formatter 및 검증 범위를 추가 |
 | 0.6 | 공개 C 헤더 inc 배치, Tizen 공통·모듈 오류 규약, 비-root 계정 확인 및 basic.target.wants 설치·socket FD 유지 계약 추가 |
 | 0.7 | system service의 offline consent_register와 image generation 준비·첫 기동 반영 계약 및 기능별 공개 C 헤더 분리 추가 |

@@ -1,29 +1,9 @@
 # Design 05: Implementation decisions
 
-Date: 2026-09-22. These are PO/architect decisions for implementation, not claims
-of completed code or validation. `01-consent-framework.md` remains the design
-proposal. Record actual implementation and evidence in the paired developer and
-architecture guides.
-
-## Coordination and delivery
-
-- Herdr pane `w1:pA` owns product scope, architecture decisions, review, and user
-  communication. Existing Codex pane `w1:pJ` owns implementation and integration.
-  Pane IDs describe this development session only.
-- The implementation lead reports decisions with evidence, alternatives, and a
-  recommendation to the PO pane, and continues independent work while awaiting a
-  decision. Routine engineering decisions do not need another user approval.
-- Preserve the CEP and `AGENTS.md`. The user's subsequent instruction authorizes
-  commits and pushes for each completed, verified increment. The PO pane is the
-  sole Git index/commit/push owner; implementation agents report ready file sets.
-  Reference appfw repositories remain read-only.
-- Every source file must carry the existing appfw-style Samsung copyright and
-  full Apache-2.0 notice. Include headers, tests, tools, and language-appropriate
-  notices in build/script files; an SPDX-only placeholder is insufficient here.
-- Integrate foundation, approval/session flows, cache, and data lifecycle in
-  reviewable increments. A partial increment is not full framework completion.
-- Production code, test adapters, host checks, and real platform integration
-  evidence must be distinguishable. Product integration gaps remain explicit.
+This document records adopted decisions and their rationale. The original
+[proposal](01-consent-framework.md) remains a proposal; implementation and
+executed results are described in the developer guides. Decision identifiers
+are stable and do not by themselves imply verification.
 
 ## D-01: Authenticated roles and package ownership
 
@@ -143,7 +123,7 @@ ACK semantics remain mandatory.
 
 ## D-05: Initial target and wire choices
 
-The implementation panel reports x86_64, kernel 4.4.35, systemd 244 with SMACK,
+The target inspection reports x86_64, kernel 4.4.35, systemd 244 with SMACK,
 GLib 2.80.5, and SQLite 3.50.2. Its verification records must capture the exact
 commands. The old kernel does not provide the proposed pidfd path. Use the strict
 socket-label/credential/executable adapter with process-start verification before
@@ -214,7 +194,7 @@ Require the expected `SO_PEERSEC` value established by target observation and
 socket-unit policy. A service process label or socket-file label does not prove
 the listener's outgoing label. Verify the real credential/name/label tuple on the
 target, plus rejection of a renamed other-service socket and a direct listener.
-The implementation panel's target probe reports UID/GID 0, PID 1, credential
+The target probe reports UID/GID 0, PID 1, credential
 length 12, peer label `System::Privileged` (19 bytes including NUL), and peer
 address length 22 including `/run/.consentd.sock` and NUL. Adopt that label for
 this target; do not substitute the daemon's `System` process label.
@@ -753,8 +733,8 @@ production integration and emulator PoC evidence distinct.
   the integer, byte-order and reader-position APIs needed for the bounded codec;
   avoid relying on newer capacity constructors or UInt8 methods without target checks.
 - Available tizen-watcher history starts with `a1de9f6` on 2026-02-02. Use it for
-  requested layout/current packaging; use January AMD/AUL for the historical
-  handwritten-style criterion.
+  layout and current packaging; use January AMD/AUL for the historical
+  code conventions.
 - Target architecture, dependency versions, role identities, installation
   generation source, resource/time limits, service identity/labels, and external
   holder/UI integration must be established by implementation evidence.

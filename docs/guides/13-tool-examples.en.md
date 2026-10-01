@@ -1,19 +1,17 @@
-# Guide 13: Capability and context fixture tools
+# Guide 13: Tool execution and context lookup examples
 
-This extends [Guide 12](12-developer-smoke.en.md) with opt-in `--tools` in
-`emulator-smoke.py`. The default smoke01 behavior and fixture paths remain.
-CM's actual offline parser publishes a CLI descriptor. Separate authenticated
-C CM/CE examples use the installed consent library and isolated real daemon.
-They execute a synthetic provider or read synthetic context only after
-AUTHORIZE returns ALLOWED with a receipt. This is a developer example, not
-`capmgr_client_execute()` integration or an `app_fw` launcher.
+This guide checks user approval before a tool call or data lookup. The CM
+example executes a JSON-RPC provider; the CE example reads a test file. Both
+require consentd to return ALLOWED and a receipt before the protected action.
+Run them with `emulator-smoke.py --tools`, building on
+[Guide 12](12-developer-smoke.en.md).
 
-The current public CM create gate returns permission denied; production execution
-transport and internal consent adapter are absent. The discovered
-`tizen-context-cli` gRPC client exposes context/screenshot/key-event commands
-but has no consent/data-level registration contract and needs a JSON-RPC adapter.
-Current CE server source, identity and taxonomy remain external gates. This
-example makes no personal-context RPCs and does not substitute old contextd.
+A checker (enforcer) is the service responsible for this final authorization.
+Trusted metadata binds a tool or record to its consent definition. A requirement
+tuple is the complete operation, scope, purpose, recipient and policy version;
+changing any part can require new approval. The receipt and execution ledger
+are explained in the safety section. Product integration status is listed
+separately below.
 
 ## Files and build
 
@@ -28,8 +26,6 @@ examples; shared helpers handle JSON and resource ownership.
 missing. RPM builds enable tools by default; `--define '_without_smoke_tools 1'`
 disables them. JSON-GLib links only the new test binaries, adding an automatic
 ELF requirement to the tests RPM, not the production library or daemon.
-Release21 separates the final package snapshot from accepted Release19/r6
-archives and the initial Release20 development attempts.
 
 ```sh
 gbs build -A x86_64 --profile tizen_10_1_emulator --include-all \
@@ -46,23 +42,57 @@ sdb -s DEVICE shell 'systemd-run --quiet --wait --pipe \
   /usr/libexec/consent/smoke/emulator-smoke.py --tools --seed 20261002'
 ```
 
-Use the same runner's explicit `--cleanup` after inspecting evidence. All fixture
-ownership/unit/path guards from Guide12 apply. New evidence belongs under
-`/var/tmp/consent-artifacts/consent-integration-02/`; smoke01/r6 is preserved.
+After checking the result, run the same runner with `--cleanup`. The ownership,
+unit and path checks in Guide 12 apply. Use a new evidence directory for each
+run; the recorded checkpoint is linked below.
 
 ## Descriptor, tools and consent tuples
 
 Installed `tool-package/cli.json` uses the actual CM descriptor schema:
 
 ```json
-{"version":1,"key":"smoke-tool","name":"Fixture summary tool",
- "desc":"Synthetic JSON-RPC provider; not a product adapter",
- "executable":"bin/consent-smoke-tool",
- "inputSchema":{"type":"object","properties":{"record":{"type":"string",
- "enum":["summary","fail","timeout","malformed","stderr","nonzero",
- "conflict","nul"]}},"required":["record"],"additionalProperties":false},
- "outputSchema":{"type":"object","properties":{"summary":{"type":"string",
- "maxLength":1024}},"required":["summary"],"additionalProperties":false}}
+{
+  "version": 1,
+  "key": "smoke-tool",
+  "name": "Fixture summary tool",
+  "desc": "Synthetic JSON-RPC provider; not a product adapter",
+  "executable": "bin/consent-smoke-tool",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "record": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "fail",
+          "timeout",
+          "malformed",
+          "stderr",
+          "nonzero",
+          "conflict",
+          "nul"
+        ]
+      }
+    },
+    "required": [
+      "record"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string",
+        "maxLength": 1024
+      }
+    },
+    "required": [
+      "summary"
+    ],
+    "additionalProperties": false
+  }
+}
 ```
 
 The manifest uses `http://tizen.org/metadata/capability/cli`, owner
@@ -94,8 +124,8 @@ only. These are demonstration levels, not verified product CE taxonomy.
 
 ## Approval metadata and API inputs
 
-These inputs document the existing developer fixture, not a new JSON API.
-This documentation addition does not rerun the Release21 verification below.
+These JSON objects show the fields passed to the existing C API. They are
+not a new JSON endpoint.
 
 ### Action confirmation and the separate consent binding
 
@@ -106,6 +136,7 @@ A real Tizen Action can declare this boolean fragment:
   "requiresConfirmation": true
 }
 ```
+
 The field is optional and defaults to false. The Action API
 `action_is_confirmation_required(action, &required)` reads it; CM's Action
 catalog projection preserves `requiresConfirmation`. The Action-to-consent
@@ -132,6 +163,7 @@ The following are two exact entries from protected `tool-metadata.json`:
   }
 }
 ```
+
 The runner supplies the remaining records and protects this mapping. CM's
 provider returns a synthetic summary; CE reads `tool-context/level1.txt`, whose
 body is `synthetic context summary level1` followed by a newline. Bodies stay
@@ -166,6 +198,7 @@ Replace the generation placeholder with the Installer-provisioned value.
   "message.en.body": "Allow this isolated fixture tool operation?"
 }
 ```
+
 This JSON illustrates `consent_params_set()` inputs, not a public JSON-register
 endpoint or loader. `fields` below is a caller-owned key/value array containing
 exactly those entries; `field_count` is its length and `client` an authenticated
@@ -184,6 +217,7 @@ if (status == 0) {
 consent_params_free(params);
 /* Propagate status; client and the borrowed fields remain caller-owned. */
 ```
+
 For CE level1, change definition to `smoke.ce.tool.level1`, enforcer to `ce`
 and registration operation ID to a distinct value; level and modes stay the
 same. For level3, set level to `3` and modes to `ONCE`. Retention `60000` is the
@@ -213,6 +247,7 @@ Argo uses this flattened parameter object with `consent_request_async()`:
   "deadline_ms": "20000"
 }
 ```
+
 The CM enforcer uses the same protected requirement tuple with
 `consent_check()` and these AUTHORIZE inputs:
 
@@ -232,6 +267,7 @@ The CM enforcer uses the same protected requirement tuple with
   "step_id": "tool-admission"
 }
 ```
+
 For CE level1, both actors instead bind `r0.definition` to
 `smoke.ce.tool.level1`, `r0.operation` to `read`, and `r0.scope` to
 `context.fixture/level1`; purpose, recipient and policy version stay unchanged.
@@ -300,11 +336,12 @@ printf 'authorize context-demo-authorized ALLOWED\n' |
   /usr/libexec/consent/smoke/consent-smoke-tool-ce smoke.ce.tool.level0
 ```
 
-## Admission and recovery boundaries
+## Safety checks and recovery
 
 QUERY never executes. Before approval, after revocation, or on an authorization/
 API error, admission counters stay unchanged. Native provider errors happen
-following admission and retain count1 with the separate `native_error` state. The ledger records a receipt before provider spawn or context read.
+after admission and retain count1 with the separate `native_error` state.
+The ledger records a receipt before provider spawn or context read.
 Success, native error and unknown execution are distinct states. Timeout, invalid
 streams and process failure do not permit an automatic second admission under
 the same receipt. A retry from another actor with no ledger blocks as unknown.
@@ -315,7 +352,7 @@ for the first/retry and `context-levelN-next` for the next operation.
 This ledger survives explicit handle recreation in the same actor, but is process
 local; product enforcers need durable side-effect deduplication when required.
 
-Each stdout/stderr stream is independently collected to16KiB with a1.5s deadline.
+Each stdout/stderr stream has its own 16KiB bound and 1.5-second deadline.
 One valid matching response with whitespace on the other stream is accepted;
 matching dual responses are accepted, conflicting/logging/malformed/NUL streams
 are rejected. Native response and exit/signal metadata are recorded separately,
@@ -349,79 +386,24 @@ restart preserves persistent grants; old handles are DISCONNECTED and explicitly
 recreated while actor PIDs/ledgers remain. Total registry loss fails closed.
 No populated QUERY-cache invalidation proof is claimed.
 
-## Verified Release21 snapshot (2026-09-30)
+## Product integration status
 
-CONSENT-INTEGRATION-02 implementation r4 uses baseline `a569363` plus the
-developer-example changes. `source-r4.json` records21 native/build/runner files
-and matches the executed and installed Release21 snapshot. Publication removes
-only three trailing spaces from the runner; its Python AST is identical, but its
-published byte hash differs from installed r4. The original logs/RPMs remain;
-external `publication-whitespace.json` records old/new hashes. No package was
-rebuilt for this mechanical publication correction. Documentation evidence is
-updated after validation.
-All evidence below is preserved in
+CLI descriptor publication uses the actual CM parser, but the parser has no
+consent fields. Public CM create returns permission denied; the product
+execution transport and consent adapter remain absent. The inspected
+`tizen-context-cli` offers gRPC context/screenshot/key-event calls, not a
+consent or data-level registration API. Current CE server identity and taxonomy
+still need a platform contract. These examples call no personal context RPCs
+and do not implement `capmgr_client_execute()` or an `app_fw` launcher.
+
+## Verified checkpoint
+
+Release21 r4 completed GBS with 23 PASS and four root-only SKIP. Installed
+tools and default modes returned 0; strict mode returned the expected 1 after
+all scenarios, and cleanup returned 0. Installed payload hashes matched the
+RPMs. Actual parser publication passed; public CM preflight remained BLOCKED.
+CM and CE tools ran only after fresh approval following all three DB losses.
+Production daemon18 and PoC18 were unchanged. Evidence:
 `/var/tmp/consent-artifacts/consent-integration-02/`.
 
-| Evidence | Actual result |
-| --- | --- |
-| `gbs-r4.log`, `gbs-r4.exit` | Exact build command above; exit0, CTest23 PASS +4 root-only SKIP of27 |
-| `rpms-r4/`, `rpm-r4-sha256.json` | Archived Release21 RPMs; matching source manifest |
-| `install-r4.log`, `install-r4.exit` | Normal upgrade exit0, runtime/devel/tests only |
-| `installed-r4-hash.log` | All17 installed smoke payload hashes equal archived RPM digests; runner equals executed source-r4 |
-| `installed-tools-seed20261002-r4.log` | SMOKE_EXIT0, TOOLS_OUTER_EXIT0; all tool scenarios and3 recoveries PASS |
-| `installed-strict-seed20261003-r4.log` | All tool scenarios PASS, then explicit product gate; SMOKE_EXIT1, STRICT_OUTER_EXIT1 |
-| `installed-default-seed20261004-r4.log` | Default smoke01 regression SMOKE_EXIT0, DEFAULT_OUTER_EXIT0 |
-| `final-cleanup-r4.log`, `final-services-r4.log` | Final cleanup0; both smoke units not-found and four fixture directories absent |
-| `device-before-r2.log`, `final-services-r4.log` | Production PID31569 active/success; PoC PID0 inactive/success; complete state metadata fingerprint unchanged |
-
-`results-r4.json` summarizes exits and recovery cases. SDB host status is0 even
-for the strict remote failure; remote SMOKE_EXIT and OUTER markers are the
-assertions. `commands.txt` preserves each exact host/device command. The emulator
-was discovered as `emulator-26101`, architecture x86_64, profile
-`tizen_10_1_emulator`. Installed `consent`, `consent-devel`, `consent-tests` are
-0.1.0-21; production `consentd` and `consent-poc` remain0.1.0-18. The production
-daemon RPM produced by GBS was archived and never installed. CM remains0.1.0-15;
-JSON-GLib is1.8.0. Package dependency audits show JSON-GLib only in tests.
-
-Exact final installation and replay commands (selected emulator):
-
-```sh
-sdb -s emulator-26101 shell 'systemd-run --quiet --wait --pipe \
-  -p SmackProcessLabel=System::Privileged rpm -Uvh \
-  /tmp/consent-integration-02-r4-rpms/consent.rpm \
-  /tmp/consent-integration-02-r4-rpms/consent-devel.rpm \
-  /tmp/consent-integration-02-r4-rpms/consent-tests.rpm'
-# For each replay, use this same invocation prefix with the options below:
-sdb -s emulator-26101 shell 'systemd-run --quiet --wait --pipe \
-  -p SmackProcessLabel=System /usr/bin/python3 \
-  /usr/libexec/consent/smoke/emulator-smoke.py --tools --seed 20261002'
-```
-
-Replay order/options: `--tools --seed 20261002` → `--cleanup` →
-`--tools --require-product --seed 20261003` → `--cleanup` →
-`--seed 20261004` → `--cleanup`. The recorded commands also print and assert the
-remote outer exit before exiting the device shell.
-
-The actual parser publishes `cli:smoke-tool` with owner/executable verified.
-Public CM preflight remains `product_public_api/BLOCKED create_status=-2
-handle=null`, PREFLIGHT_EXIT3. stderr-only and nonzero-exit7 native replies succeed;
-valid native error is `native_error`; timeout/malformed/conflicting/NUL streams
-are `unknown`, each retry deduplicated with count1. CE levels1–3 each have exact
-first `state=succeeded count=1` and retry `deduplicated state=succeeded count=1`.
-Both CM and CE tool actors execute after fresh approval in stopped-delete,
-corrupt and running-delete scenarios, with all three definition/grant/epoch
-readbacks recorded. The strict run repeats these successfully before its sole
-expected product-integration failure.
-
-Preserved failures/corrections: `installed-tools-seed20261002-r2.log` had remote1
-at CElevel2 because `context-once` reused another level's immutable tuple;
-`cleanup-failed-r2.log` is0. R3 gives each level a distinct operation namespace
-without changing daemon policy. `gbs-r1/r2/r3.log` all passed; `install-r3.log`
-records remote3, where Tizen MSM rejected changed runner content under identical
-Release20 despite `--replacepkgs`. Release21 normal upgrade resolves this without
-force-file replacement. The original oversized SDB hash command failed with
-service-name-too-long, preserved in
-`installed-r4-hash-command-size-failure.log`; shorter read-only hash collection
-then verified all17 files. Installation ldconfig permission warnings are retained
-in install logs; the transaction exit and installed hashes were checked.
-Previous smoke01/r6 artifacts remain unchanged. No commit or push was made.
+[Detailed snapshot and failure history](../history/07-verification-history.en.md#guide-13-checkpoint)

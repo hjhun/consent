@@ -637,9 +637,8 @@ checks using real Tizen GBS SDK headers. The existing
 [public_headers_test.py](../../tests/public_headers_test.py) also checked
 standalone inclusion of 10 public headers and 42 declarations in C11/C++17.
 These are syntax/declaration checks, not linking or emulator execution evidence.
-No GBS rebuild, RPM installation or device behavior tests were performed for
-this documentation expansion. See [Guide 07](07-verification.en.md) for existing
-execution evidence and product integration limits.
+See [Guide 07](07-verification.en.md) for execution evidence and product
+integration limits.
 
 ### Cleanup pages and retry sweeps
 

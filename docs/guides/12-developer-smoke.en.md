@@ -1,19 +1,17 @@
-# Guide 12: Developer CM/CE consent smoke
+# Guide 12: Check approval before reading a resource
 
-This smoke uses the real installed CM offline package parser and the public
-consent C API over real socket activation. The CM catalog and consent binding
-are separate. CM product authorization currently fails closed; no CM internal
-consent adapter is installed. The CE example uses a portable demonstration
-level policy, pending identification of the current CE source and API.
-It does not establish product integration or replace user approval.
+This guide runs CM and CE examples against an isolated consent daemon. Each
+checker calls the public C API before reading a test resource. The test passes
+only when an unapproved read is blocked and an approved read actually occurs.
+A receipt is the daemon's record of an AUTHORIZE decision; it is not a reusable
+bearer credential. The examples also keep an execution ledger to prevent the
+same receipt from causing another read.
 
-The code is in `tests/smoke/`; `scripts/emulator-smoke.py` is the single target
-runner. `CONSENT_BUILD_SMOKE=ON` creates test-only binaries in the test RPM.
-Production role policy, endpoints, library symbols, and daemon behavior stay
-unchanged. The smoke library compiles the normal endpoint and connected-peer
-checks, including the PID1/root/SMACK identity of the activated listener.
-The isolated daemon uses the existing compile-time test package-identity fixture
-and a protected Installer generation registry rather than installed app metadata.
+Use `tests/smoke/` and the installed `emulator-smoke.py` runner. Build with
+`CONSENT_BUILD_SMOKE=ON`; the examples belong to the test package. The isolated
+daemon uses test package identities and a protected installation-generation
+registry. It still checks the activated listener's PID1/root/SMACK identity.
+See the product status below before treating this as a platform integration.
 
 ## Build and run
 
@@ -216,80 +214,21 @@ The preflight calls the actual public `capmgr_client_create` symbol and records
 status/null-handle; expected denial exits3, missing library/symbol exits2.
 `--require-product` always fails until both product adapters exist, including CE.
 
-## Executed evidence (2026-09-30)
+## Product integration status
 
-The accepted implementation is uncommitted Release19 on baseline `a569363`
-Release18. Final source/build snapshot **r6**, installed-runner reproduction,
-strict-product negative and cleanup are the completion evidence. CM installed
-version is `capability-manager-0.1.0-15.x86_64`; target is
-`emulator-26101`, x86_64. Implementation, packaging and available emulator
-verification were independently ACCEPTED within this developer smoke scope.
-Actual product CM internal adapter and current CE integration remain open gates.
+The installed CM offline parser and catalog are exercised, but consent
+requirements come from a separate developer mapping. Public CM authorization
+still fails closed and no internal consent adapter is installed. CE levels are
+fixture policy; the current product source/API and taxonomy remain unverified.
+`--require-product` therefore fails even when developer scenarios pass.
 
-Earlier snapshots remain separate: the first GBS attempt failed on PoC SDK
-provisioning, r2 failed the nested IDL fixture's missing cmake copy, and r5 target
-execution failed before destructive scenarios because of fresh unit loading and
-partial-bootstrap cleanup. Corrected-runner/native-r5 exploratory execution then
-passed. Those logs establish the fixes; they are not substituted for the final
-installed-r6 results below.
+## Verified checkpoint
 
-Full commands, failed attempts, subprocess statuses, journal and outputs are
-preserved at `/var/tmp/consent-artifacts/consent-smoke-01/` on the build host.
-The source hash manifest is `source-r6.json`; build output is
-`consent-smoke-gbs-r6.log`. This smoke does not establish actual CE APIs, product
-CM internal AUTHORIZE, abrupt reboot, interrupted commit or request-cache-hit
-coverage. Final guide-only corrections followed the frozen native snapshot.
+Release19 r6 completed GBS with 22 PASS and four root-only SKIP. The installed
+smoke returned 0, strict product mode returned the expected 1 after the
+scenarios, and cleanup returned 0. Both CM and CE checks required fresh
+approval after each tested DB loss. Normal restart retained persistent grants.
+Production daemon18 and PoC18 were unchanged. Evidence:
+`/var/tmp/consent-artifacts/consent-smoke-01/`.
 
-Final r6 matching-package replay: GBS exited0 (CTest26: 22 PASS, four root-only
-SKIP), and the native/runner files matched `source-r6.json`. The same-NVR r6
-replacement initially exited3 for changed files; explicit replacement of those
-same runtime/devel/test packages with `--replacepkgs --replacefiles` exited0.
-The installed runner SHA256 was
-`912502e58186dd4b82e093c1fe2ab4c51b59bb76520dd415941e8acc73e67bf0`.
-
-| Installed r6 run | Seed | Internal / outer exit | Evidence file |
-| --- | --- | --- | --- |
-| Full developer smoke | 20260930 | 0 / 0 | `device-r6-seed20260930.log` |
-| Strict product negative after full smoke | 20260931 | 1 / 1 (expected) | `device-r6-strict-seed20260931.log` |
-| Explicit final cleanup | — | 0 / 0 | `final-cleanup-services-r6.log` |
-
-The default order was running-delete/corrupt/stopped-delete; strict order was
-stopped-delete/corrupt/running-delete. Each run confirmed unchanged production
-and PoC state metadata. Production consentd remained Release18, active/success,
-MainPID31569 before and after installation/tests. PoC stayed inactive/success,
-MainPID0. Final cleanup left both smoke units not-found/MainPID0 and all four
-managed fixture directories absent. Runtime/devel/tests are Release19; the
-production daemon RPM/service and existing PoC installation were untouched.
-Doc-only invocation/evidence corrections followed the frozen r6 native build.
-
-Final install (`install-r6-replace.log`, INSTALL_EXIT0):
-
-```sh
-systemd-run --quiet --wait --pipe --unit=consent-smoke-install-r6-replace \
-  -p SmackProcessLabel=System::Privileged rpm -Uvh \
-  --replacepkgs --replacefiles /tmp/consent-smoke-runtime.rpm \
-  /tmp/consent-smoke-devel.rpm /tmp/consent-smoke-tests.rpm
-```
-
-Final commands (each issued through `sdb -s emulator-26101 shell`):
-
-```sh
-systemd-run --quiet --wait --pipe --unit=consent-smoke-run-r6 \
-  -p SmackProcessLabel=System /usr/bin/python3 \
-  /usr/libexec/consent/smoke/emulator-smoke.py --seed 20260930
-systemd-run --quiet --wait --pipe --unit=consent-smoke-strict-r6 \
-  -p SmackProcessLabel=System /usr/bin/python3 \
-  /usr/libexec/consent/smoke/emulator-smoke.py \
-  --seed 20260931 --require-product
-systemd-run --quiet --wait --pipe --unit=consent-smoke-clean-final-r6 \
-  -p SmackProcessLabel=System /usr/bin/python3 \
-  /usr/libexec/consent/smoke/emulator-smoke.py --cleanup
-```
-
-An explicit cleanup separated the two full runs. SDB transport exited0 even for
-the expected strict failure; the internal/outer markers establish its exit1.
-The r6 RPMs are under
-`/home/hjhun/GBS-ROOT/local/repos/tizen_10_1_emulator/x86_64/RPMS/`:
-`consent`, `consent-devel`, `consent-tests`, and built-but-uninstalled `consentd`,
-all `0.1.0-19.x86_64.rpm`. The evidence directory also archives the installed
-three RPMs and their SHA256 hashes separately for r5 and r6.
+[Detailed snapshot and failure history](../history/07-verification-history.en.md#guide-12-checkpoint)

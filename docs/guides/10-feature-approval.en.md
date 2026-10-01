@@ -343,39 +343,17 @@ chosen-coverage validation; consumed/revoked coverage becomes INVALIDATED,
 without changing the original request ID/fingerprint or reviving old approvals.
 Actual execution still requires a fresh authoritative AUTHORIZE/receipt.
 
-### Executed UI09 verification
+### Verified UI09 checkpoint
 
-The matching Release27/r7 native build passed CTest33 (29 PASS, 4 root-only
-SKIP); managed choice/review/geometry checks are included in that build. The
-actual selected x86_64 emulator used the signed TPK's exact full library bytes
-for both UI and privately namespaced CM/CE workers, with extracted owned test
-helpers rather than a global RPM upgrade. RPM-packaged byte hashes/build IDs
-are separately recorded and are not claimed equal to TPK payloads.
+Release27 r7 passed 29 CTest cases with four root-only skips, plus managed
+choice/review/geometry checks. Actual UI runs verified default ONCE, checked
+PERSISTENT, fresh-operation reuse, revocation and ONCE-only CM execution.
+Follow-ups verified normal restart, DB-loss fresh approval and helper generation
+retirement followed by a new UI-approved CE action. The helper change was not
+a TPK reinstall. Base `grant_mode` stayed ONCE; chosen mode was reported
+separately. Production/PoC state was restored or unchanged.
 
-`/var/tmp/consent-artifacts/consent-ui-native-09/attempt-r7-02/` records actual
-unchecked ONCE, denial/no effect, checked/full-review PERSISTENT, new-operation
-reuse with a fresh CE receipt, revoke/denial and ONCE-only CM execution. Base
-`grant_mode` remains ONCE even when the chosen approval is PERSISTENT. Actual
-NUI default checkbox color is orange; compact styling does not install a
-Samsung runtime theme.
-
-Partial `attempt-r7-06/` proves normal restart persistence and owned DB loss
-(grants0, cleanup_unknown1) followed by actual fresh approval/effect. Its final
-fresh-generation window timed out and is not counted as a positive. Distinct
-`attempt-r7-09/` completes that positive: actual owned helper generation change,
-new REQUIRED/old STALE(-116), default-off refreshed popup, checked all-page
-review, fresh CE action/receipt in a new coordinator epoch and authoritative
-ALLOWED gate. This is not actual TPK reinstall lifecycle evidence. The gate-only
-receipt and actual effect receipt are distinct.
-
-Successful02/09 host exit0/finally errors[] and partial06 restoration retain
-exact original global package/state/config/unit equality, expected package
-inode/time and runtime-parent timestamp deltas separately. Owned fixtures and
-Aurum were cleaned. Production18 PID31569 and original inactive PoC remained
-unchanged. All earlier build/capture/controller failures remain archived.
-
-[Guide08's UI09 evidence](08-consent-ui-poc.en.md#ui09-executed-r7-evidence-2026-09-30)
-contains exact commands, files and limits. `source-r7.json` is the executed
-34-file snapshot; only the final paired Guide08/10 prose differs afterwards,
-with the remaining30 files byte-identical. These are synthetic CM/CE participants
-using actual consent APIs, not production CM/CE adapters or deployed product UI.
+[Detailed execution record](../history/07-verification-history.en.md#guide-10-checkpoint)
+contains commands, failed attempts and signed TPK/library provenance.
+These results use synthetic CM/CE providers and actual isolated consent APIs;
+product adapters and deployment roles remain unverified.

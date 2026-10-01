@@ -9,7 +9,7 @@ Build43 Release11과 번호가 다른 Build45–49 추가 근거에 대응합니
 뜻입니다. 번호별
 로그는 `/var/tmp/consent-artifacts/gbs-build-{43,45,46,48,49}`에 있습니다.
 추가 근거가 있는 행은 Build 번호를 명시합니다. 이전 시험을 Build49
-재실행으로 소급하지 않습니다. 현재 집계는 Target23, Partial33,
+재실행으로 소급하지 않습니다. 이 과거 감사의 집계는 Target23, Partial33,
 Product7입니다.
 
 | ID | 범위 | 근거 또는 남은 경계 |

@@ -1,193 +1,98 @@
 # Consent
 
-Consent is a Tizen framework for user approval of tool execution and data
-access. An authenticated requester asks for approval of a specific capability,
-scope, purpose, recipient and profile; the approval UI displays that context.
-Capability Manager and Context Engine integrations must authorize the same
-requirements immediately before a protected action or data read.
+Consent lets Tizen services ask for user approval before executing a tool or
+reading data. `libconsent` is the public C API; `consentd` authenticates
+callers,
+evaluates policy and stores decisions. Definitions describe permissions and
+localized messages. Grants record approved access. Tool results and context
+bodies stay with their providers, outside the consent database.
 
-`libconsent` provides the public C API and `consentd` authenticates roles and
-serializes policy decisions and durable state. Registered definitions describe
-policy and localized disclosures; grants record approved access. Actual tool
-results and context bodies remain with their providers, outside the consent DB.
-See [approval metadata and API inputs](docs/guides/13-tool-examples.en.md)
-for concrete developer examples and their integration boundaries.
+## How approval works
 
-## Project status
+1. An authenticated Installer registers definitions for a package and app.
+2. Argo requests approval for a subject, profile and exact requirement tuple:
+   capability, operation, scope, purpose, recipient and policy version.
+3. The approval UI displays the bound request and submits the user's choice.
+4. The CM or CE checker calls `AUTHORIZE` immediately before the protected
+   action. It requires ALLOWED and a receipt, then prevents duplicate effects.
 
-The framework has executable C API scenarios, GBS packages, and emulator
-verification for the implemented workflows. The [verification record](docs/guides/07-verification.en.md)
-identifies tested snapshots, failure scenarios, and remaining limits.
-
-Product integration is still required for trusted service identities,
-plugin-owned Installer hooks, and product approval UI provisioning. Installer
-hooks must use authenticated publishers and protected package/app generations.
-Production role configuration starts empty and denies unenrolled callers. An
-isolated .NET Consent UI proof of concept is included, with GBS-built TPKs and
-separate service mocks. See the [PoC guide](docs/guides/08-consent-ui-poc.en.md)
-for installation and interactive scenarios.
-The [original design proposal](docs/design/01-consent-framework.md)
-remains a proposal, with adopted choices recorded in the
-[decision log](docs/design/05-decisions.en.md).
-
-## Capabilities
-
-- Explicit package/app registration, package-wide removal, revision checks, and
-  retry identifiers tied to installation generations.
-- Synchronous and asynchronous request/check APIs. `QUERY` observes policy;
-  authoritative `AUTHORIZE` checks atomically consume one-time grants.
-- Localized approval messages with bounded typed templates and responses bound
-  to the displayed prompt, policy, and session generation.
-- Feature selections bound to exact provider, scope, purpose, recipient and
-  period. The opt-in approval contract displays only missing permissions while
-  retaining the complete requirement set for final evaluation.
-- Logical sessions, data-use permits, provenance, expiry, revocation, and holder
-  cleanup acknowledgements. Stored metadata does not include conversation bodies.
-- SQLite recovery and definitions-only reconciliation. Recovery never rebuilds
-  user approvals from package definitions.
-- Explicit root-only offline registration through the public C API, using a
-  protected spool and daemon startup reconciliation. A staged definition is not
-  an active registration or an approval.
-
-## Components
+`QUERY` only observes policy. It never opens UI or authorizes execution.
+Access grant duration and acquired-data retention are separate policies.
 
 ```mermaid
 flowchart LR
-  Services[Authorized platform services] --> API[libconsent: public C API]
-  UI[Approval UI: external integration] --> API
-  API --> Wire[Native Parcel and generated IDL records]
-  Wire --> Socket[systemd Unix stream listener]
-  Socket --> Daemon[consentd: identity, policy and DB executor]
-  Daemon --> DB[(SQLite consent.db)]
-  Daemon --> Registry[Definitions-only registry]
-  Authority[Protected installation generation authority] --> Daemon
-  Image[Root image installer] --> Offline[Offline C API registration]
-  Offline --> Spool[Protected definition spool]
-  Spool -->|startup reconciliation| Daemon
+  I[Installer] -->|definitions| D[consentd]
+  A[Argo] -->|request| D
+  U[Approval UI] -->|bound response| D
+  E[CM / CE checker] -->|AUTHORIZE| D
+  D -->|decision and receipt| E
+  E --> P[Tool or data provider]
+  D --> DB[(Policy and metadata)]
 ```
 
-Clients use `/run/.consentd.sock`. Systemd owns the endpoint and passes its
-listener to the daemon for both boot startup and socket activation. The daemon
-runs as the verified platform `security_fw` account; a separate root helper
-prepares protected storage. Caller roles require kernel credentials, SMACK
-identity, executable verification, and explicit policy enrollment.
+## Current status
 
-## Repository layout
+The framework has GBS packages, executable C API scenarios and isolated
+emulator verification. The .NET NUI example includes a compact popup and an
+opt-in always-allow choice. The repository's UI runner verifies actual screen
+interaction and synthetic CM/CE effects over real consent IPC.
 
-```text
-src/
-  consent/inc/          Public C headers; consent.h is the umbrella
-  consent/              C API implementation and client
-  consentd/             Daemon, identity, policy and storage
-  common/               Shared bounded codecs and utilities
-  protocol/             Shared Parcel IDL
-  tools/                IDL compiler and provisioning tools
-  examples/             Executable C API integration examples
-  consent-ui/           .NET Settings, approval popup and negative identity probe
-  mocks/                Separate argo, CM, CE, holder and Installer participants
-  poc-tools/            PoC app launcher and socket identity diagnostic
-tests/                   Unit, integration and API scenario sources
-  tools/                 C API exercisers and performance fixture
-  mocks/                 Test-only PoC mock and feature-gate sources
-packaging/              RPM spec, SMACK manifest and systemd units
-scripts/                Emulator and verification orchestration
-docs/
-  design/               Numbered proposal, architecture and implementation decisions
-  guides/               Numbered English/Korean development and integration guides
-```
+Product CM/CE adapters, trusted UI/argo deployment, sessiond profile mapping
+and privileges, and physical holder cleanup still need integration. Each
+plugin owns Installer hooks and must use authenticated publication and
+protected package/app generations. Production roles start empty and deny
+unenrolled callers. See [verification status](docs/guides/07-verification.en.md)
+and the [integration checklist](docs/guides/16-maintenance-and-integration.en.md).
 
-## Build and start development
+## Start here
 
-Use a configured Tizen GBS SDK and a development emulator accessible through
-`sdb`. The build requires CMake 3.12+, Python 3, C11/C++17 toolchains, and target
-development packages for GLib/GIO, SQLite, libsystemd, pkgmgr-info,
-capi-base-common, and native Tizen `parcel`. Python generates the protocol during
-the build and is not a dependency of the production runtime packages.
+| Task | Guide |
+| --- | --- |
+| Build and deploy | [Development](docs/guides/01-development.en.md) |
+| Call the C API | [API, ownership and callbacks](docs/guides/02-c-api.en.md) |
+| Register tool/data policy and request approval | [Concrete inputs](docs/guides/13-tool-examples.en.md) |
+| Connect mock CM/CE services | [Mock service examples](docs/guides/14-mock-services.en.md) |
+| Run the actual native UI smoke | [One-command UI verification](docs/guides/17-native-ui-smoke.en.md) |
+| Provision profiles | [Profile authority](docs/guides/15-profile-authority.en.md) |
 
-Discover the device architecture first. The command below uses the locally
-verified `tizen_10_1_emulator` profile and x86_64 architecture; select the profile
-and architecture that match your SDK and target.
+The [documentation index](docs/README.md) links every English/Korean pair,
+architecture document and historical record. The original CEP remains a
+proposal; the decision log identifies adopted contracts.
+
+Use a configured Tizen GBS SDK and a development emulator reachable through
+`sdb`. Select the profile and architecture for that target; these commands
+illustrate the verified x86_64 emulator profile:
 
 ```sh
 sdb devices
 CONSENT_DEVICE='selected-development-emulator-serial'
 sdb -s "$CONSENT_DEVICE" shell 'uname -m; systemctl --version'
-gbs build -A x86_64 -P tizen_10_1_emulator --include-all \
-  -B /var/tmp/consent-gbs-root
+gbs build -A x86_64 --profile tizen_10_1_emulator --include-all
 ```
 
-The default RPM configuration builds `consent`, `consentd`, `consent-devel`,
-`consent-tests`, and the separate `consent-poc` package. The PoC adds a GBS
-.NET SDK/NuGet build dependency and compiles its TPKs from source. Follow the [development guide](docs/guides/01-development.en.md) for package
-installation, identity provisioning, and isolated emulator scenarios. Recovery
-tests use explicit isolated state and include destructive DB operations.
+The default build includes the separate PoC package and its .NET SDK inputs.
+Guide 01 explains dependencies and package installation. Destructive recovery
+checks must use isolated state on a selected development emulator.
 
-Consumers include `<consent.h>` and compile against installed metadata:
+Consumers include `<consent.h>` and use installed pkg-config metadata:
 
 ```sh
 cc consumer.c -o consumer $(pkg-config --cflags --libs consent)
 ```
 
-The [C API guide](docs/guides/02-c-api.en.md) includes executable examples,
-parameter/result ownership, callbacks, and authorization semantics. Use
-[offline registration](docs/guides/04-offline-registration.en.md) when an image
-installer must register definitions without a running daemon; online errors
-never implicitly enable offline writes.
+The production client connects to the systemd-owned `/run/.consentd.sock`.
+The daemon runs as `security_fw`; roles require verified credentials, SMACK
+labels and executable identities. Offline image registration is explicit and
+stages definitions only. It does not create approvals or silently replace
+failed online calls.
 
-## Interactive approval PoC
+## Repository
 
-The [Consent UI guide](docs/guides/08-consent-ui-poc.en.md) describes the .NET NUI
-popup, GBS-built TPK installation and separate mock participants. The popup uses
-the public C API through a dedicated worker, supports English/Korean messages,
-and requires an explicit allow or deny choice. Allowing requires every page to
-be reviewed; changing language resets that
-review. Closing the popup never approves a request. The PoC has its own systemd
-socket, daemon, storage and observed package identity; production role enrollment
-remains a separate integration task.
-
-The [feature approval guide](docs/guides/10-feature-approval.en.md) adds a TV-oriented
-flow: select understandable features in Settings, approve the current task's
-missing permissions together, and reuse permitted results in the same
-conversation. Settings offers this conversation or 30 minutes; an explicit
-task-only choice uses ONCE without changing saved selections. Users review the
-actual task target and effect even when an existing grant avoids another popup.
-
-A separate argo mock owns the catalog and submits requests through the public C
-API. Settings receives no argo role. Each provider action still requires
-AUTHORIZE and a current selection check immediately before it starts. The mock
-calendar and device participants demonstrate execution and holder cleanup;
-they do not access a user's calendar or control physical devices. Later catalog
-permissions never silently join an earlier selection.
-
-The [storage maintenance guide](docs/guides/09-storage-maintenance.en.md) explains
-bounded metadata compaction and the retry/cleanup records it preserves. Loss of
-the independent definitions registry still blocks startup; an automatic reset
-would not establish that old registrations or execution outcomes are current.
-
-## Documentation
-
-Start with the [documentation index and reading order](docs/README.md), which
-links each English guide to its Korean counterpart.
-
-| Topic | English | 한국어 |
-| --- | --- | --- |
-| Development and deployment | [Guide 01](docs/guides/01-development.en.md) | [가이드 01](docs/guides/01-development.ko.md) |
-| Architecture and trust boundaries | [Design 02](docs/design/02-architecture.en.md) | [설계 02](docs/design/02-architecture.ko.md) |
-| Installer integration contract | [Guide 06](docs/guides/06-installer-integration.en.md) | [가이드 06](docs/guides/06-installer-integration.ko.md) |
-| Verification and remaining scope | [Guide 07](docs/guides/07-verification.en.md) | [가이드 07](docs/guides/07-verification.ko.md) |
-| Feature selection and task approval | [Guide 10](docs/guides/10-feature-approval.en.md) | [가이드 10](docs/guides/10-feature-approval.ko.md) |
-| Registered fixture tools and context lookup | [Guide 13](docs/guides/13-tool-examples.en.md) | [가이드 13](docs/guides/13-tool-examples.ko.md) |
-| Persistent CM/CE mock services | [Guide 14](docs/guides/14-mock-services.en.md) | [가이드 14](docs/guides/14-mock-services.ko.md) |
-| Explicit requester profiles and sessiond authority | [Guide 15](docs/guides/15-profile-authority.en.md) | [가이드 15](docs/guides/15-profile-authority.ko.md) |
-| Authored-style audit and remaining development | [Guide 16](docs/guides/16-authored-style-audit.en.md) | [가이드 16](docs/guides/16-authored-style-audit.ko.md) |
-| Repeatable native UI smoke | [Guide 17](docs/guides/17-native-ui-smoke.en.md) | [가이드 17](docs/guides/17-native-ui-smoke.ko.md) |
-
-Contributors and coding agents should also read [AGENTS.md](AGENTS.md).
-
-Developer CM/CE consent examples and the isolated runner are described in
-[Guide 12](docs/guides/12-developer-smoke.en.md).
+Production libraries, daemon, UI and tools are under `src/`. Tests are under
+`tests/`, packaging under `packaging/`, and runners under `scripts/`.
+Read [AGENTS.md](AGENTS.md) before contributing.
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE). Source files retain the full
-copyright and license notices used by the Tizen appfw reference projects.
+Licensed under [Apache License 2.0](LICENSE). Source copyright and license
+notices are retained.
